@@ -2,6 +2,16 @@ import { defineConfig } from 'wxt';
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
+  vite: () => ({
+    build: {
+      minify: 'terser',
+      terserOptions: {
+        mangle: {
+          reserved: ['detectPlatform', 'gatherAllText', 'getDashboardScopedText', 'extractVehicle', 'scanText', 'attemptScan', 'updateSidebar', 'openSidebar', 'closeSidebar', 'pushContent', 'updatePillPosition']
+        }
+      }
+    }
+  }),
   manifest: {
     name: 'Floq — AI Sales Assistant for VinSolutions',
     short_name: 'Floq',
@@ -38,9 +48,12 @@ export default defineConfig({
     host_permissions: [
       '*://*.vinsolutions.com/*',
       '*://vinsolutions.app.coxautoinc.com/*',
+      '*://mail.google.com/*',
       '*://www.facebook.com/*',
       '*://www.instagram.com/*',
       '*://www.messenger.com/*',
+      '*://www.linkedin.com/*',
+      '*://web.whatsapp.com/*',
       'https://oper8er-proxy-production.up.railway.app/*',
       'https://mqnmemnogbotgmsmqfie.supabase.co/*'
     ],

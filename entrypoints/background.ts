@@ -213,6 +213,48 @@ export default defineBackground(() => {
       });
       return true;
     }
+
+    if (msg.type === 'SAVE_PENDING_EMAIL') {
+      browser.storage.sync.get(['dealer_token', 'rep_name']).then(async (settings) => {
+        if (!settings.dealer_token) { sendResponse({ error: 'No dealer_token' }); return; }
+        try {
+          const resp = await fetch(`${PROXY_URL}/api/pending-emails`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dealer_token: settings.dealer_token, rep_name: settings.rep_name || '', customer_name: msg.payload.customer_name || '', subject: msg.payload.subject || '', body: msg.payload.body || '' })
+          });
+          const data = await resp.json();
+          sendResponse(data);
+        } catch(e: any) { sendResponse({ error: e.message }); }
+      });
+      return true;
+    }
+
+    if (msg.type === 'GET_PENDING_EMAILS') {
+      browser.storage.sync.get(['dealer_token']).then(async (settings) => {
+        if (!settings.dealer_token) { sendResponse({ emails: [] }); return; }
+        try {
+          const resp = await fetch(`${PROXY_URL}/api/pending-emails?dealer_token=${encodeURIComponent(settings.dealer_token)}`);
+          const data = await resp.json();
+          sendResponse(data);
+        } catch(e: any) { sendResponse({ emails: [] }); }
+      });
+      return true;
+    }
+
+    if (msg.type === 'MARK_EMAIL_APPLIED') {
+      browser.storage.sync.get(['dealer_token']).then(async (settings) => {
+        if (!settings.dealer_token) { sendResponse({ error: 'No token' }); return; }
+        try {
+          const resp = await fetch(`${PROXY_URL}/api/pending-emails/${msg.payload.id}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dealer_token: settings.dealer_token, status: msg.payload.status || 'applied' })
+          });
+          const data = await resp.json();
+          sendResponse(data);
+        } catch(e: any) { sendResponse({ error: e.message }); }
+      });
+      return true;
+    }
   });
 
   // ===== HEARTBEAT + ALERTS via chrome.alarms (MV3 compliant) =====
@@ -284,7 +326,11 @@ export default defineBackground(() => {
 
   browser.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'install') {
-      browser.runtime.openOptionsPage();
+      if (browser.runtime.openOptionsPage) {
+        browser.runtime.openOptionsPage();
+      } else {
+        browser.tabs.create({ url: browser.runtime.getURL('options.html') });
+      }
     }
   });
 
@@ -695,9 +741,9 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
 }
 
 function parseSections(text: string) {
-  const textMatch = text.match(/(?:^|\n)TEXT\s*\n([\s\S]*?)(?=\n(?:EMAIL|CRM)|$)/i);
-  const emailMatch = text.match(/(?:^|\n)EMAIL\s*\n([\s\S]*?)(?=\n(?:CRM)|$)/i);
-  const crmMatch = text.match(/(?:^|\n)CRM(?: NOTE)?\s*\n([\s\S]*?)$/i);
+  const textMatch = text.match(/(?:^|\n)TEXT(?:\s*MESSAGE)?\s*\n([\s\S]*?)(?=\n(?:EMAIL|CRM)|$)/i);
+  const emailMatch = text.match(/(?:^|\n)EMAIL(?:\s*REPLY)?\s*\n([\s\S]*?)(?=\n(?:TEXT|CRM)|$)/i);
+  const crmMatch = text.match(/(?:^|\n)CRM(?: NOTE)?\s*\n([\s\S]*)$/i);
 
   return {
     text: textMatch?.[1]?.trim() || '',
