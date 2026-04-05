@@ -9,24 +9,6 @@ import './content/styles.css';
 
 type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
 
-function detectPlatform(): Platform {
-  const url = window.location.href;
-  if (url.includes('vinsolutions') || url.includes('coxautoinc')) return 'vinsolutions';
-  if (url.includes('mail.google.com')) return 'gmail';
-  if (url.includes('messenger.com')) return 'facebook';
-  if (url.includes('facebook.com/messages')) return 'facebook';
-  if (url.includes('facebook.com/marketplace/t/')) return 'facebook';
-  if (url.includes('facebook.com')) return 'unknown';
-  if (url.includes('linkedin.com/messaging')) return 'linkedin';
-  if (url.includes('linkedin.com/in/')) return 'linkedin';
-  if (url.includes('linkedin.com')) return 'unknown';
-  if (url.includes('instagram.com/direct')) return 'instagram';
-  if (url.includes('instagram.com')) return 'unknown';
-  if (url.includes('web.whatsapp.com')) return 'whatsapp';
-  return 'unknown';
-}
-
-const PLATFORM = detectPlatform();
 
 export default defineContentScript({
   matches: [
@@ -36,8 +18,7 @@ export default defineContentScript({
     '*://www.facebook.com/messages/*',
     '*://www.facebook.com/marketplace/t/*',
     '*://www.messenger.com/*',
-    '*://www.linkedin.com/messaging/*',
-    '*://www.linkedin.com/in/*',
+    '*://www.linkedin.com/*',
     '*://www.instagram.com/direct/*',
     '*://www.instagram.com/direct/t/*',
     '*://web.whatsapp.com/*'
@@ -46,31 +27,29 @@ export default defineContentScript({
   runAt: 'document_idle',
 
   async main() {
-    // Detect platform inside main() — must be here, not module scope,
-    // because WXT evaluates module-level code before page context is ready
-    const url = window.location.href;
-    let platform: Platform = 'unknown';
-    if (url.includes('vinsolutions') || url.includes('coxautoinc')) platform = 'vinsolutions';
-    else if (url.includes('mail.google.com')) platform = 'gmail';
-    else if (url.includes('messenger.com')) platform = 'facebook';
-    else if (url.includes('facebook.com/messages')) platform = 'facebook';
-    else if (url.includes('facebook.com/marketplace/t/')) platform = 'facebook';
-    else if (url.includes('linkedin.com/messaging') || url.includes('linkedin.com/in/')) platform = 'linkedin';
-    else if (url.includes('instagram.com/direct')) platform = 'instagram';
-    else if (url.includes('web.whatsapp.com')) platform = 'whatsapp';
+    // Inline platform detection — no separate function to avoid Vite minifier collisions
+    const _url = window.location.href;
+    const PLATFORM: Platform = _url.includes('vinsolutions') || _url.includes('coxautoinc') ? 'vinsolutions'
+      : _url.includes('mail.google.com') ? 'gmail'
+      : _url.includes('messenger.com') || _url.includes('facebook.com/messages') || _url.includes('facebook.com/marketplace/t/') ? 'facebook'
+      : _url.includes('facebook.com') ? 'unknown'
+      : _url.includes('linkedin.com') ? 'linkedin'
+      : _url.includes('instagram.com/direct') ? 'instagram'
+      : _url.includes('instagram.com') ? 'unknown'
+      : _url.includes('web.whatsapp.com') ? 'whatsapp'
+      : 'unknown';
+    console.log('[Floq] Content script loaded on', PLATFORM, _url);
+    if (PLATFORM === 'unknown') return;
 
-    console.log('[Floq] Content script loaded on', platform, url);
-    if (platform === 'unknown') return;
-
-    const isVinSolutions = platform === 'vinsolutions';
-    const isGmail = platform === 'gmail';
-    const isFacebook = platform === 'facebook';
-    const isLinkedIn = platform === 'linkedin';
-    const isInstagram = platform === 'instagram';
+    const isVinSolutions = PLATFORM === 'vinsolutions';
+    const isGmail = PLATFORM === 'gmail';
+    const isFacebook = PLATFORM === 'facebook';
+    const isLinkedIn = PLATFORM === 'linkedin';
+    const isInstagram = PLATFORM === 'instagram';
 
     function getOutputLabels() {
       if (isVinSolutions) return { text: 'TEXT MESSAGE', email: 'EMAIL', crm: 'CRM NOTE' };
-      if (isGmail) return { text: 'REPLY', email: 'EMAIL REPLY', crm: 'NOTE' };
+      if (isGmail) return { text: 'REPLY', email: 'EMAIL', crm: 'NOTE' };
       if (isFacebook) return { text: 'MESSAGE', email: 'EMAIL', crm: 'NOTE' };
       if (isLinkedIn) return { text: 'LINKEDIN MSG', email: 'EMAIL', crm: 'NOTE' };
       if (isInstagram) return { text: 'DM REPLY', email: 'EMAIL', crm: 'NOTE' };
@@ -88,9 +67,8 @@ export default defineContentScript({
             if (r.oper8er_paste_note && r.oper8er_paste_note_time > Date.now() - 30000) {
               const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
               if (textarea) {
-                textarea.focus(); textarea.value = r.oper8er_paste_note;
-                textarea.dispatchEvent(new Event('input', { bubbles: true }));
-                textarea.dispatchEvent(new Event('change', { bubbles: true }));
+                textarea.focus();
+                safeInjectText(textarea, r.oper8er_paste_note);
                 textarea.style.border = '2px solid #16a34a';
                 setTimeout(() => { textarea.style.border = ''; }, 2000);
                 await browser.storage.local.remove(['oper8er_paste_note', 'oper8er_paste_note_time']);
@@ -162,13 +140,121 @@ export default defineContentScript({
       if (!v) { for (const m of text.matchAll(new RegExp('(20\\d{2}\\s+(?:' + MAKES + ')(?:\\s+(?!(?:' + STOP_WORDS + ')\\b)[A-Za-z0-9./-]+){0,5})', 'gi'))) { if (!isPoisoned(text, m.index!, m[0].length)) { v = m[1].trim().replace(/\s+/g, ' ').slice(0, 50); break; } } }
       if (!v) { for (const m of text.matchAll(new RegExp('(20\\d{2}\\s+(?:' + MAKES + '))', 'gi'))) { if (!isPoisoned(text, m.index!, m[0].length)) { v = m[1].trim().slice(0, 40); break; } } }
       if (!v) { const sv = text.match(/(?:Stock\s*#|Vehicle)\s*:?\s*[\s\S]{0,30}?(20\d{2}\s+\w+\s+[\w-]+)/i); if (sv) v = sv[1].trim().slice(0, 50); }
+      // Fallback: look for vehicle in Sales History / Sale Info table rows (Sold/Active/Lost + year+make)
+      if (!v) { const sh = text.match(/(?:Sold|Active|Lost)\s+[\s\S]{0,60}?(20\d{2}\s+(?:Chevrolet|Chevy|Subaru|Toyota|Ford|Ram|Dodge|Jeep|GMC|Honda|Nissan|Hyundai|Kia|BMW|Mercedes|Buick|Cadillac|Lexus|Acura|Audi|Volvo|Mazda|Chrysler|Lincoln|Infiniti|Volkswagen|VW|Porsche|Tesla|Rivian)\s+[A-Za-z0-9 /-]+)/i); if (sh) v = sh[1].trim().replace(/\s+/g, ' ').slice(0, 50); }
+      // Fallback: "Vehicle(s) of Interest" section
+      if (!v) { const voi = text.match(/Vehicle(?:\(s\))?\s*of\s*Interest\s*[\s\S]{0,60}?(20\d{2}\s+\w+(?:\s+\w+){0,4})/i); if (voi) v = voi[1].trim().replace(/\s+/g, ' ').slice(0, 50); }
+      // Fallback: "Sale Info" section on VinSolutions customer dashboard
+      if (!v) { const si = text.match(/Sale\s*Info\s*[\s\S]{0,200}?(20\d{2}\s+(?:Chevrolet|Chevy|Subaru|Toyota|Ford|Ram|Dodge|Jeep|GMC|Honda|Nissan|Hyundai|Kia|BMW|Mercedes|Buick|Cadillac|Lexus|Acura|Audi|Volvo|Mazda|Chrysler|Lincoln|Infiniti|Volkswagen|VW|Porsche|Tesla|Rivian)\s+[A-Za-z0-9 /-]+)/i); if (si) v = si[1].trim().replace(/\s+/g, ' ').slice(0, 50); }
+      // Fallback: Find vehicle near customer name — look within 500 chars after the name
+      if (!v) {
+        const nameMatch = text.match(/Customer Dashboard\s*\n([A-Z][a-zA-Z'-]+ [A-Z][a-zA-Z'-]+)/);
+        if (nameMatch) {
+          const afterName = text.slice(nameMatch.index! + nameMatch[0].length, nameMatch.index! + nameMatch[0].length + 800);
+          const nearby = afterName.match(new RegExp('(20\\d{2}\\s+(?:' + MAKES + ')\\s+[A-Za-z0-9 /-]+)', 'i'));
+          if (nearby) v = nearby[1].trim().replace(/\s+/g, ' ').replace(/\s*\[.*$/, '').slice(0, 50);
+        }
+      }
+      // Last resort: find ANY year+make on the page, take the first non-poisoned one
+      if (!v) {
+        const anyVehicle = text.match(new RegExp('(20\\d{2}\\s+(?:' + MAKES + ')\\s+[A-Za-z0-9]+(?:\\s+[A-Za-z0-9]+){0,3})', 'i'));
+        if (anyVehicle) v = anyVehicle[1].trim().replace(/\s+/g, ' ').replace(/\s*\[.*$/, '').slice(0, 50);
+      }
       return v ? v.replace(/[.,;:!]+$/, '').trim() : '';
     }
 
+    function extractByLabel(labelText: string): string | null {
+      const xpath = `//div[contains(text(),'${labelText}')] | //span[contains(text(),'${labelText}')] | //th[contains(text(),'${labelText}')]`;
+      const node = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+      if (!node) return null;
+      const next = (node as Element).nextElementSibling;
+      if (next && next.textContent?.trim()) return next.textContent.trim();
+      const parentNext = (node as Element).parentElement?.nextElementSibling;
+      if (parentNext && parentNext.textContent?.trim()) return parentNext.textContent.trim();
+      return null;
+    }
+
+    function extractVehicleFromTable(root: Document | Element): string | null {
+      const rows = [...root.querySelectorAll('tr')];
+      for (const row of rows) {
+        const cells = [...row.querySelectorAll('th,td')].map(c => (c.textContent || '').replace(/\s+/g, ' ').trim());
+        const idx = cells.findIndex(c => /^vehicle$/i.test(c));
+        if (idx >= 0 && cells[idx + 1]) {
+          const val = cells[idx + 1];
+          // Validate: must contain a year (20XX) to be a real vehicle
+          if (/20\d{2}/.test(val)) return val.slice(0, 60);
+        }
+      }
+      return null;
+    }
+
+    // BUG 2 FIX: Deep table search — recursively scans document + ALL nested iframes for vehicle in table rows
+    // VinSolutions vehicle data is in #salesHistoryViewFrame at iframe depth 3
+    function deepTableVehicleSearch(): string | null {
+      function searchDoc(doc: Document): string | null {
+        // Try row-based extraction (th/td pairs in same row)
+        const fromTable = extractVehicleFromTable(doc);
+        if (fromTable) return fromTable;
+        // Try column-header-indexed search
+        const allTables = doc.querySelectorAll('table');
+        for (const table of allTables) {
+          const headers = [...table.querySelectorAll('th')];
+          const vehIdx = headers.findIndex(h => /^vehicle$/i.test((h.textContent || '').trim()));
+          if (vehIdx < 0) continue;
+          const dataRows = [...table.querySelectorAll('tbody tr, tr')].filter(r => r.querySelector('td'));
+          for (const row of dataRows) {
+            const cells = [...row.querySelectorAll('td')];
+            if (cells[vehIdx]) {
+              const val = (cells[vehIdx].textContent || '').replace(/\s+/g, ' ').trim();
+              if (/20\d{2}/.test(val)) return val.slice(0, 60);
+            }
+          }
+        }
+        // Recurse into nested iframes
+        const iframes = doc.querySelectorAll('iframe');
+        for (const iframe of iframes) {
+          try {
+            const d = (iframe as HTMLIFrameElement).contentDocument || (iframe as any).contentWindow?.document;
+            if (d) {
+              const found = searchDoc(d);
+              if (found) return found;
+            }
+          } catch(e) {}
+        }
+        return null;
+      }
+      return searchDoc(document);
+    }
+
+    function safeInjectText(target: HTMLElement, text: string) {
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+        const proto = Object.getPrototypeOf(target);
+        const desc = Object.getOwnPropertyDescriptor(proto, 'value') ||
+                     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
+                     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+        desc?.set?.call(target, text);
+      } else if ((target as any).isContentEditable) {
+        target.textContent = text;
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        range.collapse(false);
+        window.getSelection()?.removeAllRanges();
+        window.getSelection()?.addRange(range);
+      } else {
+        target.textContent = text;
+      }
+      target.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+      target.dispatchEvent(new Event('blur', { bubbles: true }));
+    }
+
     function scanText(text: string): any {
+      // PRIMARY: try extractByLabel for customer name
       let name = '';
-      const dm = text.match(/Customer Dashboard\s*\n([A-Z][a-zA-Z'-]+ [A-Z][a-zA-Z'-]+)/);
-      if (dm) name = dm[1].trim();
+      const labelName = extractByLabel('Customer Dashboard');
+      if (labelName) name = labelName;
+      // FALLBACK: regex extraction
+      if (!name) { const dm = text.match(/Customer Dashboard\s*\n([A-Z][a-zA-Z'-]+ [A-Z][a-zA-Z'-]+)/); if (dm) name = dm[1].trim(); }
       if (!name) { const im = text.match(/([A-Z][a-zA-Z'-]+ [A-Z][a-zA-Z'-]+(?:\s[A-Z][a-zA-Z'-]+)?)\s*\n\s*\((?:Individual|Business)\)/); if (im) name = im[1].trim(); }
       let phone = ''; const pm = text.match(/[CHW]:\s*\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/); if (pm) phone = pm[0].replace(/^[CHW]:\s*/, '');
       // FIX 8: Extract email from VinSolutions DOM
@@ -196,7 +282,10 @@ export default defineContentScript({
           } catch(e) {}
         }
       }
-      const vehicle = extractVehicle(text) || null; // FIX 1: null, never empty string
+      // PRIMARY: deep table search across document + all iframes (BUG 2 FIX)
+      let vehicle: string | null = deepTableVehicleSearch() || extractByLabel('Vehicle') || null;
+      // FALLBACK: regex extraction
+      if (!vehicle) vehicle = extractVehicle(text) || null;
       let source = ''; const sm = text.match(/Source:\s*(.+)/i); if (sm) source = sm[1].trim().split('\n')[0].slice(0, 50);
       let status = ''; const stm = text.match(/Status:\s*(.+)/i); if (stm) status = stm[1].trim().split('\n')[0].slice(0, 30);
       let lastContact = ''; const cm = text.match(/Attempted:\s*(.+)/i) || text.match(/Contacted:\s*(.+)/i) || text.match(/Created:\s*(.+)/i); if (cm) lastContact = cm[1].trim().split('\n')[0].slice(0, 30);
@@ -204,6 +293,8 @@ export default defineContentScript({
     }
 
     // Only inject in top frame — scanning, sidebar, pill all belong to the top frame only
+    // Iframes: don't inject pill/sidebar, just return
+    // Vehicle scanning happens in the TOP FRAME via gatherAllText() which reads iframe content
     if (window !== window.top) return;
 
     // ===== FIX 6: HARD GUARD — never inject twice =====
@@ -241,55 +332,57 @@ export default defineContentScript({
 
     console.log(`[Floq] Injection proceeding — platform: ${PLATFORM}, isTop: ${window === window.top}`);
 
-    // ===== VINSOLUTIONS SCANNING (top frame only) =====
+    // ===== VINSOLUTIONS SCANNING (top frame only, anchored to Customer Dashboard) =====
     if (isVinSolutions) {
-      // Gather text from page + all same-origin iframes
+      // Gather text from page + all accessible iframes (RECURSIVE)
+      // VinSolutions nests iframes 3 levels deep:
+      //   document → #cardashboardframe → #rightpaneframe → #salesHistoryViewFrame
+      // Non-recursive version only read depth 0 and missed all customer data.
       function gatherAllText(): string {
         let text = document.body?.innerText || '';
-        const iframes = document.querySelectorAll('iframe');
-        for (const iframe of Array.from(iframes)) {
-          try {
-            const doc = iframe.contentDocument || (iframe as any).contentWindow?.document;
-            if (doc && doc.body) {
-              text += '\n' + (doc.body.innerText || '');
-            }
-          } catch(e) {
-            // Cross-origin iframe — skip silently
+        function readIframes(doc: Document) {
+          const iframes = doc.querySelectorAll('iframe');
+          for (const iframe of iframes) {
+            try {
+              const d = (iframe as HTMLIFrameElement).contentDocument || (iframe as any).contentWindow?.document;
+              if (d?.body) {
+                text += '\n' + d.body.innerText;
+                readIframes(d); // recurse into nested iframes
+              }
+            } catch(e) {} // cross-origin silently fails
           }
         }
+        readIframes(document);
         return text;
       }
 
-      // Get text scoped to Customer Dashboard panel, with fallbacks
+      // Extract ONLY the text after "Customer Dashboard" heading to avoid picking up
+      // names from the left lead list panel. Everything before that marker is ignored.
       function getDashboardScopedText(): string {
         const full = gatherAllText();
-
-        // Primary: find "Customer Dashboard" marker
-        const cdIdx = full.indexOf('Customer Dashboard');
-        if (cdIdx !== -1) return full.slice(cdIdx);
-
-        // Fallback 1: look for "(Individual)" or "(Business)" marker
-        const indIdx = full.indexOf('(Individual)');
-        const busIdx = full.indexOf('(Business)');
-        const markerIdx = indIdx !== -1 ? indIdx : busIdx;
-        if (markerIdx !== -1) return full.slice(Math.max(0, markerIdx - 200));
-
-        // Fallback 2: return all text (better than nothing)
-        return full;
+        const idx = full.search(/Customer Dashboard/i);
+        if (idx === -1) return '';
+        return full.slice(idx);
       }
 
       function attemptScan() {
         const dashText = getDashboardScopedText();
-        console.log('[Floq] Scan text length:', dashText.length, 'preview:', dashText.slice(0, 150));
         if (!dashText || dashText.length < 30) return;
+        // Name/phone/email come from dashboard-scoped text only
         const s = scanText(dashText);
-        // Vehicle can also come from broader page
+        // Vehicle: try deep table search first, then regex on broader page text
+        if (!s.vehicle) {
+          s.vehicle = deepTableVehicleSearch() || null;
+        }
         if (!s.vehicle) {
           const allText = gatherAllText();
           s.vehicle = extractVehicle(allText) || null;
         }
         if (s.customerName) {
-          console.log('[Floq] Found customer:', s.customerName, s.phone, s.vehicle);
+          // Validate: name must appear in gathered text (recursive iframe read)
+          const allPageText = gatherAllText();
+          if (!allPageText.includes(s.customerName)) return; // stale data, skip
+          leadData = s;
           browser.storage.local.set({ oper8er_lead: s, oper8er_lead_time: Date.now() });
         }
         if (s.vehicle) browser.storage.local.set({ oper8er_vehicle_info: s.vehicle, oper8er_vehicle_info_time: Date.now() });
@@ -297,7 +390,53 @@ export default defineContentScript({
       attemptScan();
       let lastScannedName = '';
 
-      // Debounced MutationObserver replaces setInterval for lead scanning
+      // ===== ACTIVE PERIODIC RESCAN (every 2s) =====
+      // MutationObserver CANNOT see changes inside iframes. VinSolutions loads customer
+      // data in right-panel iframes WITHOUT changing the URL. The only reliable way to
+      // detect customer changes is to periodically read the visible text and compare.
+      setInterval(() => {
+        const dashText = getDashboardScopedText();
+        if (!dashText || dashText.length < 30) {
+          // No Customer Dashboard visible — user is on main dashboard or navigating
+          // Clear stale data if we had a customer before
+          if (leadData) {
+            leadData = null;
+            lastScannedName = '';
+            browser.storage.local.remove(['oper8er_lead', 'oper8er_lead_time', 'oper8er_vehicle_info', 'oper8er_vehicle_info_time']);
+            updateSidebar();
+          }
+          return;
+        }
+        // Extract current customer name from visible text
+        const nm = dashText.match(/Customer Dashboard\s*\n([A-Z][a-zA-Z'-]+ [A-Z][a-zA-Z'-]+)/)
+          || dashText.match(/([A-Z][a-zA-Z'-]+ [A-Z][a-zA-Z'-]+(?:\s[A-Z][a-zA-Z'-]+)?)\s*\n\s*\((?:Individual|Business)\)/);
+        const curName = nm ? nm[1].trim() : '';
+        if (curName && curName !== lastScannedName) {
+          // Customer changed — clear old data, scan fresh
+          console.log(`[Floq] Customer changed: "${lastScannedName}" → "${curName}"`);
+          lastScannedName = curName;
+          leadData = null;
+          browser.storage.local.remove(['oper8er_lead', 'oper8er_lead_time', 'oper8er_vehicle_info', 'oper8er_vehicle_info_time']);
+          attemptScan();
+          // Also update sidebar immediately with fresh data
+          if (leadData) updateSidebar();
+          // Retry scan after 1.5s in case iframes haven't fully loaded yet
+          setTimeout(() => {
+            attemptScan();
+            updateSidebar();
+          }, 1500);
+        } else if (curName && leadData?.customerName === curName && !leadData?.vehicle) {
+          // Same customer but vehicle still missing — retry vehicle detection
+          const v = deepTableVehicleSearch();
+          if (v) {
+            leadData.vehicle = v;
+            browser.storage.local.set({ oper8er_lead: leadData, oper8er_lead_time: Date.now(), oper8er_vehicle_info: v, oper8er_vehicle_info_time: Date.now() });
+            updateSidebar();
+          }
+        }
+      }, 2000);
+
+      // Also keep MutationObserver for fast detection when parent DOM changes
       let scanTimeout: ReturnType<typeof setTimeout> | null = null;
       const vinObserver = new MutationObserver(() => {
         if (scanTimeout) clearTimeout(scanTimeout);
@@ -305,99 +444,216 @@ export default defineContentScript({
           const dashText = getDashboardScopedText();
           const nm = dashText.match(/Customer Dashboard\s*\n([A-Z][a-zA-Z'-]+ [A-Z][a-zA-Z'-]+)/) || dashText.match(/([A-Z][a-zA-Z'-]+ [A-Z][a-zA-Z'-]+(?:\s[A-Z][a-zA-Z'-]+)?)\s*\n\s*\((?:Individual|Business)\)/);
           const curName = nm ? nm[1].trim() : '';
-          if (curName && curName !== lastScannedName) { lastScannedName = curName; attemptScan(); }
+          if (curName && curName !== lastScannedName) {
+            console.log(`[Floq] MutationObserver detected: "${lastScannedName}" → "${curName}"`);
+            lastScannedName = curName;
+            leadData = null;
+            browser.storage.local.remove(['oper8er_lead', 'oper8er_lead_time', 'oper8er_vehicle_info', 'oper8er_vehicle_info_time']);
+            attemptScan();
+            updateSidebar();
+          }
         }, 500);
       });
       const mainPanel = document.querySelector('#mainAreaPanel') || document.body;
       vinObserver.observe(mainPanel, { childList: true, subtree: true, characterData: true });
-
-      // Storage polling for cross-iframe lead data sync (iframes write, top frame reads)
-      setInterval(async () => {
-        try {
-          const r = await browser.storage.local.get(['oper8er_lead', 'oper8er_lead_time', 'oper8er_vehicle_info', 'oper8er_vehicle_info_time']);
-          const lead = r.oper8er_lead; if (!lead?.customerName) return;
-          if (!lead.vehicle && r.oper8er_vehicle_info && r.oper8er_vehicle_info_time > Date.now() - 15000) { lead.vehicle = r.oper8er_vehicle_info; await browser.storage.local.set({ oper8er_lead: lead, oper8er_lead_time: Date.now() }); }
-          if (lead.customerName !== leadData?.customerName || lead.vehicle !== leadData?.vehicle) { leadData = lead; updateSidebar(); }
-        } catch(e) {}
-      }, 3000);
     }
 
     // ===== SIDEBAR WIDTH PER PLATFORM =====
     function getSidebarWidth(): string {
-      if (isGmail || isInstagram) return '280px';
-      if (isVinSolutions) return '300px';
+      if (isGmail) return '250px';
+      if (isInstagram) return '280px';
+      if (isVinSolutions) return '340px';
       return '300px';
     }
 
-    // ===== PILL — draggable, position saved to storage =====
-    let pill: HTMLElement | null = document.createElement('div');
-    pill.id = 'oper8er-pill';
-    pill.textContent = '⚡ FQ';
+    // ===== PILL (one only — guard against duplicates) =====
+    if (document.getElementById('oper8er-pill')) {
+      console.log('[Floq] Pill already exists, skipping creation');
+    }
+    let pill: HTMLElement | null = document.getElementById('oper8er-pill') as HTMLElement || document.createElement('div');
+    if (!pill.id) {
+      pill.id = 'oper8er-pill';
+      pill.textContent = '⚡ FQ';
 
-    // Default position — can be overridden by saved position
-    Object.assign(pill.style, {
-      position:'fixed', right:'16px', top:'50%', zIndex:'2147483646',
-      background:'#7F77DD', color:'#fff', padding:'8px 12px', borderRadius:'8px',
-      fontSize:'12px', fontWeight:'700', fontFamily:'system-ui,sans-serif', cursor:'grab',
-      boxShadow:'0 2px 12px rgba(127,119,221,0.35)', letterSpacing:'0.5px', opacity:'0.9',
-      transition:'opacity 0.15s', userSelect:'none', touchAction:'none'
-    });
+      Object.assign(pill.style, {
+        position:'fixed', zIndex:'2147483647',
+        background:'#7F77DD', color:'#fff', padding:'5px 8px', borderRadius:'6px',
+        fontSize:'11px', fontWeight:'700', fontFamily:'system-ui,sans-serif', cursor:'pointer',
+        boxShadow:'0 2px 8px rgba(127,119,221,0.3)', letterSpacing:'0.5px',
+        visibility:'hidden', opacity:'0', // Hidden until positioned
+        userSelect:'none'
+      });
 
-    // Load saved position from storage
-    browser.storage.local.get(['floq_pill_x', 'floq_pill_y']).then(saved => {
-      if (pill && saved.floq_pill_x !== undefined && saved.floq_pill_y !== undefined) {
-        pill.style.left = saved.floq_pill_x + 'px';
-        pill.style.top = saved.floq_pill_y + 'px';
+      pill.onmouseenter = () => { if(pill) { pill.style.opacity = '1'; pill.textContent = '⚡ Floq'; } };
+      pill.onmouseleave = () => { if(pill) { pill.style.opacity = '0.85'; pill.textContent = '⚡ FQ'; } };
+      pill.onclick = () => { sidebarOpen ? closeSidebar() : openSidebar(); };
+      document.documentElement.appendChild(pill);
+    }
+
+    function findPanelSeamX(): { seamX: number; panelTop: number; panelHeight: number } | null {
+      // Strategy 1: find the thin vertical scrollbar/divider between left and right panels
+      const candidates = [
+        document.getElementById('customerListScrollBarHolder'),
+        document.getElementById('scrollBarHolder'),
+        document.querySelector('.scrollBarDiv'),
+        document.querySelector('[id*="ScrollBar"]'),
+        document.querySelector('[class*="scrollBar"]'),
+      ].filter(Boolean);
+
+      for (const el of candidates) {
+        if (!el) continue;
+        const r = (el as HTMLElement).getBoundingClientRect();
+        if (r.width < 20 && r.height > 100) {
+          return { seamX: r.right, panelTop: r.top, panelHeight: r.height };
+        }
+      }
+
+      // Strategy 2: scan ALL divs for a thin vertical element at the panel boundary
+      const allDivs = document.querySelectorAll('div');
+      for (const div of allDivs) {
+        const r = div.getBoundingClientRect();
+        if (r.width >= 4 && r.width <= 12 && r.height > 300 && r.left > 200 && r.left < 900) {
+          return { seamX: r.right, panelTop: r.top, panelHeight: r.height };
+        }
+      }
+
+      // Strategy 3: look inside cardashboardframe for leftpaneframe
+      try {
+        const cf = document.getElementById('cardashboardframe') as HTMLIFrameElement;
+        if (cf) {
+          const cfd = cf.contentDocument || (cf as any).contentWindow?.document;
+          if (cfd) {
+            const lf = cfd.getElementById('leftpaneframe');
+            if (lf) {
+              const cfRect = cf.getBoundingClientRect();
+              const lfRect = lf.getBoundingClientRect();
+              return {
+                seamX: cfRect.x + lfRect.right,
+                panelTop: cfRect.y,
+                panelHeight: cfRect.height
+              };
+            }
+          }
+        }
+      } catch(e) {}
+
+      // Strategy 4: use #mainAreaPanel right edge as fallback
+      const map = document.getElementById('mainAreaPanel');
+      if (map) {
+        const r = map.getBoundingClientRect();
+        if (r.width > 100 && r.width < window.innerWidth * 0.7) {
+          return { seamX: r.right, panelTop: r.top, panelHeight: r.height };
+        }
+      }
+
+      // Strategy 5: find the right panel dynamically by locating "Customer Dashboard" heading
+      const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6, [class*="heading"], [class*="title"]');
+      for (const h of headings) {
+        if (h.textContent?.trim().startsWith('Customer Dashboard')) {
+          // Walk up to find the panel container
+          let panel: HTMLElement | null = h as HTMLElement;
+          for (let i = 0; i < 5 && panel; i++) {
+            panel = panel.parentElement;
+            if (panel) {
+              const r = panel.getBoundingClientRect();
+              if (r.width > 200 && r.height > 200) {
+                return { seamX: r.left, panelTop: r.top, panelHeight: r.height };
+              }
+            }
+          }
+        }
+      }
+
+      // Strategy 6: cardashboardframe left edge as final fallback
+      const cdf = document.getElementById('cardashboardframe');
+      if (cdf) {
+        const r = cdf.getBoundingClientRect();
+        if (r.width > 100) {
+          return { seamX: r.left, panelTop: r.top, panelHeight: r.height };
+        }
+      }
+
+      return null;
+    }
+
+    function updateGmailPillBadge(count: number) {
+      if (!pill || !isGmail) return;
+      let badge = pill.querySelector('.floq-pill-badge') as HTMLElement;
+      if (count <= 0) { if (badge) badge.remove(); return; }
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'floq-pill-badge';
+        Object.assign(badge.style, { position:'absolute', top:'-4px', right:'-4px', minWidth:'16px', height:'16px', borderRadius:'8px', background:'#7F77DD', color:'#fff', fontSize:'9px', fontWeight:'700', display:'flex', alignItems:'center', justifyContent:'center', padding:'0 4px', border:'2px solid #fff' });
+        pill.style.position = 'fixed'; // ensure positioning context
+        pill.appendChild(badge);
+      }
+      badge.textContent = String(count);
+    }
+
+    function updatePillPosition() {
+      if (!pill || pill.style.display === 'none') return;
+      if (isVinSolutions) {
+        const seam = findPanelSeamX();
+        if (seam) {
+          const pillWidth = pill.offsetWidth || 44;
+          pill.style.left = (seam.seamX - pillWidth - 24) + 'px';
+          pill.style.top = (seam.panelTop + seam.panelHeight * 0.45) + 'px';
+          pill.style.transform = 'translateY(-50%)';
+          pill.style.right = 'auto';
+          pill.style.visibility = 'visible';
+          pill.style.opacity = '0.85';
+        }
+      } else if (isGmail) {
+        pill.style.left = '20px';
+        pill.style.top = '435px';
+        pill.style.bottom = 'auto';
         pill.style.right = 'auto';
-      }
-    }).catch(() => {});
-
-    // Drag logic — distinguish drag from click
-    let isDragging = false;
-    let dragStartX = 0, dragStartY = 0;
-    let pillStartX = 0, pillStartY = 0;
-    let didDrag = false;
-
-    pill.addEventListener('mousedown', (e: MouseEvent) => {
-      if (!pill) return;
-      isDragging = true; didDrag = false;
-      dragStartX = e.clientX; dragStartY = e.clientY;
-      const rect = pill.getBoundingClientRect();
-      pillStartX = rect.left; pillStartY = rect.top;
-      pill.style.cursor = 'grabbing';
-      pill.style.transition = 'none'; // disable transitions during drag
-      e.preventDefault();
-    });
-
-    document.addEventListener('mousemove', (e: MouseEvent) => {
-      if (!isDragging || !pill) return;
-      const dx = e.clientX - dragStartX;
-      const dy = e.clientY - dragStartY;
-      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) didDrag = true;
-      if (didDrag) {
-        pill.style.left = (pillStartX + dx) + 'px';
-        pill.style.top = (pillStartY + dy) + 'px';
+        pill.style.transform = 'none';
+        pill.style.borderRadius = '16px';
+        pill.style.padding = '6px 14px';
+        pill.style.fontSize = '11px';
+        pill.style.visibility = 'visible';
+        pill.style.opacity = '0.9';
+      } else if (isLinkedIn) {
+        pill.style.right = '20px';
+        pill.style.top = '70px';
+        pill.style.left = 'auto';
+        pill.style.bottom = 'auto';
+        pill.style.transform = 'none';
+        pill.style.borderRadius = '16px';
+        pill.style.padding = '6px 14px';
+        pill.style.fontSize = '11px';
+        pill.style.visibility = 'visible';
+        pill.style.opacity = '0.9';
+      } else if (isFacebook) {
+        pill.style.left = '72px';
+        pill.style.top = '50%';
+        pill.style.bottom = 'auto';
         pill.style.right = 'auto';
+        pill.style.transform = 'translateY(-50%)';
+        pill.style.borderRadius = '16px';
+        pill.style.padding = '6px 14px';
+        pill.style.fontSize = '11px';
+        pill.style.visibility = 'visible';
+        pill.style.opacity = '0.9';
+      } else {
+        pill.style.left = '0';
+        pill.style.top = '50%';
+        pill.style.transform = 'translateY(-50%)';
+        pill.style.borderRadius = '0 8px 8px 0';
+        pill.style.visibility = 'visible';
+        pill.style.opacity = '0.85';
       }
-    });
+    }
 
-    document.addEventListener('mouseup', () => {
-      if (!isDragging || !pill) { isDragging = false; return; }
-      isDragging = false;
-      pill.style.cursor = 'grab';
-      pill.style.transition = 'opacity 0.15s';
-      if (didDrag) {
-        // Save position
-        const rect = pill.getBoundingClientRect();
-        browser.storage.local.set({ floq_pill_x: rect.left, floq_pill_y: rect.top });
-      }
-    });
+    updatePillPosition();
 
-    pill.onmouseenter = () => { if(pill && !isDragging) { pill.style.opacity = '1'; pill.textContent = '⚡ Floq'; } };
-    pill.onmouseleave = () => { if(pill && !isDragging) { pill.style.opacity = '0.9'; pill.textContent = '⚡ FQ'; } };
-    pill.onclick = (e: MouseEvent) => { if (didDrag) { e.preventDefault(); return; } sidebarOpen ? closeSidebar() : openSidebar(); };
-    document.body.appendChild(pill);
-    console.log('[Floq] Pill injected on', PLATFORM);
+    // Keep pill + sidebar locked to divider on resize/zoom/fullscreen
+    const pillResizeObserver = new ResizeObserver(() => { requestAnimationFrame(() => { updatePillPosition(); updateSidebarPosition(); }); });
+    pillResizeObserver.observe(document.documentElement);
+    window.addEventListener('resize', () => { updatePillPosition(); updateSidebarPosition(); });
+    window.addEventListener('fullscreenchange', () => { updatePillPosition(); updateSidebarPosition(); });
+    setInterval(() => { updatePillPosition(); updateSidebarPosition(); }, 1000);
 
     // ===== SPA OBSERVER for Facebook/Instagram — re-inject pill if DOM rebuilds =====
     if (isFacebook || isInstagram) {
@@ -412,16 +668,17 @@ export default defineContentScript({
             pill.id = 'oper8er-pill';
             pill.textContent = '⚡ FQ';
             Object.assign(pill.style, {
-              position:'fixed', right:'16px', top:'50%', zIndex:'2147483646',
-              background:'#7F77DD', color:'#fff', padding:'8px 12px', borderRadius:'8px',
-              fontSize:'12px', fontWeight:'700', fontFamily:'system-ui,sans-serif', cursor:'pointer',
-              boxShadow:'0 2px 12px rgba(127,119,221,0.35)', letterSpacing:'0.5px', opacity:'0.9',
+              position:'fixed', zIndex:'2147483647',
+              background:'#7F77DD', color:'#fff', padding:'5px 8px', borderRadius:'6px',
+              fontSize:'11px', fontWeight:'700', fontFamily:'system-ui,sans-serif', cursor:'pointer',
+              boxShadow:'0 2px 8px rgba(127,119,221,0.3)', letterSpacing:'0.5px', opacity:'0.85',
               transition:'opacity 0.15s', userSelect:'none'
             });
             pill.onclick = () => { sidebarOpen ? closeSidebar() : openSidebar(); };
             pill.onmouseenter = () => { if(pill) { pill.style.opacity = '1'; pill.textContent = '⚡ Floq'; } };
-            pill.onmouseleave = () => { if(pill) { pill.style.opacity = '0.9'; pill.textContent = '⚡ FQ'; } };
-            document.body.appendChild(pill);
+            pill.onmouseleave = () => { if(pill) { pill.style.opacity = '0.85'; pill.textContent = '⚡ FQ'; } };
+            document.documentElement.appendChild(pill);
+            updatePillPosition();
           }
         }
       });
@@ -429,9 +686,10 @@ export default defineContentScript({
       // No timeout — keep watching for SPA navigation for the life of the page
     }
 
-    // ===== FIX 7: VinSolutions SPA navigation observer =====
+    // ===== VinSolutions SPA navigation observer =====
     if (isVinSolutions) {
       let lastVinUrl = window.location.href;
+      let spaRescanTimer: ReturnType<typeof setTimeout> | null = null;
       const vinUrlObserver = new MutationObserver(() => {
         if (window.location.href !== lastVinUrl) {
           lastVinUrl = window.location.href;
@@ -440,16 +698,54 @@ export default defineContentScript({
           const marker = document.getElementById('floq-sidebar');
           if (marker) marker.remove();
           sidebarRoot = null; sidebarOpen = false;
-          // Re-inject after page renders
-          setTimeout(() => { openSidebar(); }, 1500);
+          // Show pill again after SPA navigation — user clicks to reopen
+          if (pill) pill.style.display = 'block';
+
+          // BUG 1 FIX: Clear stale customer data immediately on SPA navigation
+          leadData = null;
+          lastScannedName = '';
+          browser.storage.local.remove(['oper8er_lead', 'oper8er_lead_time', 'oper8er_vehicle_info', 'oper8er_vehicle_info_time']);
+          updateSidebar();
+
+          // Delayed rescan with validation — wait 1500ms for iframes to settle
+          if (spaRescanTimer) clearTimeout(spaRescanTimer);
+          spaRescanTimer = setTimeout(() => {
+            validatedScan(0);
+          }, 1500);
         }
       });
       vinUrlObserver.observe(document.body, { childList: true, subtree: true });
 
-      // Auto-open sidebar on VinSolutions after page loads
-      setTimeout(() => {
-        if (!sidebarOpen) openSidebar();
-      }, 2000);
+      // Validated scan: checks that detected name actually appears in visible page text
+      // Retries up to 5 times with 500ms delay if validation fails
+      function validatedScan(attempt: number) {
+        const dashText = getDashboardScopedText();
+        if (!dashText || dashText.length < 30) {
+          if (attempt < 5) setTimeout(() => validatedScan(attempt + 1), 500);
+          return;
+        }
+        const s = scanText(dashText);
+        if (!s.vehicle) {
+          const allText = gatherAllText();
+          s.vehicle = extractVehicle(allText) || null;
+        }
+        // Validate: customerName must appear somewhere in the visible page text
+        if (s.customerName) {
+          const pageText = document.body?.innerText || '';
+          if (!pageText.includes(s.customerName)) {
+            // Name not found in visible text — stale data, retry
+            if (attempt < 5) setTimeout(() => validatedScan(attempt + 1), 500);
+            return;
+          }
+          leadData = s;
+          lastScannedName = s.customerName;
+          browser.storage.local.set({ oper8er_lead: s, oper8er_lead_time: Date.now() });
+          if (s.vehicle) browser.storage.local.set({ oper8er_vehicle_info: s.vehicle, oper8er_vehicle_info_time: Date.now() });
+          updateSidebar();
+        } else if (attempt < 5) {
+          setTimeout(() => validatedScan(attempt + 1), 500);
+        }
+      }
     }
 
     // ===== PENDING NOTES BADGE (VinSolutions only) =====
@@ -518,11 +814,25 @@ export default defineContentScript({
           const noteText = card?.dataset.text || '';
           (btn as HTMLElement).textContent = 'Pasting...';
           const statusEl = document.createElement('span');
-          await pasteIntoCRM(noteText, statusEl);
-          // Mark as logged regardless — rep can see if it actually pasted
-          try { await browser.runtime.sendMessage({ type: 'MARK_NOTE_LOGGED', payload: { id, status: 'logged' } }); } catch(e) {}
-          card?.remove();
-          refreshPendingBadge();
+          try {
+            await pasteIntoCRM(noteText, statusEl);
+            try { await browser.runtime.sendMessage({ type: 'MARK_NOTE_LOGGED', payload: { id, status: 'logged' } }); } catch(e) {}
+            // Show confirmation before removing
+            (btn as HTMLElement).textContent = '';
+            const confirm = document.createElement('span');
+            confirm.textContent = 'Note logged to VinSolutions';
+            confirm.style.cssText = 'color:#16a34a;font-size:11px;font-weight:600;';
+            (btn as HTMLElement).replaceWith(confirm);
+            setTimeout(() => { card?.remove(); refreshPendingBadge(); }, 2000);
+          } catch(e: any) {
+            (btn as HTMLElement).textContent = 'Failed';
+            (btn as HTMLElement).style.background = '#EF4444';
+            const errMsg = document.createElement('span');
+            errMsg.textContent = e.message || 'Error logging note';
+            errMsg.style.cssText = 'color:#EF4444;font-size:10px;display:block;margin-top:4px;';
+            card?.appendChild(errMsg);
+            setTimeout(() => { (btn as HTMLElement).textContent = 'Log It'; (btn as HTMLElement).style.background = '#16a34a'; errMsg.remove(); }, 3000);
+          }
         });
       });
 
@@ -573,14 +883,13 @@ export default defineContentScript({
           fullTranscript = inputEl.value; // preserve existing text
 
           recognition.onresult = (e: any) => {
-            let transcript = fullTranscript;
-            for (let i = 0; i < e.results.length; i++) {
-              transcript += e.results[i][0].transcript;
+            // Only process NEW results starting from resultIndex
+            for (let i = e.resultIndex; i < e.results.length; i++) {
               if (e.results[i].isFinal) {
                 fullTranscript += e.results[i][0].transcript + ' ';
               }
             }
-            // Show final + interim combined
+            // Display: all final text + current interim
             let display = fullTranscript;
             for (let i = 0; i < e.results.length; i++) {
               if (!e.results[i].isFinal) display += e.results[i][0].transcript;
@@ -645,31 +954,43 @@ export default defineContentScript({
     // ===== SIDEBAR =====
     async function openSidebar() {
       try { const check = await browser.storage.sync.get(['profile_onboarded']); if (!check.profile_onboarded) { browser.runtime.sendMessage({ type: 'OPEN_ONBOARDING' }); return; } } catch(e) {}
-      if (sidebarRoot) { sidebarRoot.style.display = 'block'; sidebarOpen = true; if (pill) pill.style.display = 'none'; pushContent(true); return; }
+      if (sidebarRoot) { sidebarRoot.style.display = 'block'; sidebarOpen = true; if (pill) pill.style.display = 'none'; updateSidebarPosition(); pushContent(true); return; }
       if (document.getElementById('oper8er-host')) return;
 
       await getTier();
 
       const host = document.createElement('div');
       host.id = 'oper8er-host';
-      const w = getSidebarWidth();
+      let w = getSidebarWidth();
       // Gmail: LEFT side below header. All others: RIGHT side.
       if (isGmail) {
         // Position below Gmail labels section — labels nav ends around 200px from top
-        Object.assign(host.style, { position:'fixed', bottom:'0', left:'0', width: w, height:'auto', maxHeight:'calc(100vh - 200px)', zIndex:'2147483647' });
+        Object.assign(host.style, { position:'fixed', top:'435px', left:'0', width: w, height:'auto', maxHeight:'calc(100vh - 445px)', zIndex:'2147483647', overflow:'hidden', borderRadius:'0 8px 0 0', borderRight:'1px solid #e0e0e0', boxShadow:'none', background:'#fff' });
+      } else if (isLinkedIn) {
+        // LinkedIn: right side, below nav bar, card-style
+        Object.assign(host.style, { position:'fixed', top:'72px', right:'8px', width: '280px', height:'calc(100vh - 82px)', maxHeight:'calc(100vh - 82px)', zIndex:'2147483647', overflow:'hidden', borderRadius:'8px', border:'1px solid #e0e0e0', boxShadow:'0 0 0 1px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.06)', background:'#fff' });
       } else if (!isVinSolutions) {
         // Cross-platform compact: right side, auto height
         Object.assign(host.style, { position:'fixed', top:'0', right:'0', width: w, height:'auto', maxHeight:'100vh', zIndex:'2147483647' });
       } else {
-        // VinSolutions: RIGHT side overlay, below header, no content push
+        // VinSolutions: fixed-width sidebar, right-aligned to the panel seam
+        const seam = findPanelSeamX();
+        const seamX = seam ? seam.seamX : 640;
+        const panelTop = seam ? seam.panelTop : 186;
+        const sidebarWidth = 340;
         Object.assign(host.style, {
-          position:'fixed', right:'0', left:'auto', top:'60px', margin:'0', padding:'0',
-          width:'300px', height:'calc(100vh - 60px)',
+          position:'fixed',
+          left: (seamX - sidebarWidth) + 'px',
+          top: panelTop + 'px',
+          margin:'0', padding:'0',
+          width: sidebarWidth + 'px',
+          height: (seam ? seam.panelHeight : 758) + 'px',
+          maxHeight: 'calc(100vh - 200px)',
           zIndex:'2147483647',
-          borderLeft:'2px solid #7F77DD',
-          borderRadius:'8px 0 0 8px',
-          boxShadow:'-4px 0 20px rgba(127,119,221,0.2)',
-          overflowY:'hidden', overflowX:'hidden'
+          boxShadow:'2px 0 12px rgba(0,0,0,0.15)',
+          overflow:'hidden',
+          background:'#fff',
+          borderRadius:'0 0 8px 0'
         });
       }
 
@@ -677,8 +998,8 @@ export default defineContentScript({
       const style = document.createElement('style'); style.textContent = getCSS(w); shadow.appendChild(style);
       const container = document.createElement('div'); container.id = 'o8'; container.innerHTML = getHTML(); shadow.appendChild(container);
 
-      document.body.appendChild(host);
-      const marker = document.createElement('div'); marker.id = 'floq-sidebar'; marker.style.display = 'none'; document.body.appendChild(marker);
+      document.documentElement.appendChild(host);
+      const marker = document.createElement('div'); marker.id = 'floq-sidebar'; marker.style.display = 'none'; document.documentElement.appendChild(marker);
 
       sidebarRoot = host; sidebarOpen = true;
       if (pill) pill.style.display = 'none';
@@ -700,7 +1021,6 @@ export default defineContentScript({
       // Main mic
       attachInlineMic(s, mainInput, s.getElementById('o8-mic')!);
 
-      const settingsBtn = s.getElementById('o8-settings-btn');
       const settingsPanel = s.getElementById('o8-settings-panel');
       const settingsBack = s.getElementById('o8-settings-back');
       if (settingsBack) {
@@ -723,17 +1043,14 @@ export default defineContentScript({
       const toolsPanel = s.getElementById('o8-tools-panel');
       const toolsBack = s.getElementById('o8-tools-back');
       const openTools = () => { s.getElementById('o8-quick')!.style.display = 'none'; if (toolsPanel) toolsPanel.style.display = 'flex'; };
-      const toolsBtn = s.getElementById('o8-tools-btn');
-      if (toolsBtn) toolsBtn.onclick = openTools;
       const toolsBtnInline = s.getElementById('o8-tools-btn-inline');
       if (toolsBtnInline) toolsBtnInline.onclick = openTools;
       if (toolsBack) { toolsBack.onclick = () => { toolsPanel!.style.display = 'none'; s.getElementById('o8-quick')!.style.display = 'flex'; }; }
 
-      // Settings — both footer and inline
+      // Settings
       const openSettings = () => { s.getElementById('o8-quick')!.style.display = 'none'; if (toolsPanel) toolsPanel.style.display = 'none'; if (settingsPanel) settingsPanel.style.display = 'flex'; };
       const settingsBtnInline = s.getElementById('o8-settings-btn-inline');
       if (settingsBtnInline) settingsBtnInline.onclick = openSettings;
-      if (settingsBtn) settingsBtn.onclick = openSettings;
 
       s.querySelectorAll('.tool-tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -853,7 +1170,20 @@ export default defineContentScript({
             if (resp.error) {
               const msg = resp.error.includes('413') ? 'Screenshot too large — try a smaller crop' : resp.error;
               addOutput(s, 'Error', msg, 'o8-ctx-output');
-            } else { addOutput(s, 'REPLY', resp.reply || resp.raw || '', 'o8-ctx-output'); }
+            } else {
+              // Parse context reply into sections like main generate
+              const raw = resp.reply || resp.raw || '';
+              const textMatch = raw.match(/(?:^|\n)TEXT\s*\n([\s\S]*?)(?=\n(?:EMAIL|CRM)|$)/i);
+              const emailMatch = raw.match(/(?:^|\n)EMAIL\s*\n([\s\S]*?)(?=\n(?:CRM)|$)/i);
+              const crmMatch = raw.match(/(?:^|\n)CRM(?: NOTE)?\s*\n([\s\S]*?)$/i);
+              if (textMatch || emailMatch || crmMatch) {
+                if (textMatch?.[1]?.trim()) addOutput(s, 'TEXT MESSAGE', textMatch[1].trim(), 'o8-ctx-output');
+                if (emailMatch?.[1]?.trim()) addOutput(s, 'EMAIL', emailMatch[1].trim(), 'o8-ctx-output');
+                if (crmMatch?.[1]?.trim()) addOutput(s, 'CRM NOTE', crmMatch[1].trim(), 'o8-ctx-output');
+              } else {
+                addOutput(s, 'REPLY', raw, 'o8-ctx-output');
+              }
+            }
           } catch(e: any) {
             if (e.message.includes('Reload') || e.message.includes('connection')) { showReconnectBanner(s); }
             const msg = e.message.includes('413') ? 'Screenshot too large — try a smaller crop' : e.message;
@@ -863,11 +1193,137 @@ export default defineContentScript({
         });
       }
 
+      // Gmail: fetch and render pending emails
+      if (isGmail) {
+        async function loadPendingEmails() {
+          try {
+            const resp = await safeSend({ type: 'GET_PENDING_EMAILS' });
+            const emails = resp?.emails || [];
+            const existing = s.getElementById('floq-pending-emails');
+            if (existing) existing.remove();
+            if (emails.length === 0) { updateGmailPillBadge(0); return; }
+            updateGmailPillBadge(emails.length);
+            const section = document.createElement('div');
+            section.id = 'floq-pending-emails';
+            section.style.cssText = 'padding:8px 12px;border-bottom:1px solid #E5E7EB;';
+            let html = `<div style="font-size:12px;font-weight:700;color:#1a202c;margin-bottom:6px">📬 Pending Emails (${emails.length})</div>`;
+            for (const em of emails) {
+              const subjectPreview = (em.subject || 'No subject').slice(0, 40) + ((em.subject || '').length > 40 ? '…' : '');
+              html += `<div class="floq-pe-card" data-id="${em.id}" data-subject="${esc(em.subject || '')}" data-body="${esc(em.body || '')}" style="padding:6px 0;border-bottom:1px solid #f3f4f6">
+                <div style="font-size:13px;font-weight:600;color:#1a202c">${esc(em.customer_name || 'Unknown')}</div>
+                <div style="font-size:12px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(subjectPreview)}</div>
+                <div style="display:flex;gap:4px;margin-top:4px">
+                  <button class="floq-pe-apply" data-id="${em.id}" style="padding:3px 10px;background:#7F77DD;color:#fff;border:none;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">Apply</button>
+                  <button class="floq-pe-dismiss" data-id="${em.id}" style="padding:3px 10px;background:transparent;border:1px solid #E5E7EB;color:#475569;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">Dismiss</button>
+                </div>
+              </div>`;
+            }
+            section.innerHTML = html;
+            const quickMode = s.getElementById('o8-quick');
+            if (quickMode && quickMode.firstChild) quickMode.insertBefore(section, quickMode.firstChild);
+
+            // Apply buttons — inject into Gmail compose
+            section.querySelectorAll('.floq-pe-apply').forEach(btn => {
+              btn.addEventListener('click', async () => {
+                const card = (btn as HTMLElement).closest('.floq-pe-card') as HTMLElement;
+                const id = (btn as HTMLElement).dataset.id;
+                const subject = card?.dataset.subject || '';
+                const body = card?.dataset.body || '';
+                const composeBody = document.querySelector('div[aria-label="Message Body"][contenteditable="true"]') as HTMLElement;
+                if (composeBody) {
+                  composeBody.focus(); safeInjectText(composeBody, body);
+                  if (subject) { const subjectField = document.querySelector('input[name="subjectbox"]') as HTMLInputElement; if (subjectField) { subjectField.focus(); safeInjectText(subjectField, subject); } }
+                  (btn as HTMLElement).textContent = 'Applied';
+                  (btn as HTMLElement).style.background = '#16a34a';
+                } else {
+                  navigator.clipboard.writeText(body);
+                  (btn as HTMLElement).textContent = 'Copied';
+                  (btn as HTMLElement).style.background = '#f59e0b';
+                }
+                try { await browser.runtime.sendMessage({ type: 'MARK_EMAIL_APPLIED', payload: { id, status: 'applied' } }); } catch(e) {}
+                setTimeout(() => { card?.remove(); const remaining = section.querySelectorAll('.floq-pe-card').length; if (remaining === 0) section.remove(); updateGmailPillBadge(remaining); }, 1500);
+              });
+            });
+
+            // Dismiss buttons
+            section.querySelectorAll('.floq-pe-dismiss').forEach(btn => {
+              btn.addEventListener('click', async () => {
+                const card = (btn as HTMLElement).closest('.floq-pe-card') as HTMLElement;
+                const id = (btn as HTMLElement).dataset.id;
+                try { await browser.runtime.sendMessage({ type: 'MARK_EMAIL_APPLIED', payload: { id, status: 'dismissed' } }); } catch(e) {}
+                card?.remove();
+                const remaining = section.querySelectorAll('.floq-pe-card').length;
+                if (remaining === 0) section.remove();
+                updateGmailPillBadge(remaining);
+              });
+            });
+          } catch(e) { console.log('[Floq] Pending emails fetch error:', e); }
+        }
+        loadPendingEmails();
+      }
+
       if (isVinSolutions) updateSidebar();
     }
 
-    function pushContent(_open: boolean) {
-      // Overlay mode — no content pushing. Sidebar floats over VinSolutions.
+    function pushContent(_open: boolean) { return; }
+
+    // Re-anchor sidebar to the panel seam on resize/zoom
+    // Also detect AddNote popup and shift sidebar to avoid blocking it
+    let sidebarDodging = false;
+
+    function dodgeSidebar() {
+      if (!sidebarRoot || !isVinSolutions || !sidebarOpen) return;
+      sidebarDodging = true;
+      sidebarRoot.style.left = '0px';
+      sidebarRoot.style.transition = 'left 0.2s ease';
+    }
+
+    function undodgeSidebar() {
+      if (!sidebarRoot || !isVinSolutions || !sidebarDodging) return;
+      sidebarDodging = false;
+      const seam = findPanelSeamX();
+      if (seam) sidebarRoot.style.left = (seam.seamX - 320) + 'px';
+      setTimeout(() => { if (sidebarRoot) sidebarRoot.style.transition = ''; }, 250);
+    }
+
+    function isNotePopupOpen(): boolean {
+      // Scan all iframe levels for AddNote / SendEmail / Communication popups
+      function checkDoc(doc: Document): boolean {
+        try {
+          const iframes = doc.querySelectorAll('iframe');
+          for (const f of iframes) {
+            const src = (f.src || '').toLowerCase();
+            if (src.includes('addnote') || src.includes('sendemail') || src.includes('send_email') || src.includes('communication')) {
+              const r = f.getBoundingClientRect();
+              if (r.width > 100 && r.height > 100) return true;
+            }
+            // Recurse
+            try {
+              const d = f.contentDocument || (f as any).contentWindow?.document;
+              if (d && checkDoc(d)) return true;
+            } catch(e) {}
+          }
+        } catch(e) {}
+        return false;
+      }
+      return checkDoc(document);
+    }
+
+    function updateSidebarPosition() {
+      if (!sidebarRoot || !isVinSolutions || !sidebarOpen) return;
+      const seam = findPanelSeamX();
+      if (!seam) return;
+      const sidebarWidth = 340;
+
+      // Auto-detect note popup and dodge
+      if (isNotePopupOpen()) {
+        if (!sidebarDodging) dodgeSidebar();
+      } else {
+        if (sidebarDodging) undodgeSidebar();
+        sidebarRoot.style.left = (seam.seamX - sidebarWidth) + 'px';
+      }
+      sidebarRoot.style.top = seam.panelTop + 'px';
+      sidebarRoot.style.maxHeight = seam.panelHeight + 'px';
     }
 
     function closeSidebar() {
@@ -932,7 +1388,7 @@ export default defineContentScript({
       if (selected.length === 0) { isGenerating = false; return; }
       const type = selected.length === 3 ? 'all' : selected.length === 1 ? selected[0]! : 'all';
       const btn = s.getElementById('o8-generate') as HTMLButtonElement;
-      btn.textContent = 'Generating...'; btn.disabled = true; btn.style.background = '#94a3b8';
+      btn.innerHTML = '<span class="gen-spinner"></span> Generating\u2026'; btn.disabled = true;
       s.getElementById('o8-outputs')!.innerHTML = '';
 
       // Read tone/goal from storage for FIX 7
@@ -951,7 +1407,7 @@ export default defineContentScript({
         if (e.message.includes('Reload') || e.message.includes('connection') || e.message.includes('invalidated')) { showReconnectBanner(s); }
         addOutput(s, 'Error', e.message.includes('invalidated') ? 'Floq needs a refresh. Click Reload Page above.' : e.message);
       }
-      btn.textContent = 'Generate'; btn.disabled = false; btn.style.background = '#7F77DD'; isGenerating = false;
+      btn.innerHTML = 'Generate'; btn.disabled = false; isGenerating = false;
     }
 
     // ===== CRM PASTE =====
@@ -959,11 +1415,12 @@ export default defineContentScript({
     function clickNoteIcon(): boolean { if (!isVinSolutions) return false; for (const el of document.querySelectorAll('a, button, div, span, td')) { if (el.textContent?.trim() === 'Note' && (el as HTMLElement).offsetWidth > 0) { (el as HTMLElement).click(); return true; } } return false; }
     async function pasteIntoCRM(noteText: string, statusEl: HTMLElement) {
       if (!isVinSolutions) { statusEl.textContent = 'VinSolutions only'; return; }
+      dodgeSidebar(); // Move sidebar out of the way before note popup opens
       statusEl.textContent = 'Opening note form...'; statusEl.style.color = '#2563eb';
       await browser.storage.local.set({ oper8er_paste_note: noteText, oper8er_paste_note_time: Date.now() });
       let textarea = findNoteTextarea();
       if (!textarea) { const clicked = clickNoteIcon(); if (clicked) { for (let i = 0; i < 15; i++) { await new Promise(r => setTimeout(r, 500)); textarea = findNoteTextarea(); if (textarea) break; } } }
-      if (textarea) { textarea.focus(); textarea.value = noteText; textarea.dispatchEvent(new Event('input', { bubbles: true })); textarea.dispatchEvent(new Event('change', { bubbles: true })); statusEl.textContent = 'Pasted'; statusEl.style.color = '#16a34a'; textarea.style.border = '2px solid #16a34a'; setTimeout(() => { textarea!.style.border = ''; }, 2000); browser.storage.local.remove(['oper8er_paste_note', 'oper8er_paste_note_time']); }
+      if (textarea) { textarea.focus(); safeInjectText(textarea, noteText); statusEl.textContent = 'Pasted'; statusEl.style.color = '#16a34a'; textarea.style.border = '2px solid #16a34a'; setTimeout(() => { textarea!.style.border = ''; }, 2000); browser.storage.local.remove(['oper8er_paste_note', 'oper8er_paste_note_time']); }
       else {
         statusEl.textContent = 'Saved to pending notes'; statusEl.style.color = '#2563eb';
         // Persist to Supabase so it survives session/navigation
@@ -988,16 +1445,16 @@ export default defineContentScript({
         // Subject field
         if (subject) {
           const subj = doc.querySelector('input[id*="ubject"], input[name*="ubject"], input[id*="Subject"], input[name*="Subject"]') as HTMLInputElement;
-          if (subj) { subj.focus(); subj.value = subject; subj.dispatchEvent(new Event('input', { bubbles: true })); subj.dispatchEvent(new Event('change', { bubbles: true })); }
+          if (subj) { subj.focus(); safeInjectText(subj, subject); }
         }
         // Body: contenteditable > textarea > nested iframe body
         const editable = doc.querySelector('[contenteditable="true"]') as HTMLElement;
-        if (editable) { editable.focus(); editable.innerText = body; editable.dispatchEvent(new Event('input', { bubbles: true })); return true; }
+        if (editable) { editable.focus(); safeInjectText(editable, body); return true; }
         const ta = doc.querySelector('textarea') as HTMLTextAreaElement;
-        if (ta) { ta.focus(); ta.value = body; ta.dispatchEvent(new Event('input', { bubbles: true })); ta.dispatchEvent(new Event('change', { bubbles: true })); return true; }
+        if (ta) { ta.focus(); safeInjectText(ta, body); return true; }
         // Nested iframe (rich text editor like TinyMCE)
         for (const nf of doc.querySelectorAll('iframe')) {
-          try { const nd = nf.contentDocument || (nf as any).contentWindow?.document; if (nd?.body) { nd.body.innerText = body; return true; } } catch(e) {}
+          try { const nd = nf.contentDocument || (nf as any).contentWindow?.document; if (nd?.body) { safeInjectText(nd.body, body); return true; } } catch(e) {}
         }
         return false;
       }
@@ -1050,47 +1507,94 @@ export default defineContentScript({
       const card = document.createElement('div'); card.className = 'out-card';
       const isCRM = label === 'CRM NOTE';
       const isEmail = label === 'EMAIL' || label === 'EMAIL REPLY';
+      const isText = !isCRM && !isEmail;
 
-      // ONE button per output type
-      let actionBtn = '';
-      if (isCRM && isVinSolutions) actionBtn = '<button class="out-action out-paste">Paste to CRM</button>';
-      else if (isEmail && isVinSolutions) actionBtn = '<button class="out-action out-send-email">Send to Email</button>';
-      else actionBtn = '<button class="out-action out-copy">Copy + Log</button>';
+      // Primary button label — platform × output type
+      let primaryLabel = 'Copy';
+      if (isCRM && isVinSolutions) primaryLabel = 'Paste to CRM';
+      else if (isCRM && !isVinSolutions) primaryLabel = 'Log to CRM';
+      else if (isEmail && !isVinSolutions && !isGmail) primaryLabel = 'Queue Email';
+      else if (isText && isFacebook) primaryLabel = 'Send to Messenger';
+      else if (isText && isLinkedIn) primaryLabel = 'Send to LinkedIn';
+      else if (isEmail && isGmail) primaryLabel = 'Apply to Email';
 
-      card.innerHTML = `<div class="out-label">${esc(label)}</div><div class="out-text">${esc(content).replace(/\n/g, '<br>')}</div><div class="out-actions">${actionBtn}</div><div class="out-status"></div>`;
+      // Two buttons only: primary (solid) + Regenerate (ghost)
+      card.innerHTML = `<div class="out-label">${esc(label)}</div><textarea class="out-textarea">${esc(content)}</textarea><div class="out-actions"><button class="out-action out-primary">${primaryLabel}</button><button class="out-action out-regen">Regenerate</button></div><div class="out-status"></div>`;
 
-      // Text: Copy + Log
-      const copyBtn = card.querySelector('.out-copy');
-      if (copyBtn) {
-        copyBtn.addEventListener('click', function(this: HTMLElement) {
-          navigator.clipboard.writeText(content);
-          this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff';
-          try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || null } }); } catch(e) {}
-          setTimeout(() => { this.textContent = 'Copy + Log'; this.style.background = ''; this.style.color = ''; }, 1500);
+      const getContent = () => (card.querySelector('.out-textarea') as HTMLTextAreaElement)?.value || content;
+
+      // Primary action — always copies to clipboard as side effect
+      const primaryBtn = card.querySelector('.out-primary');
+      if (primaryBtn) {
+        primaryBtn.addEventListener('click', function(this: HTMLElement) {
+          const st = card.querySelector('.out-status') as HTMLElement;
+          const curContent = getContent();
+          navigator.clipboard.writeText(curContent); // always copy
+
+          if (isCRM && isVinSolutions) {
+            (this as any).disabled = true; this.textContent = 'Pasting...';
+            pasteIntoCRM(curContent, st).then(() => { this.textContent = 'Paste to CRM'; (this as any).disabled = false; });
+          } else if (isCRM && !isVinSolutions) {
+            // Log to CRM — save as pending note for VinSolutions
+            const custName = leadData?.customerName || document.title.split(' - ')[0] || 'Unknown Customer';
+            try { browser.runtime.sendMessage({ type: 'SAVE_PENDING_NOTE', payload: { customer_name: custName, note_text: curContent, contact_id: null } }); } catch(e) {}
+            this.textContent = 'Queued'; this.style.background = '#16a34a'; this.style.color = '#fff';
+            st.textContent = 'Note queued for VinSolutions'; st.style.color = '#16a34a';
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'CRM_NOTE_QUEUED', platform: PLATFORM, customer: custName } }); } catch(e) {}
+            setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
+          } else if (isEmail && !isVinSolutions && !isGmail) {
+            // Queue Email — save to pending_emails for later Gmail send
+            let subject = ''; let body = curContent;
+            const subjectMatch = curContent.match(/^(?:Subject:\s*|Re:\s*)(.+)/i);
+            if (subjectMatch) { subject = subjectMatch[1].trim(); body = curContent.slice(curContent.indexOf('\n') + 1).trim(); }
+            const custName = leadData?.customerName || document.title.split(' - ')[0] || 'Unknown Customer';
+            try { browser.runtime.sendMessage({ type: 'SAVE_PENDING_EMAIL', payload: { customer_name: custName, subject, body } }); } catch(e) {}
+            this.textContent = 'Queued'; this.style.background = '#16a34a'; this.style.color = '#fff';
+            st.textContent = 'Email queued — open Gmail to send'; st.style.color = '#16a34a';
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'EMAIL_QUEUED', platform: PLATFORM, customer: custName } }); } catch(e) {}
+            setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
+          } else if (isText && isFacebook) {
+            const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement;
+            if (box) { box.focus(); safeInjectText(box, curContent); this.textContent = 'Sent'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Sent to Messenger'; st.style.color = '#16a34a'; }
+            else { this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Copied — open a conversation first'; st.style.color = '#f59e0b'; }
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || null } }); } catch(e) {}
+            setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
+          } else if (isText && isLinkedIn) {
+            const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement;
+            if (box) { box.focus(); safeInjectText(box, curContent); this.textContent = 'Sent'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Sent to LinkedIn'; st.style.color = '#16a34a'; }
+            else { this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Copied — open a conversation first'; st.style.color = '#f59e0b'; }
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || null } }); } catch(e) {}
+            setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
+          } else if (isEmail && isGmail) {
+            let subject = ''; let body = curContent;
+            const subjectMatch = curContent.match(/^(?:Subject:\s*|Re:\s*)(.+)/i);
+            if (subjectMatch) { subject = subjectMatch[1].trim(); body = curContent.slice(curContent.indexOf('\n') + 1).trim(); }
+            const composeBody = document.querySelector('div[aria-label="Message Body"][contenteditable="true"]') as HTMLElement;
+            if (composeBody) {
+              composeBody.focus(); safeInjectText(composeBody, body);
+              if (subject) { const subjectField = document.querySelector('input[name="subjectbox"]') as HTMLInputElement; if (subjectField) { subjectField.focus(); safeInjectText(subjectField, subject); } }
+              this.textContent = 'Applied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Applied to compose'; st.style.color = '#16a34a';
+              try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'EMAIL_APPLIED', platform: PLATFORM, customer: leadData?.customerName || null } }); } catch(e) {}
+            } else {
+              this.textContent = 'Copied'; this.style.background = '#f59e0b'; this.style.color = '#fff'; st.textContent = 'Copied — open a compose window first'; st.style.color = '#f59e0b';
+            }
+            setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
+          } else {
+            // Default: Copy
+            this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff';
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || null } }); } catch(e) {}
+            setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 1500);
+          }
         });
       }
 
-      // CRM Note: Paste to CRM
-      const pasteBtn = card.querySelector('.out-paste');
-      if (pasteBtn && isCRM && isVinSolutions) {
-        pasteBtn.addEventListener('click', function(this: HTMLElement) {
-          const st = card.querySelector('.out-status') as HTMLElement;
-          (this as any).disabled = true; this.textContent = 'Pasting...';
-          pasteIntoCRM(content, st).then(() => { this.textContent = 'Paste to CRM'; (this as any).disabled = false; });
-        });
-      }
-
-      // Email: Send to Email — inject into popup OR copy
-      const sendBtn = card.querySelector('.out-send-email');
-      if (sendBtn && isEmail && isVinSolutions) {
-        sendBtn.addEventListener('click', function(this: HTMLElement) {
-          const st = card.querySelector('.out-status') as HTMLElement;
-          (this as any).disabled = true; this.textContent = 'Sending...';
-          pasteIntoEmail(content, st).then(() => {
-            this.textContent = 'Send to Email'; (this as any).disabled = false;
-            // Also log
-            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'EMAIL_SENT', platform: PLATFORM, customer: leadData?.customerName || null } }); } catch(e) {}
-          });
+      // Regenerate (ghost) — clicks the Generate button again
+      const regenBtn = card.querySelector('.out-regen');
+      if (regenBtn) {
+        regenBtn.addEventListener('click', () => {
+          card.remove();
+          const genBtn = s.getElementById('o8-generate');
+          if (genBtn) genBtn.click();
         });
       }
 
@@ -1099,9 +1603,9 @@ export default defineContentScript({
 
     function injectContent(parsed: any): boolean {
       const { action, content, subject } = parsed;
-      if ((action === 'write_email' || PLATFORM === 'gmail') && isGmail) { const body = document.querySelector('div[aria-label="Message Body"][contenteditable="true"]') as HTMLElement; if (body) { body.focus(); document.execCommand('insertText', false, content); if (subject) { const subj = document.querySelector('input[name="subjectbox"]') as HTMLInputElement; if (subj) { subj.focus(); subj.value = subject; subj.dispatchEvent(new Event('input', { bubbles: true })); } } return true; } }
-      if ((action === 'write_facebook_message' || PLATFORM === 'facebook') && isFacebook) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { box.focus(); document.execCommand('insertText', false, content); return true; } }
-      if ((action === 'write_linkedin_message' || PLATFORM === 'linkedin') && isLinkedIn) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { box.focus(); document.execCommand('insertText', false, content); return true; } }
+      if ((action === 'write_email' || PLATFORM === 'gmail') && isGmail) { const body = document.querySelector('div[aria-label="Message Body"][contenteditable="true"]') as HTMLElement; if (body) { body.focus(); safeInjectText(body, content); if (subject) { const subj = document.querySelector('input[name="subjectbox"]') as HTMLInputElement; if (subj) { subj.focus(); safeInjectText(subj, subject); } } return true; } }
+      if ((action === 'write_facebook_message' || PLATFORM === 'facebook') && isFacebook) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { box.focus(); safeInjectText(box, content); return true; } }
+      if ((action === 'write_linkedin_message' || PLATFORM === 'linkedin') && isLinkedIn) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { box.focus(); safeInjectText(box, content); return true; } }
       if (action === 'log_crm_note' && isVinSolutions) { pasteIntoCRM(content, document.createElement('span')); return true; }
       return false;
     }
@@ -1112,7 +1616,36 @@ export default defineContentScript({
       if (msg.type === 'SHOW_ALERT_BANNER') { const existing = document.getElementById('floq-alert-banner'); if (existing) existing.remove(); const banner = document.createElement('div'); banner.id = 'floq-alert-banner'; Object.assign(banner.style, { position:'fixed', top:'0', left:'0', right:'0', zIndex:'999999', background:'#FF3B30', color:'#fff', padding:'12px 20px', fontFamily:'system-ui,sans-serif', fontSize:'14px', fontWeight:'600', display:'flex', alignItems:'center', gap:'10px', boxShadow:'0 2px 8px rgba(0,0,0,0.2)' }); banner.innerHTML = `<span>🔔</span><span style="flex:1">${esc(msg.payload.task)}</span><button style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Dismiss</button>`; banner.querySelector('button')!.addEventListener('click', () => { banner.remove(); browser.runtime.sendMessage({ type: 'DISMISS_ALERT', payload: { id: msg.payload.id } }); }); document.body.appendChild(banner); }
     });
 
-    function parseAlertTime(text: string): number { const now = Date.now(); const inMin = text.match(/in\s+(\d+)\s*min/i); if (inMin) return now + parseInt(inMin[1]) * 60000; const inHr = text.match(/in\s+(\d+)\s*hour/i); if (inHr) return now + parseInt(inHr[1]) * 3600000; const byTime = text.match(/(?:by|at)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i); if (byTime) { let h = parseInt(byTime[1]); const m = byTime[2] ? parseInt(byTime[2]) : 0; const ampm = (byTime[3] || '').toLowerCase(); if (ampm === 'pm' && h < 12) h += 12; if (ampm === 'am' && h === 12) h = 0; if (!ampm && h < 7) h += 12; const d = new Date(); d.setHours(h, m, 0, 0); if (d.getTime() < now) d.setDate(d.getDate() + 1); return d.getTime(); } return now + 30 * 60000; }
+    function parseAlertTime(text: string): number {
+      const now = Date.now();
+      // "in X minutes"
+      const inMin = text.match(/in\s+(\d+)\s*min/i);
+      if (inMin) return now + parseInt(inMin[1]) * 60000;
+      // "in X hours"
+      const inHr = text.match(/in\s+(\d+)\s*hour/i);
+      if (inHr) return now + parseInt(inHr[1]) * 3600000;
+      // "noon" / "by noon"
+      if (/\bnoon\b/i.test(text)) { const d = new Date(); d.setHours(12, 0, 0, 0); if (d.getTime() < now) d.setDate(d.getDate() + 1); return d.getTime(); }
+      // "end of day" / "eod" / "close"
+      if (/\b(eod|end of day|close of business|cob)\b/i.test(text)) { const d = new Date(); d.setHours(17, 0, 0, 0); if (d.getTime() < now) d.setDate(d.getDate() + 1); return d.getTime(); }
+      // "tomorrow" adds 24 hours to any parsed time
+      const isTomorrow = /\btomorrow\b/i.test(text);
+      // "at/by X:XX am/pm"
+      const byTime = text.match(/(?:by|at)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+      if (byTime) {
+        let h = parseInt(byTime[1]); const m = byTime[2] ? parseInt(byTime[2]) : 0;
+        const ampm = (byTime[3] || '').toLowerCase();
+        if (ampm === 'pm' && h < 12) h += 12;
+        if (ampm === 'am' && h === 12) h = 0;
+        if (!ampm && h < 7) h += 12;
+        const d = new Date(); d.setHours(h, m, 0, 0);
+        if (isTomorrow) d.setDate(d.getDate() + 1);
+        else if (d.getTime() < now) d.setDate(d.getDate() + 1);
+        return d.getTime();
+      }
+      // Default: 30 minutes from now
+      return now + 30 * 60000;
+    }
 
     async function loadAlerts(s: ShadowRoot) { let alerts: any[] = []; try { alerts = await safeSend({ type: 'GET_ALERTS' }); } catch(e: any) { if (e.message.includes('Reload') || e.message.includes('connection') || e.message.includes('invalidated')) { showReconnectBanner(s); } return; } const list = s.getElementById('o8-alert-list'); if (!list) return; if (!alerts || alerts.length === 0) { list.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:12px">No active reminders</div>'; return; } list.innerHTML = alerts.map((a: any) => `<div class="alert-item"><span>${esc(a.task)}</span><span class="alert-time">${new Date(a.alertTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span><button class="alert-dismiss" data-id="${a.id}">&times;</button></div>`).join(''); list.querySelectorAll('.alert-dismiss').forEach(btn => { btn.addEventListener('click', async () => { const id = (btn as HTMLElement).dataset.id; if (id) { await browser.runtime.sendMessage({ type: 'DISMISS_ALERT', payload: { id } }); loadAlerts(s); } }); }); }
 
@@ -1149,8 +1682,9 @@ export default defineContentScript({
 
       return `
 <div class="header">
-  <span class="logo">FLOQ</span>
-  <span class="badge" style="color:${badge.color};background:${badge.bg}">${esc(badge.label)}</span>
+  <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="4" fill="#7F77DD"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">FQ</text></svg>
+  <span class="logo">Floq</span>
+  <span style="flex:1"></span>
   <span id="o8-close" class="close">&times;</span>
 </div>
 <div id="o8-quick" class="quick-mode">
@@ -1167,6 +1701,7 @@ export default defineContentScript({
     </div>
     <button id="o8-generate" class="gen-btn">Generate</button>
     <div class="inline-links"><button id="o8-tools-btn-inline" class="link-btn">Tools</button><span class="link-sep">|</span><button id="o8-settings-btn-inline" class="link-btn">Settings</button></div>
+    <div class="tcpa-inline">Messages are for human review. TCPA compliance is your responsibility.</div>
   </div>
   <div id="o8-outputs" class="outputs"></div>
 </div>
@@ -1187,21 +1722,17 @@ export default defineContentScript({
   <div class="tools-header"><button id="o8-settings-back" class="back-btn">← Back</button><span class="tools-title">Settings</span></div>
   ${getSettingsHTML()}
 </div>
-<div class="sidebar-footer">
-  <button id="o8-tools-btn" class="tools-btn">⚙ Tools</button>
-  <button id="o8-settings-btn" class="tools-btn">Settings</button>
-  <div class="tcpa">Messages are for human review. TCPA compliance is your responsibility.</div>
-</div>`;
+`;
     }
 
     function getCSS(width: string): string {
       return `
 * { margin:0; padding:0; box-sizing:border-box; }
 :host { all:initial; font-family:system-ui,-apple-system,sans-serif; font-size:13px; color:#1a202c; }
-#o8 { width:${width}; height:100%; max-height:100%; background:#fff; overflow-y:auto; overscroll-behavior:contain; display:flex; flex-direction:column; padding-bottom:${isVinSolutions ? '60px' : '0'}; ${!isVinSolutions ? 'border-left:1px solid #e2e8f0; border-right:1px solid #e2e8f0; box-shadow:0 0 16px rgba(0,0,0,0.06); border-radius:0 0 8px 0;' : ''} }
-.header { padding:10px 14px; border-bottom:1px solid #e8eaed; display:flex; align-items:center; gap:8px; flex-shrink:0; }
-.logo { font-size:14px; font-weight:800; color:#7F77DD; letter-spacing:3px; }
-.badge { font-size:9px; font-weight:600; padding:2px 8px; border-radius:10px; text-transform:uppercase; letter-spacing:0.5px; flex:1; text-align:center; }
+#o8 { width:${width}; height:100%; max-height:100%; background:#FFFFFF; border:1px solid #E5E7EB; border-radius:12px; box-shadow:0 0 0 1px rgba(0,0,0,0.05), 0 8px 24px -4px rgba(0,0,0,0.1); overflow:hidden; overscroll-behavior:contain; display:flex; flex-direction:column; padding-bottom:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+.header { padding:0 14px; height:48px; border-bottom:1px solid #E5E7EB; display:flex; align-items:center; gap:8px; flex-shrink:0; background:#fff; border-radius:12px 12px 0 0; }
+.header-icon { flex-shrink:0; }
+.logo { font-size:13px; font-weight:500; color:#1a202c; letter-spacing:0.5px; }
 .close { font-size:20px; color:#94a3b8; cursor:pointer; padding:0 4px; } .close:hover { color:#475569; }
 .quick-mode { display:flex; flex-direction:column; flex:1; overflow:hidden; }
 .card { padding:10px 14px; border-bottom:1px solid #e8eaed; flex-shrink:0; }
@@ -1221,15 +1752,17 @@ export default defineContentScript({
 @keyframes mic-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.12)} }
 .gen-btn { width:100%; padding:10px; background:#7F77DD; color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; margin-top:8px; transition:background 0.15s; }
 .gen-btn:hover { background:#534AB7; } .gen-btn:disabled { background:#94a3b8; cursor:wait; }
-.outputs { padding:8px 14px; flex:1; overflow-y:auto; }
-.out-card { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+.gen-spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:gen-spin 0.6s linear infinite; vertical-align:middle; margin-right:4px; }
+@keyframes gen-spin { to { transform:rotate(360deg); } }
+.outputs { padding:8px 14px; overflow-y:auto; flex:1; min-height:0; }
+.out-card { background:#fff; border:1px solid #E5E7EB; border-radius:12px; padding:10px 12px; margin-bottom:8px; }
 .out-label { font-size:9px; font-weight:700; color:#7F77DD; letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
-.out-text { font-size:12px; line-height:1.5; max-height:180px; overflow-y:auto; }
-.out-actions { display:flex; gap:6px; margin-top:6px; }
+.out-textarea { width:100%; min-height:80px; max-height:200px; padding:10px; border:1px solid #E5E7EB; border-radius:8px; font-size:12px; line-height:1.6; font-family:inherit; color:#1a202c; background:#fff; resize:vertical; outline:none; } .out-textarea:focus { border-color:#7F77DD; }
+.out-actions { display:flex; gap:6px; margin-top:8px; }
 .out-status { font-size:10px; margin-top:4px; min-height:14px; }
-.out-action { padding:5px 14px; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; transition:all .15s; }
-.out-copy { background:#f0f2f5; border:1px solid #dde1e6; color:#475569; } .out-copy:hover { background:#e2e8f0; }
-.out-paste, .out-send-email { background:#7F77DD; border:1px solid #6B63C7; color:#fff; } .out-paste:hover, .out-send-email:hover { background:#534AB7; }
+.out-action { padding:6px 14px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; transition:all .15s; }
+.out-primary { background:#7F77DD; border:1px solid #6B63C7; color:#fff; } .out-primary:hover { background:#534AB7; }
+.out-regen { background:transparent; border:1px solid #E5E7EB; color:#475569; } .out-regen:hover { background:#f3f4f6; }
 .tools-panel { display:flex; flex-direction:column; flex:1; overflow:hidden; }
 .tools-header { padding:10px 14px; border-bottom:1px solid #e8eaed; display:flex; align-items:center; gap:8px; }
 .back-btn { background:none; border:none; color:#7F77DD; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; } .tools-title { font-size:13px; font-weight:600; }
@@ -1243,12 +1776,39 @@ export default defineContentScript({
 .ctx-dropzone { border:2px dashed #7F77DD; border-radius:8px; background:#F0EFFF; padding:16px; text-align:center; font-size:11px; color:#7F77DD; display:flex; align-items:center; justify-content:center; min-height:60px; cursor:pointer; } .ctx-dropzone.dragover { background:#e8e4ff; }
 .ctx-preview { position:relative; text-align:center; margin-bottom:8px; } .ctx-img { max-width:180px; max-height:100px; border-radius:6px; border:1px solid #e2e8f0; } .ctx-remove { position:absolute; top:-6px; right:calc(50% - 96px); width:18px; height:18px; border-radius:50%; background:#FF3B30; color:#fff; border:none; font-size:11px; cursor:pointer; }
 .alert-item { display:flex; align-items:center; padding:6px 8px; background:#FFF7ED; border:1px solid #FBBF24; border-radius:6px; margin-bottom:4px; font-size:11px; gap:6px; } .alert-time { font-size:10px; color:#92400E; margin-left:auto; } .alert-dismiss { background:none; border:none; color:#94a3b8; cursor:pointer; font-size:14px; }
-.sidebar-footer { position:sticky; bottom:0; padding:8px 16px; border-top:1px solid #2a2a3e; display:flex; align-items:center; gap:12px; flex-shrink:0; flex-wrap:wrap; background:#1a1a2e; z-index:10; }
-.tools-btn { background:rgba(127,119,221,0.15); border:1px solid rgba(127,119,221,0.3); border-radius:6px; padding:4px 10px; font-size:11px; font-weight:600; color:#c4c0f0; cursor:pointer; font-family:inherit; } .tools-btn:hover { background:rgba(127,119,221,0.3); color:#fff; border-color:#7F77DD; }
-.tcpa { width:100%; font-size:9px; color:#6b6b8a; line-height:1.3; margin-top:4px; }
+.tcpa-inline { padding:4px 14px 8px; font-size:11px; color:#9CA3AF; line-height:1.3; text-align:center; flex-shrink:0; }
 /* Settings */
 .settings-section { padding:16px 14px; } .settings-label { font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; margin-top:12px; }
 .settings-options { display:flex; flex-direction:column; gap:6px; position:relative; } .settings-options label { font-size:12px; color:#1a202c; display:flex; align-items:center; gap:6px; } .settings-options input[type="radio"] { accent-color:#7F77DD; }
+${isGmail ? `
+/* Gmail overrides */
+#o8 { font-size:13px; border-radius:0; box-shadow:none; border:none; }
+.header { border-radius:0; }
+.quick-mode { overflow:auto; }
+.input-section { padding:10px 12px; }
+.chips { gap:4px; margin-bottom:8px; }
+.chip { padding:4px 10px; font-size:11px; border-radius:14px; }
+.main-input { padding:8px 36px 8px 10px; font-size:13px; }
+.inline-mic { width:26px; height:26px; right:5px; top:5px; }
+.gen-btn { padding:9px; font-size:13px; margin-top:8px; border-radius:6px; }
+.inline-links { margin-top:6px; gap:5px; } .link-btn { font-size:11px; }
+.tcpa-inline { padding:3px 12px 6px; }
+.outputs { padding:6px 12px; overflow-y:auto; flex:1; min-height:0; }
+.out-card { padding:8px 10px; margin-bottom:6px; }
+.out-label { font-size:9px; margin-bottom:3px; }
+.out-textarea { min-height:60px; max-height:120px; font-size:11px; }
+.out-actions { gap:5px; margin-top:5px; }
+.out-action { padding:4px 12px; font-size:11px; }
+` : ''}
+${isLinkedIn ? `
+/* LinkedIn overrides */
+.input-section { padding:10px 12px; }
+.chips { gap:4px; margin-bottom:8px; }
+.chip { padding:4px 10px; font-size:11px; border-radius:14px; }
+.gen-btn { padding:8px; font-size:13px; margin-top:6px; }
+.inline-links { margin-top:6px; } .link-btn { font-size:10px; }
+.tcpa-inline { padding:2px 12px 6px; font-size:8px; }
+` : ''}
 `;
     }
 

@@ -227,6 +227,7 @@ At content.ts:337-347. Debounced MutationObserver replaces the earlier setInterv
 19. **findPanelSeamX() dynamic heading walk** — Strategy 5 finds "Customer Dashboard" heading and walks up to panel container for `seamX`. Strategy 6 falls back to `#cardashboardframe` left edge. Do not replace with hardcoded values — layout is dynamic.
 20. **Gmail pill position** — `left:20px`, `top:435px`, `borderRadius:16px`, `padding:6px 14px`. Sits just below Gmail's "Labels" section in the left nav. Pixel-perfect confirmed 2026-04-05. Do not change.
 21. **Gmail sidebar** — `left:0`, `bottom:0`, `width:200px`, `maxHeight:calc(100vh - 450px)`, `overflow:hidden`. Compact CSS overrides for all elements. Looks native to Gmail's left nav. Do not change dimensions or position.
+22. **Messenger pill position** — `left:72px`, `top:50%`, `translateY(-50%)`. Clears Messenger's left nav column. Confirmed 2026-04-05. Do not change.
 
 ## Next Task
 
