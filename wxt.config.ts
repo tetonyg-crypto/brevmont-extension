@@ -7,7 +7,7 @@ export default defineConfig({
       minify: 'terser',
       terserOptions: {
         mangle: {
-          reserved: ['detectPlatform', 'gatherAllText', 'getDashboardScopedText', 'extractVehicle', 'scanText', 'attemptScan', 'updateSidebar', 'openSidebar', 'closeSidebar', 'pushContent', 'updatePillPosition']
+          reserved: ['detectPlatform', 'gatherAllText', 'getDashboardScopedText', 'extractVehicle', 'scanText', 'attemptScan', 'updateSidebar', 'openSidebar', 'closeSidebar', 'pushContent', 'updatePillPosition', 'extractContactName']
         }
       }
     }
@@ -15,8 +15,8 @@ export default defineConfig({
   manifest: {
     name: 'Floq — AI Sales Assistant for VinSolutions',
     short_name: 'Floq',
-    version: '1.8.5',
-    version_name: '1.8.5',
+    version: '1.9.0',
+    version_name: '1.9.0',
     description: 'AI writes the text, email, and CRM note inside VinSolutions. Every rep performs like your best one.',
     homepage_url: 'https://floqsales.com',
     icons: {

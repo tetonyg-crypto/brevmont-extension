@@ -655,6 +655,38 @@ export default defineContentScript({
     window.addEventListener('fullscreenchange', () => { updatePillPosition(); updateSidebarPosition(); });
     setInterval(() => { updatePillPosition(); updateSidebarPosition(); }, 1000);
 
+    // ===== NON-VINSOLUTIONS: Lightweight contact name watcher =====
+    // VinSolutions has its own deep scanning. For all other platforms, periodically
+    // extract the contact name from the conversation header so it's ready when the
+    // rep generates output. This runs every 3 seconds and is cheap (DOM queries only).
+    if (!isVinSolutions) {
+      setInterval(() => {
+        const name = extractContactName();
+        if (name && (!leadData || !leadData.customerName)) {
+          leadData = leadData || {};
+          leadData.customerName = name;
+          // Gmail: also grab email from sender element
+          if (isGmail) {
+            const emailEl = document.querySelector('.gD');
+            if (emailEl) {
+              const emailAddr = emailEl.getAttribute('email');
+              if (emailAddr) leadData.email = emailAddr;
+            }
+          }
+          console.log('[Floq] Auto-captured contact:', name);
+        }
+        // If the name changed (user switched conversations), update leadData
+        if (name && leadData && leadData.customerName && leadData.customerName !== name) {
+          leadData.customerName = name;
+          if (isGmail) {
+            const emailEl = document.querySelector('.gD');
+            if (emailEl) leadData.email = emailEl.getAttribute('email') || leadData.email;
+          }
+          console.log('[Floq] Contact name updated to:', name);
+        }
+      }, 3000);
+    }
+
     // ===== SPA OBSERVER for Facebook/Instagram — re-inject pill if DOM rebuilds =====
     if (isFacebook || isInstagram) {
       const target = document.querySelector('[role="main"]') || document.querySelector('[class*="x1n2onr6"]') || document.body;
@@ -1052,6 +1084,345 @@ export default defineContentScript({
       const settingsBtnInline = s.getElementById('o8-settings-btn-inline');
       if (settingsBtnInline) settingsBtnInline.onclick = openSettings;
 
+      // Lead Capture panel
+      const leadPanel = s.getElementById('o8-lead-panel');
+      const leadBack = s.getElementById('o8-lead-back');
+      const leadResult = s.getElementById('o8-lead-result');
+      const openLead = () => { s.getElementById('o8-quick')!.style.display = 'none'; if (toolsPanel) toolsPanel.style.display = 'none'; if (settingsPanel) settingsPanel.style.display = 'none'; if (leadPanel) leadPanel.style.display = 'flex'; };
+      const closeLead = () => { if (leadPanel) leadPanel.style.display = 'none'; s.getElementById('o8-quick')!.style.display = 'flex'; };
+      const leadBtn = s.getElementById('o8-lead-btn');
+      if (leadBtn) leadBtn.onclick = openLead;
+      if (leadBack) leadBack.onclick = closeLead;
+
+      // Lead tab switching
+      s.querySelectorAll('.lead-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          s.querySelectorAll('.lead-tab-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          ['lead-scan', 'lead-voice', 'lead-paste'].forEach(id => { const el = s.getElementById(id); if (el) el.style.display = 'none'; });
+          const tab = (btn as HTMLElement).dataset.ltab;
+          const target = s.getElementById('lead-' + tab);
+          if (target) target.style.display = 'block';
+          if (leadResult) leadResult.style.display = 'none'; // hide result when switching tabs
+        });
+      });
+
+      // Lead voice mic
+      const leadVoiceInput = s.getElementById('o8-lead-voice-input') as HTMLTextAreaElement;
+      const leadVoiceMic = s.getElementById('o8-lead-voice-mic');
+      if (leadVoiceInput && leadVoiceMic) attachInlineMic(s, leadVoiceInput, leadVoiceMic);
+
+      // Context extraction per platform
+      function getLeadContext(): string {
+        if (isFacebook) {
+          const main = document.querySelector('[role="main"]');
+          if (main) return main.innerText.slice(0, 1500);
+          const conv = document.querySelector('[data-pagelet*="MWConversation"]');
+          if (conv) return (conv as HTMLElement).innerText.slice(0, 1500);
+          return document.body.innerText.slice(0, 1500);
+        }
+        if (isLinkedIn) {
+          const thread = document.querySelector('.msg-s-message-list-content, [class*="msg-thread"], [class*="message-list"], .msg-conversations-container__thread-view, [class*="scaffold-layout__detail"]');
+          if (thread) return (thread as HTMLElement).innerText.slice(0, 2000);
+          // Fallback: grab the right panel (conversation area)
+          const rightPanel = document.querySelector('[class*="msg-conversation-card"], [class*="msg-s-event-listitem"], main');
+          if (rightPanel) return (rightPanel as HTMLElement).innerText.slice(0, 2000);
+          return document.body.innerText.slice(0, 1500);
+        }
+        if (isGmail) {
+          const msg = document.querySelector('.h7, [role="list"], .a3s');
+          if (msg) return (msg as HTMLElement).innerText.slice(0, 2000);
+          return document.body.innerText.slice(0, 1500);
+        }
+        if (isInstagram) {
+          const thread = document.querySelector('[role="main"]');
+          if (thread) return (thread as HTMLElement).innerText.slice(0, 1500);
+        }
+        return document.body.innerText.slice(0, 1500);
+      }
+
+      // ===== UNIVERSAL CONTACT NAME EXTRACTION (all platforms) =====
+      function extractContactName(): string | null {
+        if (isGmail) {
+          // Gmail: sender name from email header elements
+          const senderEl = document.querySelector('.gD');
+          if (senderEl) {
+            const name = (senderEl as HTMLElement).getAttribute('name')
+              || (senderEl as HTMLElement).textContent?.trim()
+              || null;
+            if (name && name.length > 1 && name.length < 60) return name;
+          }
+          const goEl = document.querySelector('.go');
+          if (goEl) {
+            const name = (goEl as HTMLElement).textContent?.trim();
+            if (name && name.length > 1 && name.length < 60) return name;
+          }
+          const namedEl = document.querySelector('[data-name]');
+          if (namedEl) {
+            const name = namedEl.getAttribute('data-name');
+            if (name && name.length > 1 && name.length < 60) return name;
+          }
+          return null;
+        }
+
+        if (isFacebook) {
+          // Messenger: conversation header shows contact name
+          const headerSpan = document.querySelector('[data-testid="mwthreadlist-item-open"] span')
+            || document.querySelector('div[role="main"] h2 span')
+            || document.querySelector('div[role="banner"] a[role="link"] span');
+          if (headerSpan) {
+            const name = (headerSpan as HTMLElement).textContent?.trim();
+            if (name && name.length > 1 && name.length < 50 && !name.includes('@')) return name;
+          }
+          const convoHeader = document.querySelector('[aria-label*="Conversation with"]');
+          if (convoHeader) {
+            const label = convoHeader.getAttribute('aria-label') || '';
+            const match = label.match(/Conversation with (.+)/i);
+            if (match && match[1].trim().length > 1) return match[1].trim();
+          }
+          // Fallback: title tag on messenger.com often contains the contact name
+          if (window.location.hostname.includes('messenger.com')) {
+            const title = document.title.replace(/ - .*$/, '').replace(/\(\d+\)\s*/, '').trim();
+            if (title && title.length > 1 && title.length < 50 && title !== 'Messenger') return title;
+          }
+          return null;
+        }
+
+        if (isLinkedIn) {
+          // LinkedIn: messaging header shows contact name
+          const nameEl = document.querySelector('.msg-overlay-bubble-header__title')
+            || document.querySelector('.msg-s-message-group__name')
+            || document.querySelector('.msg-thread__link-to-profile')
+            || document.querySelector('.msg-entity-lockup__entity-title')
+            || document.querySelector('[class*="msg-overlay-conversation-bubble"] h2');
+          if (nameEl) {
+            const name = (nameEl as HTMLElement).textContent?.trim();
+            if (name && name.length > 1 && name.length < 60) return name;
+          }
+          return null;
+        }
+
+        if (isInstagram) {
+          // Instagram DMs: thread header
+          const igHeader = document.querySelector('header h2')
+            || document.querySelector('[role="heading"]');
+          if (igHeader) {
+            const name = (igHeader as HTMLElement).textContent?.trim();
+            if (name && name.length > 1 && name.length < 50) return name;
+          }
+          return null;
+        }
+
+        return null;
+      }
+
+      // Parse lead from text
+      async function parseLead(rawText: string, inputMethod: string) {
+        // Show loading in all input tabs
+        ['o8-scan-btn', 'o8-lead-voice-parse', 'o8-lead-paste-parse'].forEach(id => {
+          const btn = s.getElementById(id) as HTMLButtonElement;
+          if (btn) { btn.innerHTML = '<span class="gen-spinner"></span> Parsing…'; btn.disabled = true; }
+        });
+        try {
+          const resp = await safeSend({ type: 'PARSE_LEAD', payload: { raw_text: rawText, platform: PLATFORM } });
+          if (resp.error) { showToast(s, 'Parse failed: ' + resp.error); return; }
+          const lead = resp.lead || resp;
+          showLeadCard(lead, inputMethod);
+        } catch(e: any) {
+          showToast(s, 'Parse error: ' + e.message);
+        } finally {
+          ['o8-scan-btn', 'o8-lead-voice-parse', 'o8-lead-paste-parse'].forEach(id => {
+            const btn = s.getElementById(id) as HTMLButtonElement;
+            if (btn) { btn.innerHTML = id.includes('scan') ? 'Scan This Page' : 'Parse'; btn.disabled = false; }
+          });
+        }
+      }
+
+      // Render parsed lead card
+      function showLeadCard(lead: any, inputMethod: string) {
+        if (!leadResult) return;
+        // Hide input tabs, show result
+        ['lead-scan', 'lead-voice', 'lead-paste'].forEach(id => { const el = s.getElementById(id); if (el) el.style.display = 'none'; });
+        leadResult.style.display = 'block';
+
+        const fields = [
+          { key: 'first_name', label: 'First Name' },
+          { key: 'last_name', label: 'Last Name' },
+          { key: 'phone', label: 'Phone' },
+          { key: 'email', label: 'Email' },
+          { key: 'vehicle_interest', label: 'Vehicle Interest' },
+          { key: 'notes', label: 'Notes' }
+        ];
+
+        const isLocked = currentTier !== 'command' && currentTier !== 'group';
+        const confidence = lead.confidence || 0;
+
+        let html = `<div class="lead-confidence">${confidence}% confidence</div>`;
+        for (const f of fields) {
+          const val = lead[f.key] || '';
+          html += `<div class="lead-field"><label>${f.label}</label><input class="lead-input ${val ? '' : 'empty'}" data-field="${f.key}" value="${esc(val)}" placeholder="${f.label}" /></div>`;
+        }
+
+        if (isLocked) {
+          html += `<button class="lead-inject-btn locked" disabled>🔒 Inject to VinSolutions</button>`;
+          html += `<div class="lead-gate-msg">Lead Capture requires Command. Upgrade at floqsales.com</div>`;
+        } else {
+          html += `<button id="o8-lead-inject" class="lead-inject-btn">Inject to VinSolutions</button>`;
+        }
+        html += `<button id="o8-lead-cancel" class="lead-cancel-btn">Cancel</button>`;
+
+        leadResult.innerHTML = html;
+
+        // Remove empty class on input
+        leadResult.querySelectorAll('.lead-input').forEach(inp => {
+          inp.addEventListener('input', function(this: HTMLInputElement) { this.classList.toggle('empty', !this.value); });
+        });
+
+        // Cancel button
+        const cancelBtn = leadResult.querySelector('#o8-lead-cancel');
+        if (cancelBtn) cancelBtn.addEventListener('click', () => {
+          leadResult.style.display = 'none';
+          const activeTab = s.querySelector('.lead-tab-btn.active') as HTMLElement;
+          const tabId = activeTab?.dataset.ltab || 'scan';
+          const target = s.getElementById('lead-' + tabId);
+          if (target) target.style.display = 'block';
+        });
+
+        // Inject button (Command tier only)
+        const injectBtn = leadResult.querySelector('#o8-lead-inject');
+        if (injectBtn) {
+          injectBtn.addEventListener('click', async () => {
+            const data: any = {};
+            leadResult.querySelectorAll('.lead-input').forEach((inp: any) => { data[inp.dataset.field] = inp.value; });
+
+            if (!isVinSolutions) {
+              // Save pending lead for later
+              await browser.storage.local.set({ floq_pending_lead: data, floq_pending_lead_time: Date.now() });
+              navigator.clipboard.writeText(`${data.first_name || ''} ${data.last_name || ''}\nPhone: ${data.phone || ''}\nEmail: ${data.email || ''}\nVehicle: ${data.vehicle_interest || ''}\nNotes: ${data.notes || ''}`);
+              showToast(s, 'Lead saved — open VinSolutions to inject');
+              closeLead();
+              return;
+            }
+
+            // On VinSolutions — duplicate check
+            if (data.phone) {
+              const pageText = document.body.innerText || '';
+              if (pageText.includes(data.phone)) {
+                const confirmDiv = document.createElement('div');
+                confirmDiv.style.cssText = 'padding:8px;background:#FEF08A;border:1px solid #FDE047;border-radius:6px;margin-top:8px;font-size:12px;text-align:center;';
+                confirmDiv.innerHTML = `This number may already exist in VinSolutions.<br><button id="o8-lead-confirm-yes" style="padding:4px 12px;background:#7F77DD;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;margin:4px">Inject Anyway</button><button id="o8-lead-confirm-no" style="padding:4px 12px;background:#fff;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;cursor:pointer;margin:4px">Cancel</button>`;
+                leadResult.appendChild(confirmDiv);
+                confirmDiv.querySelector('#o8-lead-confirm-no')!.addEventListener('click', () => confirmDiv.remove());
+                confirmDiv.querySelector('#o8-lead-confirm-yes')!.addEventListener('click', () => { confirmDiv.remove(); doVinSolutionsInject(data, inputMethod); });
+                return;
+              }
+            }
+            doVinSolutionsInject(data, inputMethod);
+          });
+        }
+      }
+
+      // VinSolutions Add Customer injection
+      async function doVinSolutionsInject(data: any, inputMethod: string) {
+        // Try to find Add Customer button
+        const addCustSelectors = ['a[data-uname*="addCust"]', 'a[data-uname*="AddCust"]', 'button[title*="Add Customer"]', 'a[href*="AddCustomer"]', 'a[href*="addcustomer"]'];
+        let addBtn: HTMLElement | null = null;
+        for (const sel of addCustSelectors) { addBtn = document.querySelector(sel) as HTMLElement; if (addBtn) break; }
+        if (!addBtn) {
+          // Scan all clickable elements for "Add Customer" text
+          for (const el of document.querySelectorAll('a, button, div[role="button"], span')) {
+            if (el.textContent?.trim().includes('Add Customer') && (el as HTMLElement).offsetWidth > 0) { addBtn = el as HTMLElement; break; }
+          }
+        }
+
+        if (!addBtn) {
+          // Fallback — copy to clipboard
+          const clipText = `${data.first_name || ''} ${data.last_name || ''}\nPhone: ${data.phone || ''}\nEmail: ${data.email || ''}\nVehicle: ${data.vehicle_interest || ''}\nNotes: ${data.notes || ''}`;
+          navigator.clipboard.writeText(clipText);
+          showToast(s, "Couldn't find Add Customer — lead data copied to clipboard");
+          // Log anyway
+          try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'LEAD_CAPTURED', platform: PLATFORM, customer: `${data.first_name || ''} ${data.last_name || ''}`.trim(), input_method: inputMethod, fields_populated: Object.values(data).filter(Boolean).length, tier: currentTier } }); } catch(e) {}
+          closeLead();
+          return;
+        }
+
+        addBtn.click();
+        showToast(s, 'Opening Add Customer form…');
+
+        // Wait for form to load, then inject
+        setTimeout(async () => {
+          // Search all iframes for form fields
+          const docs: Document[] = [document];
+          document.querySelectorAll('iframe').forEach(iframe => { try { const d = (iframe as HTMLIFrameElement).contentDocument; if (d) docs.push(d); } catch(e) {} });
+
+          for (const doc of docs) {
+            const firstNameField = doc.querySelector('input[name*="irstName"], input[name*="irst_name"], input[id*="irstName"], input[id*="firstName"]') as HTMLInputElement;
+            const lastNameField = doc.querySelector('input[name*="astName"], input[name*="ast_name"], input[id*="astName"], input[id*="lastName"]') as HTMLInputElement;
+            const phoneField = doc.querySelector('input[name*="hone"], input[id*="hone"], input[type="tel"]') as HTMLInputElement;
+            const emailField = doc.querySelector('input[name*="mail"], input[id*="mail"], input[type="email"]') as HTMLInputElement;
+
+            if (firstNameField || lastNameField || phoneField) {
+              if (firstNameField && data.first_name) { firstNameField.focus(); safeInjectText(firstNameField, data.first_name); }
+              if (lastNameField && data.last_name) { lastNameField.focus(); safeInjectText(lastNameField, data.last_name); }
+              if (phoneField && data.phone) { phoneField.focus(); safeInjectText(phoneField, data.phone); }
+              if (emailField && data.email) { emailField.focus(); safeInjectText(emailField, data.email); }
+              showToast(s, 'Form filled — review and click Save in VinSolutions');
+
+              // Log capture event
+              try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'LEAD_CAPTURED', platform: PLATFORM, customer: `${data.first_name || ''} ${data.last_name || ''}`.trim(), input_method: inputMethod, fields_populated: Object.values(data).filter(Boolean).length, tier: currentTier } }); } catch(e) {}
+              closeLead();
+              return;
+            }
+          }
+
+          // Form fields not found — fallback to clipboard
+          const clipText = `${data.first_name || ''} ${data.last_name || ''}\nPhone: ${data.phone || ''}\nEmail: ${data.email || ''}\nVehicle: ${data.vehicle_interest || ''}\nNotes: ${data.notes || ''}`;
+          navigator.clipboard.writeText(clipText);
+          showToast(s, "Form opened but fields not found — lead data copied to clipboard");
+          try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'LEAD_CAPTURED', platform: PLATFORM, customer: `${data.first_name || ''} ${data.last_name || ''}`.trim(), input_method: inputMethod, fields_populated: Object.values(data).filter(Boolean).length, tier: currentTier } }); } catch(e) {}
+          closeLead();
+        }, 1500);
+      }
+
+      // Scan button
+      const scanBtn = s.getElementById('o8-scan-btn');
+      if (scanBtn) scanBtn.onclick = () => parseLead(getLeadContext(), 'scan');
+
+      // Voice parse button
+      const voiceParseBtn = s.getElementById('o8-lead-voice-parse');
+      if (voiceParseBtn) voiceParseBtn.onclick = () => {
+        const input = (s.getElementById('o8-lead-voice-input') as HTMLTextAreaElement)?.value?.trim();
+        if (input) parseLead(input, 'voice');
+      };
+
+      // Paste parse button
+      const pasteParseBtn = s.getElementById('o8-lead-paste-parse');
+      if (pasteParseBtn) pasteParseBtn.onclick = () => {
+        const input = (s.getElementById('o8-lead-paste-input') as HTMLTextAreaElement)?.value?.trim();
+        if (input) parseLead(input, 'paste');
+      };
+
+      // Check for pending lead on VinSolutions load
+      if (isVinSolutions) {
+        browser.storage.local.get(['floq_pending_lead', 'floq_pending_lead_time']).then(r => {
+          if (r.floq_pending_lead && r.floq_pending_lead_time && (Date.now() - r.floq_pending_lead_time < 24 * 60 * 60 * 1000)) {
+            const quickMode = s.getElementById('o8-quick');
+            if (quickMode) {
+              const banner = document.createElement('div');
+              banner.className = 'lead-banner';
+              banner.innerHTML = '📋 You have an uninjected lead — tap to complete';
+              banner.onclick = () => {
+                banner.remove();
+                openLead();
+                // Show the lead card with saved data
+                showLeadCard(r.floq_pending_lead, 'saved');
+              };
+              quickMode.insertBefore(banner, quickMode.firstChild);
+            }
+          }
+        });
+      }
+
       s.querySelectorAll('.tool-tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           s.querySelectorAll('.tool-tab-btn').forEach(b => b.classList.remove('active'));
@@ -1399,7 +1770,7 @@ export default defineContentScript({
         const response = await safeSend({
           type: 'GENERATE_OUTPUT',
           payload: { type, leadContext: leadData || {}, repInput: input + (leadData?.vehicle ? '' : '\n[SYSTEM: No vehicle of interest detected. Do not mention or invent a vehicle in the response.]'), repName: '', dealership: '', platform: PLATFORM, tone, goal,
-            metadata: { workflow_type: type === 'all' ? 'all' : type, customer_name: leadData?.customerName || null, vehicle: leadData?.vehicle || null, email: leadData?.email || null } }
+            metadata: { workflow_type: type === 'all' ? 'all' : type, customer_name: leadData?.customerName || extractContactName() || null, vehicle: leadData?.vehicle || null, email: leadData?.email || null } }
         });
         if (response.error) addOutput(s, 'Error', response.error);
         else { const sec = response.sections; if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) addOutput(s, outputLabels.crm, sec.crm); if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.'); }
@@ -1424,7 +1795,7 @@ export default defineContentScript({
       else {
         statusEl.textContent = 'Saved to pending notes'; statusEl.style.color = '#2563eb';
         // Persist to Supabase so it survives session/navigation
-        try { browser.runtime.sendMessage({ type: 'SAVE_PENDING_NOTE', payload: { customer_name: leadData?.customerName || '', note_text: noteText, contact_id: null } }); } catch(e) {}
+        try { browser.runtime.sendMessage({ type: 'SAVE_PENDING_NOTE', payload: { customer_name: leadData?.customerName || extractContactName() || '', note_text: noteText, contact_id: null } }); } catch(e) {}
         refreshPendingBadge();
       }
     }
@@ -1557,13 +1928,13 @@ export default defineContentScript({
             const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement;
             if (box) { box.focus(); safeInjectText(box, curContent); this.textContent = 'Sent'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Sent to Messenger'; st.style.color = '#16a34a'; }
             else { this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Copied — open a conversation first'; st.style.color = '#f59e0b'; }
-            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || null } }); } catch(e) {}
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
           } else if (isText && isLinkedIn) {
             const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement;
             if (box) { box.focus(); safeInjectText(box, curContent); this.textContent = 'Sent'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Sent to LinkedIn'; st.style.color = '#16a34a'; }
             else { this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Copied — open a conversation first'; st.style.color = '#f59e0b'; }
-            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || null } }); } catch(e) {}
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
           } else if (isEmail && isGmail) {
             let subject = ''; let body = curContent;
@@ -1574,7 +1945,7 @@ export default defineContentScript({
               composeBody.focus(); safeInjectText(composeBody, body);
               if (subject) { const subjectField = document.querySelector('input[name="subjectbox"]') as HTMLInputElement; if (subjectField) { subjectField.focus(); safeInjectText(subjectField, subject); } }
               this.textContent = 'Applied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Applied to compose'; st.style.color = '#16a34a';
-              try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'EMAIL_APPLIED', platform: PLATFORM, customer: leadData?.customerName || null } }); } catch(e) {}
+              try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'EMAIL_APPLIED', platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
             } else {
               this.textContent = 'Copied'; this.style.background = '#f59e0b'; this.style.color = '#fff'; st.textContent = 'Copied — open a compose window first'; st.style.color = '#f59e0b';
             }
@@ -1582,7 +1953,7 @@ export default defineContentScript({
           } else {
             // Default: Copy
             this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff';
-            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || null } }); } catch(e) {}
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 1500);
           }
         });
@@ -1685,6 +2056,7 @@ export default defineContentScript({
   <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="4" fill="#7F77DD"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">FQ</text></svg>
   <span class="logo">Floq</span>
   <span style="flex:1"></span>
+  <button id="o8-lead-btn" class="lead-btn">+ Lead</button>
   <span id="o8-close" class="close">&times;</span>
 </div>
 <div id="o8-quick" class="quick-mode">
@@ -1721,6 +2093,18 @@ export default defineContentScript({
 <div id="o8-settings-panel" class="tools-panel" style="display:none">
   <div class="tools-header"><button id="o8-settings-back" class="back-btn">← Back</button><span class="tools-title">Settings</span></div>
   ${getSettingsHTML()}
+</div>
+<div id="o8-lead-panel" class="tools-panel" style="display:none">
+  <div class="tools-header"><button id="o8-lead-back" class="back-btn">← Back</button><span class="tools-title">Capture Lead</span></div>
+  <div class="tool-tabs">
+    <button class="lead-tab-btn active" data-ltab="scan">Scan</button>
+    <button class="lead-tab-btn" data-ltab="voice">Voice</button>
+    <button class="lead-tab-btn" data-ltab="paste">Paste</button>
+  </div>
+  <div id="lead-scan" class="tool-content" style="display:block"><div class="tool-section"><button id="o8-scan-btn" class="gen-btn">Scan This Page</button><div style="font-size:11px;color:#9CA3AF;text-align:center;margin-top:8px">Floq will read this conversation and extract the contact automatically.</div></div></div>
+  <div id="lead-voice" class="tool-content" style="display:none"><div class="tool-section"><div class="input-wrap"><textarea id="o8-lead-voice-input" class="main-input" placeholder="Tap mic and describe the lead..." rows="3"></textarea><button id="o8-lead-voice-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button></div><button id="o8-lead-voice-parse" class="gen-btn" style="margin-top:8px">Parse</button></div></div>
+  <div id="lead-paste" class="tool-content" style="display:none"><div class="tool-section"><textarea id="o8-lead-paste-input" class="main-input" placeholder="Paste a message, text thread, or any contact info here." rows="4"></textarea><button id="o8-lead-paste-parse" class="gen-btn" style="margin-top:8px">Parse</button></div></div>
+  <div id="o8-lead-result" class="tool-content" style="display:none"></div>
 </div>
 `;
     }
@@ -1777,6 +2161,16 @@ export default defineContentScript({
 .ctx-preview { position:relative; text-align:center; margin-bottom:8px; } .ctx-img { max-width:180px; max-height:100px; border-radius:6px; border:1px solid #e2e8f0; } .ctx-remove { position:absolute; top:-6px; right:calc(50% - 96px); width:18px; height:18px; border-radius:50%; background:#FF3B30; color:#fff; border:none; font-size:11px; cursor:pointer; }
 .alert-item { display:flex; align-items:center; padding:6px 8px; background:#FFF7ED; border:1px solid #FBBF24; border-radius:6px; margin-bottom:4px; font-size:11px; gap:6px; } .alert-time { font-size:10px; color:#92400E; margin-left:auto; } .alert-dismiss { background:none; border:none; color:#94a3b8; cursor:pointer; font-size:14px; }
 .tcpa-inline { padding:4px 14px 8px; font-size:11px; color:#9CA3AF; line-height:1.3; text-align:center; flex-shrink:0; }
+/* Lead Capture */
+.lead-btn { height:24px; padding:0 8px; border-radius:6px; border:1px solid #E5E7EB; background:#fff; color:${isVinSolutions ? '#9CA3AF' : '#7F77DD'}; font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; margin-right:4px; } .lead-btn:hover { background:#f3f4f6; }
+.lead-tab-btn { flex:1; padding:8px 4px; font-size:11px; font-weight:600; font-family:inherit; border:none; background:transparent; color:#94a3b8; cursor:pointer; border-bottom:2px solid transparent; } .lead-tab-btn.active { color:#7F77DD; border-bottom-color:#7F77DD; }
+.lead-field { display:flex; flex-direction:column; gap:2px; margin-bottom:8px; } .lead-field label { font-size:10px; font-weight:600; color:#6B7280; text-transform:uppercase; letter-spacing:0.5px; } .lead-field input { padding:6px 8px; border:1px solid #E5E7EB; border-radius:4px; font-size:13px; font-family:inherit; outline:none; color:#1a202c; } .lead-field input:focus { border-color:#7F77DD; } .lead-field input.empty { background:#FEF08A; }
+.lead-confidence { text-align:center; font-size:11px; color:#6B7280; margin-bottom:10px; padding:4px 8px; background:#f3f4f6; border-radius:4px; }
+.lead-inject-btn { width:100%; padding:10px; background:#7F77DD; color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; margin-top:4px; } .lead-inject-btn:hover { background:#534AB7; }
+.lead-inject-btn.locked { background:#9CA3AF; cursor:not-allowed; } .lead-inject-btn.locked:hover { background:#9CA3AF; }
+.lead-cancel-btn { width:100%; padding:8px; background:transparent; border:1px solid #E5E7EB; border-radius:8px; font-size:12px; font-weight:500; color:#475569; cursor:pointer; font-family:inherit; margin-top:6px; } .lead-cancel-btn:hover { background:#f3f4f6; }
+.lead-gate-msg { font-size:10px; color:#9CA3AF; text-align:center; margin-top:6px; }
+.lead-banner { padding:8px 12px; background:#F0EFFF; border-bottom:1px solid #E5E7EB; cursor:pointer; font-size:12px; color:#7F77DD; font-weight:600; display:flex; align-items:center; gap:6px; } .lead-banner:hover { background:#e8e4ff; }
 /* Settings */
 .settings-section { padding:16px 14px; } .settings-label { font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; margin-top:12px; }
 .settings-options { display:flex; flex-direction:column; gap:6px; position:relative; } .settings-options label { font-size:12px; color:#1a202c; display:flex; align-items:center; gap:6px; } .settings-options input[type="radio"] { accent-color:#7F77DD; }
