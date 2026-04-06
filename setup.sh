@@ -33,22 +33,23 @@ echo "Node version: ${CURRENT_VERSION} ✓"
 echo "npm version:  $(npm -v) ✓"
 echo ""
 
-# 2. Nuke all build artifacts and dependencies
+# 2. Enable git hooks (must run before npm ci triggers prepare script)
+echo "Configuring git hooks..."
+git config core.hooksPath .githooks 2>/dev/null || true
+chmod +x .githooks/* 2>/dev/null || true
+echo "Git hooks ✓"
+echo ""
+
+# 3. Nuke all build artifacts and dependencies
 echo "Cleaning node_modules, .wxt, .output..."
 rm -rf node_modules .wxt .output
 echo "Clean ✓"
 echo ""
 
-# 3. Install from lockfile (exact versions, no drift)
+# 4. Install from lockfile (exact versions, no drift)
 echo "Installing dependencies via npm ci..."
 npm ci
 echo "Install ✓"
-echo ""
-
-# 4. Set up git hooks
-echo "Configuring git hooks..."
-git config core.hooksPath .githooks 2>/dev/null || true
-echo "Git hooks ✓"
 echo ""
 
 # 5. Build
