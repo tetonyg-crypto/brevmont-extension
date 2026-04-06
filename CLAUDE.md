@@ -8,7 +8,7 @@ Floq is a Chrome extension (MV3) that acts as an AI sales assistant for automoti
 
 - **Brand name:** Floq (formerly Oper8er)
 - **Brand color:** #7F77DD (purple)
-- **Version:** 1.8.1
+- **Version:** 1.9.0
 - **Extension ID:** odianhkmfpbcnggigamhjbpkkcbkcckh
 - **Proxy:** https://oper8er-proxy-production.up.railway.app
 - **Supabase:** https://mqnmemnogbotgmsmqfie.supabase.co (publishable key: `sb_publishable_-sD_RSqo9SNizbhQ0kqWSA_tJbsWD_m`)
@@ -84,6 +84,18 @@ Floq is a Chrome extension (MV3) that acts as an AI sales assistant for automoti
 26. **Error reporting** — `reportError()` at background.ts:568-592 sends errors to `/api/error` with license key, platform, version.
 
 27. **Supabase SMTP** — working via Resend (noreply@floqsales.com). Magic link auth on app.floqsales.com and founder.floqsales.com.
+
+28. **Lead Capture** — Command-tier feature. "+ Lead" button in header opens Lead Capture panel with Scan/Voice/Paste tabs. Scan extracts page context (platform-aware selectors), sends to proxy PARSE_LEAD handler, returns JSON with first_name/last_name/phone/email/vehicle_interest/notes/confidence. Parsed card shows editable fields (null = yellow background). Floor tier sees parsed card but inject button is locked with upgrade CTA. Command tier injects into VinSolutions Add Customer form via safeInjectText(). Fallback: if Add Customer button not found, copies formatted data to clipboard. If not on VinSolutions, saves to `floq_pending_lead` in chrome.storage.local; VinSolutions shows banner "You have an uninjected lead" on next load.
+
+29. **Universal Contact Name Extraction** — `extractContactName()` auto-captures customer names from Gmail (`.gD` sender), Facebook/Messenger (conversation header), LinkedIn (`msg-entity-lockup`), Instagram (header `h2`). 3-second watcher on non-VinSolutions platforms. All generation metadata, LOG_COPY, and SAVE_PENDING_NOTE calls use `extractContactName()` as fallback.
+
+30. **Proxy Rate Limiting** — `express-rate-limit`: 30/min on `/v1/generate`, 10/15min on auth endpoints. `helmet` security headers.
+
+31. **Weekly GM Digest Email** — `node-cron` Monday 7AM MT. Queries `generation_events`, calculates ROI, sends branded HTML email to dealership GM via Resend.
+
+32. **Ghost Lead Alerts** — 6-hour cron checks for 48h+ inactive leads, emails GM, tracks in `ghost_alerts` Supabase table to avoid re-alerting.
+
+33. **Seat Limit Enforcement** — `checkSeatLimit()` validates active rep count against tier limits (Floor:3, Command:6, Group:9) before generation.
 
 ## Current Broken Features (be specific)
 
@@ -228,6 +240,8 @@ At content.ts:337-347. Debounced MutationObserver replaces the earlier setInterv
 20. **Gmail pill position** — `left:20px`, `top:435px`, `borderRadius:16px`, `padding:6px 14px`. Sits just below Gmail's "Labels" section in the left nav. Pixel-perfect confirmed 2026-04-05. Do not change.
 21. **Gmail sidebar** — `left:0`, `bottom:0`, `width:200px`, `maxHeight:calc(100vh - 450px)`, `overflow:hidden`. Compact CSS overrides for all elements. Looks native to Gmail's left nav. Do not change dimensions or position.
 22. **Messenger pill position** — `left:72px`, `top:50%`, `translateY(-50%)`. Clears Messenger's left nav column. Confirmed 2026-04-05. Do not change.
+23. **extractContactName() DOM selectors** — platform-specific, tested across Gmail/FB/LinkedIn/IG. Do not simplify.
+24. **Non-VinSolutions name watcher interval (3 seconds)** — balances responsiveness vs DOM query cost.
 
 ## Next Task
 
@@ -259,6 +273,9 @@ Priority order:
 
 ### chrome.storage.local (session/device)
 `oper8er_lead` (object), `oper8er_lead_time` (timestamp), `oper8er_vehicle_info` (string), `oper8er_vehicle_info_time` (timestamp), `oper8er_paste_note` (string), `oper8er_paste_note_time` (timestamp), `oper8er_paste_email_subject` (string), `oper8er_paste_email_body` (string), `floq_tier` (string), `floq_features` (object), `floq_last_heartbeat` (timestamp), `floq_tone` (string), `floq_goal` (string), `floq_alerts` (array)
+
+### Supabase Tables (proxy-managed)
+`ghost_alerts` — columns: `dealership` (text), `customer_name` (text), `alerted_at` (timestamp), `followed_up` (boolean)
 
 ## Proxy Endpoints (server.js at oper8er-proxy repo)
 
