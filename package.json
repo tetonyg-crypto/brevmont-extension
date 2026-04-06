@@ -1,13 +1,21 @@
 {
   "name": "oper8er-v2",
-  "version": "1.0.0",
-  "description": "",
+  "version": "1.9.0",
+  "description": "Floq Chrome Extension — AI Sales Assistant",
   "main": "index.js",
   "scripts": {
     "build": "wxt build",
     "dev": "wxt dev",
     "zip": "wxt zip",
-    "test": "echo \"No tests yet\""
+    "test": "echo \"No tests yet\"",
+    "clean": "rm -rf node_modules .wxt .output",
+    "fresh": "npm run clean && npm ci && npm run build",
+    "setup": "bash setup.sh",
+    "prepare": "git config core.hooksPath .githooks"
+  },
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
   },
   "keywords": [],
   "author": "",

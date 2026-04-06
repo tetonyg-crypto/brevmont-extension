@@ -1,0 +1,26 @@
+#!/bin/bash
+# Auto clean-install when package-lock.json changes after git pull/merge
+
+changed_files="$(git diff-tree -r --name-only --no-commit-id ORIG_HEAD HEAD)"
+
+if echo "$changed_files" | grep -q "package-lock.json"; then
+  echo ""
+  echo "╔══════════════════════════════════════════╗"
+  echo "║  package-lock.json changed — rebuilding  ║"
+  echo "╚══════════════════════════════════════════╝"
+  echo ""
+  rm -rf node_modules .wxt .output
+  npm ci
+  npx wxt build
+  echo ""
+  echo "Auto-rebuild complete. Extension ready in .output/chrome-mv3/"
+  echo ""
+elif echo "$changed_files" | grep -qE "\.(ts|tsx|html|css|js)$"; then
+  echo ""
+  echo "Source files changed. Rebuilding extension..."
+  rm -rf .wxt .output
+  npx wxt build
+  echo ""
+  echo "Rebuild complete. Reload extension in Chrome."
+  echo ""
+fi
