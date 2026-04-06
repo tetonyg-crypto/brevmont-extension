@@ -1,6 +1,17 @@
 #!/bin/bash
 # Auto clean-install when package-lock.json changes after git pull/merge
 
+# Guard: abort if wrong Node version (prevents broken npm ci)
+REQUIRED_MAJOR="24"
+CURRENT_MAJOR=$(node -v 2>/dev/null | cut -d'.' -f1 | tr -d 'v')
+if [ "$CURRENT_MAJOR" != "$REQUIRED_MAJOR" ]; then
+  echo ""
+  echo "⚠ Post-merge hook skipped: Node ${REQUIRED_MAJOR}.x required, you have $(node -v)"
+  echo "  Run: nvm use && npm run fresh"
+  echo ""
+  exit 0
+fi
+
 changed_files="$(git diff-tree -r --name-only --no-commit-id ORIG_HEAD HEAD)"
 
 if echo "$changed_files" | grep -q "package-lock.json"; then

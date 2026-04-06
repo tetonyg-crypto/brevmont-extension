@@ -71,6 +71,21 @@ if [ -f ".output/chrome-mv3/manifest.json" ]; then
   echo "  3. Click 'Load unpacked'"
   echo "  4. Select: $(pwd)/.output/chrome-mv3"
   echo ""
+  # Warn if Chrome might be loading from a stale flat copy (MacBook issue)
+  FLAT_COPY="$HOME/Desktop/floq-chrome-mv3"
+  if [ -d "$FLAT_COPY" ]; then
+    echo "========================================="
+    echo "  ⚠ WARNING: STALE EXTENSION COPY FOUND"
+    echo "========================================="
+    echo ""
+    echo "  Chrome may be loading from:"
+    echo "    $FLAT_COPY"
+    echo ""
+    echo "  That is NOT this build. Either:"
+    echo "    1. Repoint Chrome to: $(pwd)/.output/chrome-mv3"
+    echo "    2. Or delete the stale copy: rm -rf $FLAT_COPY"
+    echo ""
+  fi
 else
   echo "ERROR: Build failed. No manifest.json found in .output/chrome-mv3/"
   echo "Run 'npx wxt build' manually to see errors."
