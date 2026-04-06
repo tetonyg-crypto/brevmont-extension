@@ -241,6 +241,21 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (msg.type === 'PARSE_LEAD') {
+      browser.storage.sync.get(['dealer_token']).then(async (settings) => {
+        if (!settings.dealer_token) { sendResponse({ error: 'No dealer_token' }); return; }
+        try {
+          const resp = await fetch(`${PROXY_URL}/api/parse-lead`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dealer_token: settings.dealer_token, raw_text: msg.payload.raw_text, platform: msg.payload.platform || 'unknown' })
+          });
+          const data = await resp.json();
+          sendResponse(data);
+        } catch(e: any) { sendResponse({ error: e.message }); }
+      });
+      return true;
+    }
+
     if (msg.type === 'MARK_EMAIL_APPLIED') {
       browser.storage.sync.get(['dealer_token']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ error: 'No token' }); return; }
