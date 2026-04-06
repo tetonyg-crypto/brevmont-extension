@@ -1,0 +1,11 @@
+# Normalize line endings across Windows and Mac
+* text=auto eol=lf
+
+# Force LF on shell scripts (critical for Mac execution)
+*.sh text eol=lf
+.githooks/* text eol=lf
+
+# Binary files
+*.png binary
+*.ico binary
+*.zip binary
