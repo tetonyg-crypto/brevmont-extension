@@ -1,5 +1,5 @@
 /**
- * Oper8er Supabase Logging Test
+ * Brevmont Supabase Logging Test
  * 1. POSTs a test generation_event to Supabase (same payload as the extension)
  * 2. Queries it back to verify the row exists with correct data
  * 3. Reports pass/fail

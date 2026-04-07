@@ -2,7 +2,7 @@
  * VinSolutions DOM Discovery Script
  *
  * PURPOSE: Find the exact selectors for the CRM note/activity input field
- * so Oper8er can inject text directly instead of requiring copy-paste.
+ * so Brevmont can inject text directly instead of requiring copy-paste.
  *
  * HOW TO USE:
  * 1. Open VinSolutions in Chrome
@@ -232,12 +232,12 @@
   }
 
   // Start scan
-  console.log('%c[Oper8er DOM Discovery] Scanning all frames...', 'color: #2563eb; font-weight: bold; font-size: 14px;');
+  console.log('%c[Brevmont DOM Discovery] Scanning all frames...', 'color: #2563eb; font-weight: bold; font-size: 14px;');
   scanFrame(document, 'TOP');
 
   // Output
   const output = JSON.stringify(results, null, 2);
-  console.log('%c[Oper8er DOM Discovery] COMPLETE — Copy everything below this line:', 'color: #16a34a; font-weight: bold; font-size: 14px;');
+  console.log('%c[Brevmont DOM Discovery] COMPLETE — Copy everything below this line:', 'color: #16a34a; font-weight: bold; font-size: 14px;');
   console.log('=== OPER8ER_DOM_DISCOVERY_START ===');
   console.log(output);
   console.log('=== OPER8ER_DOM_DISCOVERY_END ===');
@@ -245,12 +245,12 @@
   // Also copy to clipboard if possible
   try {
     navigator.clipboard.writeText(output).then(() => {
-      console.log('%c[Oper8er] Results copied to clipboard!', 'color: #16a34a; font-weight: bold;');
+      console.log('%c[Brevmont] Results copied to clipboard!', 'color: #16a34a; font-weight: bold;');
     }).catch(() => {
-      console.log('%c[Oper8er] Could not auto-copy. Please select the JSON above and copy manually.', 'color: #f59e0b;');
+      console.log('%c[Brevmont] Could not auto-copy. Please select the JSON above and copy manually.', 'color: #f59e0b;');
     });
   } catch(e) {
-    console.log('%c[Oper8er] Please select the JSON above and copy manually.', 'color: #f59e0b;');
+    console.log('%c[Brevmont] Please select the JSON above and copy manually.', 'color: #f59e0b;');
   }
 
   // Quick summary
@@ -262,7 +262,7 @@
     totalButtons += (f.buttons || []).length;
   });
 
-  console.log('%c[Oper8er] SUMMARY:', 'color: #2563eb; font-weight: bold;');
+  console.log('%c[Brevmont] SUMMARY:', 'color: #2563eb; font-weight: bold;');
   console.log(`  Frames scanned: ${results.frames.length}`);
   console.log(`  Textareas found: ${totalTextareas}`);
   console.log(`  ContentEditable elements: ${totalCE}`);

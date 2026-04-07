@@ -1,5 +1,5 @@
 /**
- * Floq v1.8.1 — Draggable pill, left sidebar for VinSolutions, right for all others.
+ * Brevmont v1.9.1 — Draggable pill, left sidebar for VinSolutions, right for all others.
  * VinSolutions: sidebar on LEFT, 320px. All other platforms: sidebar on RIGHT.
  * Gmail: collapsed by default, 280px. Instagram DMs + FB Marketplace conversations added.
  * LinkedIn: messaging only. Facebook: messages + marketplace/t only.
@@ -38,7 +38,7 @@ export default defineContentScript({
       : _url.includes('instagram.com') ? 'unknown'
       : _url.includes('web.whatsapp.com') ? 'whatsapp'
       : 'unknown';
-    console.log('[Floq] Content script loaded on', PLATFORM, _url);
+    console.log('[Brevmont] Content script loaded on', PLATFORM, _url);
     if (PLATFORM === 'unknown') return;
 
     const isVinSolutions = PLATFORM === 'vinsolutions';
@@ -106,20 +106,20 @@ export default defineContentScript({
         await browser.runtime.sendMessage({ type: 'PING' });
       } catch(e: any) {
         // Service worker dead — show reconnect prompt
-        throw new Error('Floq lost connection. Reload this page to reconnect.');
+        throw new Error('Brevmont lost connection. Reload this page to reconnect.');
       }
       return browser.runtime.sendMessage(msg);
     }
 
     function showReconnectBanner(shadow: ShadowRoot) {
-      const existing = shadow.getElementById('floq-reconnect'); if (existing) return;
-      const banner = document.createElement('div'); banner.id = 'floq-reconnect';
+      const existing = shadow.getElementById('brevmont-reconnect'); if (existing) return;
+      const banner = document.createElement('div'); banner.id = 'brevmont-reconnect';
       banner.innerHTML = `<div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:10px;margin:8px;text-align:center;font-size:12px;font-family:system-ui">
-        <div style="font-weight:600;color:#92400E;margin-bottom:6px">Floq needs a refresh</div>
-        <button id="floq-reload-btn" style="padding:4px 16px;background:#7F77DD;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">Reload Page</button>
+        <div style="font-weight:600;color:#92400E;margin-bottom:6px">Brevmont needs a refresh</div>
+        <button id="brevmont-reload-btn" style="padding:4px 16px;background:#0D6E6E;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">Reload Page</button>
       </div>`;
       shadow.getElementById('o8')?.prepend(banner);
-      shadow.getElementById('floq-reload-btn')?.addEventListener('click', () => window.location.reload());
+      shadow.getElementById('brevmont-reload-btn')?.addEventListener('click', () => window.location.reload());
     }
 
     // ===== VINSOLUTIONS SCANNING =====
@@ -298,8 +298,8 @@ export default defineContentScript({
     if (window !== window.top) return;
 
     // ===== FIX 6: HARD GUARD — never inject twice =====
-    if (document.getElementById('floq-sidebar')) return;
-    if (document.getElementById('oper8er-host')) return;
+    if (document.getElementById('brevmont-sidebar')) return;
+    if (document.getElementById('brevmont-host')) return;
 
     // ===== FIX 1: Wait for VinSolutions page to be ready =====
     if (isVinSolutions) {
@@ -323,14 +323,14 @@ export default defineContentScript({
 
     // Clean stale markers from failed SPA injects
     if (isFacebook || isInstagram) {
-      const staleMarker = document.getElementById('floq-sidebar');
-      const staleHost = document.getElementById('oper8er-host');
+      const staleMarker = document.getElementById('brevmont-sidebar');
+      const staleHost = document.getElementById('brevmont-host');
       if (staleMarker && !staleHost) staleMarker.remove();
     }
-    if (document.getElementById('floq-sidebar')) return;
-    if (document.getElementById('oper8er-host')) return;
+    if (document.getElementById('brevmont-sidebar')) return;
+    if (document.getElementById('brevmont-host')) return;
 
-    console.log(`[Floq] Injection proceeding — platform: ${PLATFORM}, isTop: ${window === window.top}`);
+    console.log(`[Brevmont] Injection proceeding — platform: ${PLATFORM}, isTop: ${window === window.top}`);
 
     // ===== VINSOLUTIONS SCANNING (top frame only, anchored to Customer Dashboard) =====
     if (isVinSolutions) {
@@ -413,7 +413,7 @@ export default defineContentScript({
         const curName = nm ? nm[1].trim() : '';
         if (curName && curName !== lastScannedName) {
           // Customer changed — clear old data, scan fresh
-          console.log(`[Floq] Customer changed: "${lastScannedName}" → "${curName}"`);
+          console.log(`[Brevmont] Customer changed: "${lastScannedName}" → "${curName}"`);
           lastScannedName = curName;
           leadData = null;
           browser.storage.local.remove(['oper8er_lead', 'oper8er_lead_time', 'oper8er_vehicle_info', 'oper8er_vehicle_info_time']);
@@ -445,7 +445,7 @@ export default defineContentScript({
           const nm = dashText.match(/Customer Dashboard\s*\n([A-Z][a-zA-Z'-]+ [A-Z][a-zA-Z'-]+)/) || dashText.match(/([A-Z][a-zA-Z'-]+ [A-Z][a-zA-Z'-]+(?:\s[A-Z][a-zA-Z'-]+)?)\s*\n\s*\((?:Individual|Business)\)/);
           const curName = nm ? nm[1].trim() : '';
           if (curName && curName !== lastScannedName) {
-            console.log(`[Floq] MutationObserver detected: "${lastScannedName}" → "${curName}"`);
+            console.log(`[Brevmont] MutationObserver detected: "${lastScannedName}" → "${curName}"`);
             lastScannedName = curName;
             leadData = null;
             browser.storage.local.remove(['oper8er_lead', 'oper8er_lead_time', 'oper8er_vehicle_info', 'oper8er_vehicle_info_time']);
@@ -467,25 +467,25 @@ export default defineContentScript({
     }
 
     // ===== PILL (one only — guard against duplicates) =====
-    if (document.getElementById('oper8er-pill')) {
-      console.log('[Floq] Pill already exists, skipping creation');
+    if (document.getElementById('brevmont-pill')) {
+      console.log('[Brevmont] Pill already exists, skipping creation');
     }
-    let pill: HTMLElement | null = document.getElementById('oper8er-pill') as HTMLElement || document.createElement('div');
+    let pill: HTMLElement | null = document.getElementById('brevmont-pill') as HTMLElement || document.createElement('div');
     if (!pill.id) {
-      pill.id = 'oper8er-pill';
-      pill.textContent = '⚡ FQ';
+      pill.id = 'brevmont-pill';
+      pill.textContent = 'BM';
 
       Object.assign(pill.style, {
         position:'fixed', zIndex:'9999',
-        background:'#7F77DD', color:'#fff', padding:'5px 8px', borderRadius:'6px',
+        background:'#0D6E6E', color:'#fff', padding:'5px 8px', borderRadius:'6px',
         fontSize:'11px', fontWeight:'700', fontFamily:'system-ui,sans-serif', cursor:'pointer',
-        boxShadow:'0 2px 8px rgba(127,119,221,0.3)', letterSpacing:'0.5px',
+        boxShadow:'0 2px 8px rgba(13,110,110,0.3)', letterSpacing:'0.5px',
         visibility:'hidden', opacity:'0', // Hidden until positioned
         userSelect:'none'
       });
 
-      pill.onmouseenter = () => { if(pill) { pill.style.opacity = '1'; pill.textContent = '⚡ Floq'; } };
-      pill.onmouseleave = () => { if(pill) { pill.style.opacity = '0.85'; pill.textContent = '⚡ FQ'; } };
+      pill.onmouseenter = () => { if(pill) { pill.style.opacity = '1'; pill.textContent = 'Brevmont'; } };
+      pill.onmouseleave = () => { if(pill) { pill.style.opacity = '0.85'; pill.textContent = 'BM'; } };
       pill.onclick = () => { sidebarOpen ? closeSidebar() : openSidebar(); };
       document.documentElement.appendChild(pill);
     }
@@ -578,12 +578,12 @@ export default defineContentScript({
 
     function updateGmailPillBadge(count: number) {
       if (!pill || !isGmail) return;
-      let badge = pill.querySelector('.floq-pill-badge') as HTMLElement;
+      let badge = pill.querySelector('.brevmont-pill-badge') as HTMLElement;
       if (count <= 0) { if (badge) badge.remove(); return; }
       if (!badge) {
         badge = document.createElement('span');
-        badge.className = 'floq-pill-badge';
-        Object.assign(badge.style, { position:'absolute', top:'-4px', right:'-4px', minWidth:'16px', height:'16px', borderRadius:'8px', background:'#7F77DD', color:'#fff', fontSize:'9px', fontWeight:'700', display:'flex', alignItems:'center', justifyContent:'center', padding:'0 4px', border:'2px solid #fff' });
+        badge.className = 'brevmont-pill-badge';
+        Object.assign(badge.style, { position:'absolute', top:'-4px', right:'-4px', minWidth:'16px', height:'16px', borderRadius:'8px', background:'#0D6E6E', color:'#fff', fontSize:'9px', fontWeight:'700', display:'flex', alignItems:'center', justifyContent:'center', padding:'0 4px', border:'2px solid #fff' });
         pill.style.position = 'fixed'; // ensure positioning context
         pill.appendChild(badge);
       }
@@ -731,7 +731,7 @@ export default defineContentScript({
               if (emailAddr) leadData.email = emailAddr;
             }
           }
-          console.log('[Floq] Auto-captured contact:', name);
+          console.log('[Brevmont] Auto-captured contact:', name);
         }
         // If the name changed (user switched conversations), update leadData
         if (name && leadData && leadData.customerName && leadData.customerName !== name) {
@@ -740,7 +740,7 @@ export default defineContentScript({
             const emailEl = document.querySelector('.gD');
             if (emailEl) leadData.email = emailEl.getAttribute('email') || leadData.email;
           }
-          console.log('[Floq] Contact name updated to:', name);
+          console.log('[Brevmont] Contact name updated to:', name);
         }
       }, 3000);
     }
@@ -750,23 +750,23 @@ export default defineContentScript({
       const target = document.querySelector('[role="main"]') || document.querySelector('[class*="x1n2onr6"]') || document.body;
       const spaObserver = new MutationObserver(() => {
         // If Facebook/Instagram SPA navigation destroyed the pill, re-inject it
-        if (!document.getElementById('oper8er-pill') && !document.getElementById('oper8er-host')) {
+        if (!document.getElementById('brevmont-pill') && !document.getElementById('brevmont-host')) {
           const container = document.querySelector('[role="main"], [data-testid="conversation"], [class*="messages"], [class*="messenger"], [class*="direct"]');
           if (container) {
-            console.log('[Floq] SPA re-injection: pill was removed, re-creating');
+            console.log('[Brevmont] SPA re-injection: pill was removed, re-creating');
             pill = document.createElement('div');
-            pill.id = 'oper8er-pill';
-            pill.textContent = '⚡ FQ';
+            pill.id = 'brevmont-pill';
+            pill.textContent = 'BM';
             Object.assign(pill.style, {
               position:'fixed', zIndex:'9999',
-              background:'#7F77DD', color:'#fff', padding:'5px 8px', borderRadius:'6px',
+              background:'#0D6E6E', color:'#fff', padding:'5px 8px', borderRadius:'6px',
               fontSize:'11px', fontWeight:'700', fontFamily:'system-ui,sans-serif', cursor:'pointer',
-              boxShadow:'0 2px 8px rgba(127,119,221,0.3)', letterSpacing:'0.5px', opacity:'0.85',
+              boxShadow:'0 2px 8px rgba(13,110,110,0.3)', letterSpacing:'0.5px', opacity:'0.85',
               transition:'opacity 0.15s', userSelect:'none'
             });
             pill.onclick = () => { sidebarOpen ? closeSidebar() : openSidebar(); };
-            pill.onmouseenter = () => { if(pill) { pill.style.opacity = '1'; pill.textContent = '⚡ Floq'; } };
-            pill.onmouseleave = () => { if(pill) { pill.style.opacity = '0.85'; pill.textContent = '⚡ FQ'; } };
+            pill.onmouseenter = () => { if(pill) { pill.style.opacity = '1'; pill.textContent = 'Brevmont'; } };
+            pill.onmouseleave = () => { if(pill) { pill.style.opacity = '0.85'; pill.textContent = 'BM'; } };
             document.documentElement.appendChild(pill);
             updatePillPosition();
           }
@@ -783,9 +783,9 @@ export default defineContentScript({
       const vinUrlObserver = new MutationObserver(() => {
         if (window.location.href !== lastVinUrl) {
           lastVinUrl = window.location.href;
-          const existing = document.getElementById('oper8er-host');
+          const existing = document.getElementById('brevmont-host');
           if (existing) existing.remove();
-          const marker = document.getElementById('floq-sidebar');
+          const marker = document.getElementById('brevmont-sidebar');
           if (marker) marker.remove();
           sidebarRoot = null; sidebarOpen = false;
           // Show pill again after SPA navigation — user clicks to reopen
@@ -850,8 +850,8 @@ export default defineContentScript({
         if (pendingNotes.length > 0) {
           if (!pendingBadge) {
             pendingBadge = document.createElement('div');
-            pendingBadge.id = 'floq-pending-badge';
-            Object.assign(pendingBadge.style, { position:'fixed', bottom:'16px', right:'16px', zIndex:'9997', background:'#7F77DD', color:'#fff', padding:'8px 14px', borderRadius:'20px', fontSize:'12px', fontWeight:'600', fontFamily:'system-ui,sans-serif', cursor:'pointer', boxShadow:'0 2px 12px rgba(127,119,221,0.4)', transition:'transform .15s' });
+            pendingBadge.id = 'brevmont-pending-badge';
+            Object.assign(pendingBadge.style, { position:'fixed', bottom:'16px', right:'16px', zIndex:'9997', background:'#0D6E6E', color:'#fff', padding:'8px 14px', borderRadius:'20px', fontSize:'12px', fontWeight:'600', fontFamily:'system-ui,sans-serif', cursor:'pointer', boxShadow:'0 2px 12px rgba(13,110,110,0.4)', transition:'transform .15s' });
             pendingBadge.onmouseenter = () => { if (pendingBadge) pendingBadge.style.transform = 'scale(1.05)'; };
             pendingBadge.onmouseleave = () => { if (pendingBadge) pendingBadge.style.transform = 'scale(1)'; };
             pendingBadge.onclick = () => togglePendingPanel();
@@ -870,7 +870,7 @@ export default defineContentScript({
       pendingPanel = document.createElement('div');
       Object.assign(pendingPanel.style, { position:'fixed', bottom:'56px', right:'16px', width:'320px', maxHeight:'400px', zIndex:'9997', background:'#fff', borderRadius:'12px', border:'1px solid #e2e8f0', boxShadow:'0 8px 32px rgba(0,0,0,0.15)', fontFamily:'system-ui,sans-serif', overflow:'hidden', display:'flex', flexDirection:'column' });
 
-      let html = '<div style="padding:12px 16px;border-bottom:1px solid #e8eaed;font-size:13px;font-weight:700;color:#1a202c;display:flex;justify-content:space-between;align-items:center"><span>Pending Notes</span><span id="floq-pn-close" style="cursor:pointer;color:#94a3b8;font-size:18px">&times;</span></div>';
+      let html = '<div style="padding:12px 16px;border-bottom:1px solid #e8eaed;font-size:13px;font-weight:700;color:#1a202c;display:flex;justify-content:space-between;align-items:center"><span>Pending Notes</span><span id="brevmont-pn-close" style="cursor:pointer;color:#94a3b8;font-size:18px">&times;</span></div>';
       html += '<div style="overflow-y:auto;flex:1;padding:8px">';
 
       if (pendingNotes.length === 0) {
@@ -879,13 +879,13 @@ export default defineContentScript({
         for (const note of pendingNotes) {
           const preview = (note.note_text || '').slice(0, 80) + ((note.note_text || '').length > 80 ? '...' : '');
           const time = new Date(note.created_at).toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
-          html += `<div class="floq-pn-card" data-id="${note.id}" data-text="${esc(note.note_text)}" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;margin-bottom:6px">`;
+          html += `<div class="brevmont-pn-card" data-id="${note.id}" data-text="${esc(note.note_text)}" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;margin-bottom:6px">`;
           html += `<div style="font-size:12px;font-weight:600;color:#1a202c">${esc(note.customer_name || 'Unknown customer')}</div>`;
           html += `<div style="font-size:11px;color:#64748b;margin-top:2px;line-height:1.4">${esc(preview)}</div>`;
           html += `<div style="font-size:10px;color:#94a3b8;margin-top:4px">${time}</div>`;
           html += `<div style="display:flex;gap:6px;margin-top:6px">`;
-          html += `<button class="floq-pn-log" data-id="${note.id}" style="padding:4px 12px;background:#16a34a;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">Log It</button>`;
-          html += `<button class="floq-pn-dismiss" data-id="${note.id}" style="padding:4px 12px;background:transparent;color:#94a3b8;border:1px solid #e2e8f0;border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit">Dismiss</button>`;
+          html += `<button class="brevmont-pn-log" data-id="${note.id}" style="padding:4px 12px;background:#16a34a;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">Log It</button>`;
+          html += `<button class="brevmont-pn-dismiss" data-id="${note.id}" style="padding:4px 12px;background:transparent;color:#94a3b8;border:1px solid #e2e8f0;border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit">Dismiss</button>`;
           html += `</div></div>`;
         }
       }
@@ -894,13 +894,13 @@ export default defineContentScript({
       document.body.appendChild(pendingPanel);
 
       // Close button
-      pendingPanel.querySelector('#floq-pn-close')?.addEventListener('click', () => { if (pendingPanel) { pendingPanel.remove(); pendingPanel = null; } });
+      pendingPanel.querySelector('#brevmont-pn-close')?.addEventListener('click', () => { if (pendingPanel) { pendingPanel.remove(); pendingPanel = null; } });
 
       // Log It buttons
-      pendingPanel.querySelectorAll('.floq-pn-log').forEach(btn => {
+      pendingPanel.querySelectorAll('.brevmont-pn-log').forEach(btn => {
         btn.addEventListener('click', async () => {
           const id = (btn as HTMLElement).dataset.id;
-          const card = (btn as HTMLElement).closest('.floq-pn-card') as HTMLElement;
+          const card = (btn as HTMLElement).closest('.brevmont-pn-card') as HTMLElement;
           const noteText = card?.dataset.text || '';
           (btn as HTMLElement).textContent = 'Pasting...';
           const statusEl = document.createElement('span');
@@ -916,10 +916,10 @@ export default defineContentScript({
             setTimeout(() => { card?.remove(); refreshPendingBadge(); }, 2000);
           } catch(e: any) {
             (btn as HTMLElement).textContent = 'Failed';
-            (btn as HTMLElement).style.background = '#EF4444';
+            (btn as HTMLElement).style.background = '#B91C1C';
             const errMsg = document.createElement('span');
             errMsg.textContent = e.message || 'Error logging note';
-            errMsg.style.cssText = 'color:#EF4444;font-size:10px;display:block;margin-top:4px;';
+            errMsg.style.cssText = 'color:#B91C1C;font-size:10px;display:block;margin-top:4px;';
             card?.appendChild(errMsg);
             setTimeout(() => { (btn as HTMLElement).textContent = 'Log It'; (btn as HTMLElement).style.background = '#16a34a'; errMsg.remove(); }, 3000);
           }
@@ -927,10 +927,10 @@ export default defineContentScript({
       });
 
       // Dismiss buttons
-      pendingPanel.querySelectorAll('.floq-pn-dismiss').forEach(btn => {
+      pendingPanel.querySelectorAll('.brevmont-pn-dismiss').forEach(btn => {
         btn.addEventListener('click', async () => {
           const id = (btn as HTMLElement).dataset.id;
-          const card = (btn as HTMLElement).closest('.floq-pn-card') as HTMLElement;
+          const card = (btn as HTMLElement).closest('.brevmont-pn-card') as HTMLElement;
           try { await browser.runtime.sendMessage({ type: 'MARK_NOTE_LOGGED', payload: { id, status: 'dismissed' } }); } catch(e) {}
           card?.remove();
           refreshPendingBadge();
@@ -961,25 +961,25 @@ export default defineContentScript({
           try { recognition.abort(); } catch(e) {}
           recognition = null;
         }
-        console.log('[Floq] Mic stopped and cleaned up');
+        console.log('[Brevmont] Mic stopped and cleaned up');
       }
 
       micBtn.onclick = () => {
         if (isListening) {
           // STOP — finalize transcript, tear down completely
-          console.log('[Floq] Mic stopping (user click)');
+          console.log('[Brevmont] Mic stopping (user click)');
           cleanupRecognition();
           return;
         }
 
         // STOP any previous zombie recognition before starting fresh
         if (recognition) {
-          console.log('[Floq] Tearing down previous mic session before starting new one');
+          console.log('[Brevmont] Tearing down previous mic session before starting new one');
           cleanupRecognition();
         }
 
         // START
-        console.log('[Floq] Mic starting...');
+        console.log('[Brevmont] Mic starting...');
         try {
           recognition = new SR();
           recognition.continuous = true;
@@ -1006,7 +1006,7 @@ export default defineContentScript({
 
           recognition.onerror = (e: any) => {
             if (e.error === 'aborted') return; // normal stop, ignore
-            console.log('[Floq] Mic error:', e.error);
+            console.log('[Brevmont] Mic error:', e.error);
             if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
               showToast(shadow, 'Mic permission denied — enable in Chrome site settings');
             } else if (e.error === 'audio-capture') {
@@ -1020,9 +1020,9 @@ export default defineContentScript({
           // Auto-restart on silence instead of stopping
           recognition.onend = () => {
             if (isListening) {
-              console.log('[Floq] Mic auto-restarting after silence');
+              console.log('[Brevmont] Mic auto-restarting after silence');
               try { recognition.start(); } catch(e) {
-                console.log('[Floq] Mic auto-restart failed, cleaning up');
+                console.log('[Brevmont] Mic auto-restart failed, cleaning up');
                 cleanupRecognition();
               }
             }
@@ -1031,9 +1031,9 @@ export default defineContentScript({
           recognition.start();
           isListening = true;
           micBtn.classList.add('mic-active');
-          console.log('[Floq] Mic started successfully');
+          console.log('[Brevmont] Mic started successfully');
         } catch(e: any) {
-          console.log('[Floq] Mic start failed:', e.message);
+          console.log('[Brevmont] Mic start failed:', e.message);
           cleanupRecognition();
           if (e.message?.includes('not-allowed') || e.name === 'NotAllowedError') {
             showToast(shadow, 'Mic permission denied — enable in Chrome site settings');
@@ -1063,7 +1063,7 @@ export default defineContentScript({
             q -= 0.1;
             result = canvas.toDataURL('image/jpeg', q);
           }
-          console.log(`[Floq] Image compressed: ${img.width}x${img.height} → ${canvas.width}x${canvas.height}, quality=${q.toFixed(1)}, size=${(result.length / 1024).toFixed(0)}KB`);
+          console.log(`[Brevmont] Image compressed: ${img.width}x${img.height} → ${canvas.width}x${canvas.height}, quality=${q.toFixed(1)}, size=${(result.length / 1024).toFixed(0)}KB`);
           resolve(result);
         };
         img.onerror = () => resolve(base64);
@@ -1072,8 +1072,8 @@ export default defineContentScript({
     }
 
     function showToast(shadow: ShadowRoot, msg: string) {
-      const existing = shadow.getElementById('floq-toast'); if (existing) existing.remove();
-      const toast = document.createElement('div'); toast.id = 'floq-toast'; toast.textContent = msg;
+      const existing = shadow.getElementById('brevmont-toast'); if (existing) existing.remove();
+      const toast = document.createElement('div'); toast.id = 'brevmont-toast'; toast.textContent = msg;
       Object.assign(toast.style, { position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background:'#1a202c', color:'#fff', padding:'8px 16px', borderRadius:'6px', fontSize:'11px', fontWeight:'500', zIndex:'99', opacity:'1', transition:'opacity 0.3s' });
       shadow.getElementById('o8')?.appendChild(toast);
       setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 2500);
@@ -1083,12 +1083,12 @@ export default defineContentScript({
     async function openSidebar() {
       try { const check = await browser.storage.sync.get(['profile_onboarded']); if (!check.profile_onboarded) { browser.runtime.sendMessage({ type: 'OPEN_ONBOARDING' }); return; } } catch(e) {}
       if (sidebarRoot) { sidebarRoot.style.display = 'block'; sidebarOpen = true; if (pill) pill.style.display = 'none'; updateSidebarPosition(); pushContent(true); return; }
-      if (document.getElementById('oper8er-host')) return;
+      if (document.getElementById('brevmont-host')) return;
 
       await getTier();
 
       const host = document.createElement('div');
-      host.id = 'oper8er-host';
+      host.id = 'brevmont-host';
       let w = getSidebarWidth();
       // Gmail: LEFT side below header. All others: RIGHT side.
       if (isGmail) {
@@ -1127,7 +1127,7 @@ export default defineContentScript({
       const container = document.createElement('div'); container.id = 'o8'; container.innerHTML = getHTML(); shadow.appendChild(container);
 
       document.documentElement.appendChild(host);
-      const marker = document.createElement('div'); marker.id = 'floq-sidebar'; marker.style.display = 'none'; document.documentElement.appendChild(marker);
+      const marker = document.createElement('div'); marker.id = 'brevmont-sidebar'; marker.style.display = 'none'; document.documentElement.appendChild(marker);
 
       sidebarRoot = host; sidebarOpen = true;
       if (pill) pill.style.display = 'none';
@@ -1156,15 +1156,15 @@ export default defineContentScript({
       }
 
       // Settings tone/goal radio buttons — all unlocked
-      s.querySelectorAll('input[name="floq-tone"]').forEach(radio => {
+      s.querySelectorAll('input[name="brevmont-tone"]').forEach(radio => {
         radio.addEventListener('change', () => { browser.storage.local.set({ floq_tone: (radio as HTMLInputElement).value }); });
       });
-      s.querySelectorAll('input[name="floq-goal"]').forEach(radio => {
+      s.querySelectorAll('input[name="brevmont-goal"]').forEach(radio => {
         radio.addEventListener('change', () => { browser.storage.local.set({ floq_goal: (radio as HTMLInputElement).value }); });
       });
       browser.storage.local.get(['floq_tone', 'floq_goal']).then(r => {
-        if (r.floq_tone) { const el = s.querySelector(`input[name="floq-tone"][value="${r.floq_tone}"]`) as HTMLInputElement; if (el) el.checked = true; }
-        if (r.floq_goal) { const el = s.querySelector(`input[name="floq-goal"][value="${r.floq_goal}"]`) as HTMLInputElement; if (el) el.checked = true; }
+        if (r.floq_tone) { const el = s.querySelector(`input[name="brevmont-tone"][value="${r.floq_tone}"]`) as HTMLInputElement; if (el) el.checked = true; }
+        if (r.floq_goal) { const el = s.querySelector(`input[name="brevmont-goal"][value="${r.floq_goal}"]`) as HTMLInputElement; if (el) el.checked = true; }
       });
 
       // Tools panel
@@ -1361,7 +1361,7 @@ export default defineContentScript({
 
         if (isLocked) {
           html += `<button class="lead-inject-btn locked" disabled>🔒 Inject to VinSolutions</button>`;
-          html += `<div class="lead-gate-msg">Lead Capture requires Command. Upgrade at floqsales.com</div>`;
+          html += `<div class="lead-gate-msg">Lead Capture requires Command. Upgrade at brevmont.com</div>`;
         } else {
           html += `<button id="o8-lead-inject" class="lead-inject-btn">Inject to VinSolutions</button>`;
         }
@@ -1406,7 +1406,7 @@ export default defineContentScript({
               if (pageText.includes(data.phone)) {
                 const confirmDiv = document.createElement('div');
                 confirmDiv.style.cssText = 'padding:8px;background:#FEF08A;border:1px solid #FDE047;border-radius:6px;margin-top:8px;font-size:12px;text-align:center;';
-                confirmDiv.innerHTML = `This number may already exist in VinSolutions.<br><button id="o8-lead-confirm-yes" style="padding:4px 12px;background:#7F77DD;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;margin:4px">Inject Anyway</button><button id="o8-lead-confirm-no" style="padding:4px 12px;background:#fff;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;cursor:pointer;margin:4px">Cancel</button>`;
+                confirmDiv.innerHTML = `This number may already exist in VinSolutions.<br><button id="o8-lead-confirm-yes" style="padding:4px 12px;background:#0D6E6E;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;margin:4px">Inject Anyway</button><button id="o8-lead-confirm-no" style="padding:4px 12px;background:#fff;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;cursor:pointer;margin:4px">Cancel</button>`;
                 leadResult.appendChild(confirmDiv);
                 confirmDiv.querySelector('#o8-lead-confirm-no')!.addEventListener('click', () => confirmDiv.remove());
                 confirmDiv.querySelector('#o8-lead-confirm-yes')!.addEventListener('click', () => { confirmDiv.remove(); doVinSolutionsInject(data, inputMethod); });
@@ -1662,22 +1662,22 @@ export default defineContentScript({
           try {
             const resp = await safeSend({ type: 'GET_PENDING_EMAILS' });
             const emails = resp?.emails || [];
-            const existing = s.getElementById('floq-pending-emails');
+            const existing = s.getElementById('brevmont-pending-emails');
             if (existing) existing.remove();
             if (emails.length === 0) { updateGmailPillBadge(0); return; }
             updateGmailPillBadge(emails.length);
             const section = document.createElement('div');
-            section.id = 'floq-pending-emails';
+            section.id = 'brevmont-pending-emails';
             section.style.cssText = 'padding:8px 12px;border-bottom:1px solid #E5E7EB;';
             let html = `<div style="font-size:12px;font-weight:700;color:#1a202c;margin-bottom:6px">📬 Pending Emails (${emails.length})</div>`;
             for (const em of emails) {
               const subjectPreview = (em.subject || 'No subject').slice(0, 40) + ((em.subject || '').length > 40 ? '…' : '');
-              html += `<div class="floq-pe-card" data-id="${em.id}" data-subject="${esc(em.subject || '')}" data-body="${esc(em.body || '')}" style="padding:6px 0;border-bottom:1px solid #f3f4f6">
+              html += `<div class="brevmont-pe-card" data-id="${em.id}" data-subject="${esc(em.subject || '')}" data-body="${esc(em.body || '')}" style="padding:6px 0;border-bottom:1px solid #f3f4f6">
                 <div style="font-size:13px;font-weight:600;color:#1a202c">${esc(em.customer_name || 'Unknown')}</div>
                 <div style="font-size:12px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(subjectPreview)}</div>
                 <div style="display:flex;gap:4px;margin-top:4px">
-                  <button class="floq-pe-apply" data-id="${em.id}" style="padding:3px 10px;background:#7F77DD;color:#fff;border:none;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">Apply</button>
-                  <button class="floq-pe-dismiss" data-id="${em.id}" style="padding:3px 10px;background:transparent;border:1px solid #E5E7EB;color:#475569;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">Dismiss</button>
+                  <button class="brevmont-pe-apply" data-id="${em.id}" style="padding:3px 10px;background:#0D6E6E;color:#fff;border:none;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">Apply</button>
+                  <button class="brevmont-pe-dismiss" data-id="${em.id}" style="padding:3px 10px;background:transparent;border:1px solid #E5E7EB;color:#475569;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">Dismiss</button>
                 </div>
               </div>`;
             }
@@ -1686,9 +1686,9 @@ export default defineContentScript({
             if (quickMode && quickMode.firstChild) quickMode.insertBefore(section, quickMode.firstChild);
 
             // Apply buttons — inject into Gmail compose
-            section.querySelectorAll('.floq-pe-apply').forEach(btn => {
+            section.querySelectorAll('.brevmont-pe-apply').forEach(btn => {
               btn.addEventListener('click', async () => {
-                const card = (btn as HTMLElement).closest('.floq-pe-card') as HTMLElement;
+                const card = (btn as HTMLElement).closest('.brevmont-pe-card') as HTMLElement;
                 const id = (btn as HTMLElement).dataset.id;
                 const subject = card?.dataset.subject || '';
                 const body = card?.dataset.body || '';
@@ -1704,23 +1704,23 @@ export default defineContentScript({
                   (btn as HTMLElement).style.background = '#f59e0b';
                 }
                 try { await browser.runtime.sendMessage({ type: 'MARK_EMAIL_APPLIED', payload: { id, status: 'applied' } }); } catch(e) {}
-                setTimeout(() => { card?.remove(); const remaining = section.querySelectorAll('.floq-pe-card').length; if (remaining === 0) section.remove(); updateGmailPillBadge(remaining); }, 1500);
+                setTimeout(() => { card?.remove(); const remaining = section.querySelectorAll('.brevmont-pe-card').length; if (remaining === 0) section.remove(); updateGmailPillBadge(remaining); }, 1500);
               });
             });
 
             // Dismiss buttons
-            section.querySelectorAll('.floq-pe-dismiss').forEach(btn => {
+            section.querySelectorAll('.brevmont-pe-dismiss').forEach(btn => {
               btn.addEventListener('click', async () => {
-                const card = (btn as HTMLElement).closest('.floq-pe-card') as HTMLElement;
+                const card = (btn as HTMLElement).closest('.brevmont-pe-card') as HTMLElement;
                 const id = (btn as HTMLElement).dataset.id;
                 try { await browser.runtime.sendMessage({ type: 'MARK_EMAIL_APPLIED', payload: { id, status: 'dismissed' } }); } catch(e) {}
                 card?.remove();
-                const remaining = section.querySelectorAll('.floq-pe-card').length;
+                const remaining = section.querySelectorAll('.brevmont-pe-card').length;
                 if (remaining === 0) section.remove();
                 updateGmailPillBadge(remaining);
               });
             });
-          } catch(e) { console.log('[Floq] Pending emails fetch error:', e); }
+          } catch(e) { console.log('[Brevmont] Pending emails fetch error:', e); }
         }
         loadPendingEmails();
       }
@@ -1868,7 +1868,7 @@ export default defineContentScript({
         else { const sec = response.sections; if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) addOutput(s, outputLabels.crm, sec.crm); if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.'); }
       } catch (e: any) {
         if (e.message.includes('Reload') || e.message.includes('connection') || e.message.includes('invalidated')) { showReconnectBanner(s); }
-        addOutput(s, 'Error', e.message.includes('invalidated') ? 'Floq needs a refresh. Click Reload Page above.' : e.message);
+        addOutput(s, 'Error', e.message.includes('invalidated') ? 'Brevmont needs a refresh. Click Reload Page above.' : e.message);
       }
       btn.innerHTML = 'Generate'; btn.disabled = false; isGenerating = false;
     }
@@ -2076,7 +2076,7 @@ export default defineContentScript({
     // ===== LISTENERS =====
     browser.runtime.onMessage.addListener((msg: any) => {
       if (msg.type === 'OPEN_COMMAND_TAB' && sidebarRoot) { if (!sidebarOpen) openSidebar(); const s = sidebarRoot.shadowRoot!; s.getElementById('o8-quick')!.style.display = 'none'; const tp = s.getElementById('o8-tools-panel'); if (tp) tp.style.display = 'flex'; s.querySelectorAll('.tool-tab-btn').forEach(b => b.classList.remove('active')); s.querySelector('.tool-tab-btn[data-tool="command"]')?.classList.add('active'); s.querySelectorAll('.tool-content').forEach(c => (c as HTMLElement).style.display = 'none'); s.getElementById('tool-command')!.style.display = 'block'; }
-      if (msg.type === 'SHOW_ALERT_BANNER') { const existing = document.getElementById('floq-alert-banner'); if (existing) existing.remove(); const banner = document.createElement('div'); banner.id = 'floq-alert-banner'; Object.assign(banner.style, { position:'fixed', top:'0', left:'0', right:'0', zIndex:'999999', background:'#FF3B30', color:'#fff', padding:'12px 20px', fontFamily:'system-ui,sans-serif', fontSize:'14px', fontWeight:'600', display:'flex', alignItems:'center', gap:'10px', boxShadow:'0 2px 8px rgba(0,0,0,0.2)' }); banner.innerHTML = `<span>🔔</span><span style="flex:1">${esc(msg.payload.task)}</span><button style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Dismiss</button>`; banner.querySelector('button')!.addEventListener('click', () => { banner.remove(); browser.runtime.sendMessage({ type: 'DISMISS_ALERT', payload: { id: msg.payload.id } }); }); document.body.appendChild(banner); }
+      if (msg.type === 'SHOW_ALERT_BANNER') { const existing = document.getElementById('brevmont-alert-banner'); if (existing) existing.remove(); const banner = document.createElement('div'); banner.id = 'brevmont-alert-banner'; Object.assign(banner.style, { position:'fixed', top:'0', left:'0', right:'0', zIndex:'999999', background:'#FF3B30', color:'#fff', padding:'12px 20px', fontFamily:'system-ui,sans-serif', fontSize:'14px', fontWeight:'600', display:'flex', alignItems:'center', gap:'10px', boxShadow:'0 2px 8px rgba(0,0,0,0.2)' }); banner.innerHTML = `<span>🔔</span><span style="flex:1">${esc(msg.payload.task)}</span><button style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Dismiss</button>`; banner.querySelector('button')!.addEventListener('click', () => { banner.remove(); browser.runtime.sendMessage({ type: 'DISMISS_ALERT', payload: { id: msg.payload.id } }); }); document.body.appendChild(banner); }
     });
 
     function parseAlertTime(text: string): number {
@@ -2116,7 +2116,7 @@ export default defineContentScript({
 
     function getBadge() {
       switch (PLATFORM) {
-        case 'vinsolutions': return { label: 'VinSolutions', color: '#7F77DD', bg: '#F0EFFF' };
+        case 'vinsolutions': return { label: 'VinSolutions', color: '#0D6E6E', bg: '#F0EFFF' };
         case 'gmail': return { label: 'Gmail', color: '#dc2626', bg: '#fef2f2' };
         case 'facebook': return { label: 'Messenger', color: '#1877f2', bg: '#eff6ff' };
         case 'linkedin': return { label: 'LinkedIn', color: '#0a66c2', bg: '#eff6ff' };
@@ -2132,9 +2132,9 @@ export default defineContentScript({
     function getSettingsHTML(): string {
       return `<div class="settings-section">
         <div class="settings-label">Tone</div>
-        <div class="settings-options"><label><input type="radio" name="floq-tone" value="professional" checked> Professional</label><label><input type="radio" name="floq-tone" value="friendly"> Friendly</label><label><input type="radio" name="floq-tone" value="casual"> Casual</label><label><input type="radio" name="floq-tone" value="direct"> Direct</label></div>
+        <div class="settings-options"><label><input type="radio" name="brevmont-tone" value="professional" checked> Professional</label><label><input type="radio" name="brevmont-tone" value="friendly"> Friendly</label><label><input type="radio" name="brevmont-tone" value="casual"> Casual</label><label><input type="radio" name="brevmont-tone" value="direct"> Direct</label></div>
         <div class="settings-label">Goal</div>
-        <div class="settings-options"><label><input type="radio" name="floq-goal" value="close_deal" checked> Close the deal</label><label><input type="radio" name="floq-goal" value="book_appointment"> Book appointment</label><label><input type="radio" name="floq-goal" value="gather_info"> Gather info</label><label><input type="radio" name="floq-goal" value="nurture"> Nurture long-term</label></div>
+        <div class="settings-options"><label><input type="radio" name="brevmont-goal" value="close_deal" checked> Close the deal</label><label><input type="radio" name="brevmont-goal" value="book_appointment"> Book appointment</label><label><input type="radio" name="brevmont-goal" value="gather_info"> Gather info</label><label><input type="radio" name="brevmont-goal" value="nurture"> Nurture long-term</label></div>
       </div>`;
     }
 
@@ -2145,8 +2145,8 @@ export default defineContentScript({
 
       return `
 <div class="header">
-  <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="4" fill="#7F77DD"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">FQ</text></svg>
-  <span class="logo">Floq</span>
+  <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0D6E6E"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">BM</text></svg>
+  <span class="logo">BREVMONT</span>
   <span style="flex:1"></span>
   <button id="o8-lead-btn" class="lead-btn">+ Lead</button>
   <span id="o8-close" class="close">&times;</span>
@@ -2193,7 +2193,7 @@ export default defineContentScript({
     <button class="lead-tab-btn" data-ltab="voice">Voice</button>
     <button class="lead-tab-btn" data-ltab="paste">Paste</button>
   </div>
-  <div id="lead-scan" class="tool-content" style="display:block"><div class="tool-section"><button id="o8-scan-btn" class="gen-btn">Scan This Page</button><div style="font-size:11px;color:#9CA3AF;text-align:center;margin-top:8px">Floq will read this conversation and extract the contact automatically.</div></div></div>
+  <div id="lead-scan" class="tool-content" style="display:block"><div class="tool-section"><button id="o8-scan-btn" class="gen-btn">Scan This Page</button><div style="font-size:11px;color:#9CA3AF;text-align:center;margin-top:8px">Brevmont will read this conversation and extract the contact automatically.</div></div></div>
   <div id="lead-voice" class="tool-content" style="display:none"><div class="tool-section"><div class="input-wrap"><textarea id="o8-lead-voice-input" class="main-input" placeholder="Tap mic and describe the lead..." rows="3"></textarea><button id="o8-lead-voice-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button></div><button id="o8-lead-voice-parse" class="gen-btn" style="margin-top:8px">Parse</button></div></div>
   <div id="lead-paste" class="tool-content" style="display:none"><div class="tool-section"><textarea id="o8-lead-paste-input" class="main-input" placeholder="Paste a message, text thread, or any contact info here." rows="4"></textarea><button id="o8-lead-paste-parse" class="gen-btn" style="margin-top:8px">Parse</button></div></div>
   <div id="o8-lead-result" class="tool-content" style="display:none"></div>
@@ -2216,56 +2216,56 @@ export default defineContentScript({
 .input-section { padding:12px 14px; border-bottom:1px solid #e8eaed; flex-shrink:0; }
 .chips { display:flex; gap:5px; margin-bottom:8px; }
 .chip { padding:5px 12px; border-radius:16px; font-size:11px; font-weight:600; font-family:inherit; border:1.5px solid #e2e8f0; background:#fff; color:#94a3b8; cursor:pointer; transition:all 0.15s; position:relative; }
-.chip.on { border-color:#7F77DD; color:#7F77DD; background:#F0EFFF; }
+.chip.on { border-color:#0D6E6E; color:#0D6E6E; background:#F0EFFF; }
 .chip.on::after { content:''; position:absolute; top:-2px; right:-2px; width:7px; height:7px; border-radius:50%; background:#16a34a; border:1.5px solid #fff; }
 .input-wrap { position:relative; display:flex; align-items:flex-start; }
 .main-input { flex:1; padding:8px 40px 8px 10px; border:1px solid #e2e8f0; border-radius:6px; font-size:13px; font-family:inherit; resize:none; outline:none; color:#1a202c; }
-.main-input:focus { border-color:#7F77DD; } .main-input::placeholder { color:#94a3b8; }
+.main-input:focus { border-color:#0D6E6E; } .main-input::placeholder { color:#94a3b8; }
 /* FIX 6: Visible mic button */
-.inline-mic { position:absolute; right:6px; top:6px; width:28px; height:28px; border-radius:50%; border:none; background:#7F77DD; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; }
-.inline-mic:hover { background:#534AB7; transform:scale(1.05); }
-.inline-mic.mic-active { background:#EF4444; animation:mic-pulse 1s infinite; }
+.inline-mic { position:absolute; right:6px; top:6px; width:28px; height:28px; border-radius:50%; border:none; background:#0D6E6E; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; }
+.inline-mic:hover { background:#0A5555; transform:scale(1.05); }
+.inline-mic.mic-active { background:#B91C1C; animation:mic-pulse 1s infinite; }
 @keyframes mic-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.12)} }
-.gen-btn { width:100%; padding:10px; background:#7F77DD; color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; margin-top:8px; transition:background 0.15s; }
-.gen-btn:hover { background:#534AB7; } .gen-btn:disabled { background:#94a3b8; cursor:wait; }
+.gen-btn { width:100%; padding:10px; background:#0D6E6E; color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; margin-top:8px; transition:background 0.15s; }
+.gen-btn:hover { background:#0A5555; } .gen-btn:disabled { background:#94a3b8; cursor:wait; }
 .gen-spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:gen-spin 0.6s linear infinite; vertical-align:middle; margin-right:4px; }
 @keyframes gen-spin { to { transform:rotate(360deg); } }
 .outputs { padding:8px 14px; overflow-y:auto; flex:1; min-height:0; }
 .out-card { background:#fff; border:1px solid #E5E7EB; border-radius:12px; padding:10px 12px; margin-bottom:8px; }
-.out-label { font-size:9px; font-weight:700; color:#7F77DD; letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
-.out-textarea { width:100%; min-height:80px; max-height:200px; padding:10px; border:1px solid #E5E7EB; border-radius:8px; font-size:12px; line-height:1.6; font-family:inherit; color:#1a202c; background:#fff; resize:vertical; outline:none; } .out-textarea:focus { border-color:#7F77DD; }
+.out-label { font-size:9px; font-weight:700; color:#0D6E6E; letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
+.out-textarea { width:100%; min-height:80px; max-height:200px; padding:10px; border:1px solid #E5E7EB; border-radius:8px; font-size:12px; line-height:1.6; font-family:inherit; color:#1a202c; background:#fff; resize:vertical; outline:none; } .out-textarea:focus { border-color:#0D6E6E; }
 .out-actions { display:flex; gap:6px; margin-top:8px; }
 .out-status { font-size:10px; margin-top:4px; min-height:14px; }
 .out-action { padding:6px 14px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; transition:all .15s; }
-.out-primary { background:#7F77DD; border:1px solid #6B63C7; color:#fff; } .out-primary:hover { background:#534AB7; }
+.out-primary { background:#0D6E6E; border:1px solid #6B63C7; color:#fff; } .out-primary:hover { background:#0A5555; }
 .out-regen { background:transparent; border:1px solid #E5E7EB; color:#475569; } .out-regen:hover { background:#f3f4f6; }
 .tools-panel { display:flex; flex-direction:column; flex:1; overflow:hidden; }
 .tools-header { padding:10px 14px; border-bottom:1px solid #e8eaed; display:flex; align-items:center; gap:8px; }
-.back-btn { background:none; border:none; color:#7F77DD; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; } .tools-title { font-size:13px; font-weight:600; }
+.back-btn { background:none; border:none; color:#0D6E6E; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; } .tools-title { font-size:13px; font-weight:600; }
 .tool-tabs { display:flex; border-bottom:1px solid #e8eaed; }
-.tool-tab-btn { flex:1; padding:8px 4px; font-size:11px; font-weight:600; font-family:inherit; border:none; background:transparent; color:#94a3b8; cursor:pointer; border-bottom:2px solid transparent; } .tool-tab-btn.active { color:#7F77DD; border-bottom-color:#7F77DD; }
+.tool-tab-btn { flex:1; padding:8px 4px; font-size:11px; font-weight:600; font-family:inherit; border:none; background:transparent; color:#94a3b8; cursor:pointer; border-bottom:2px solid transparent; } .tool-tab-btn.active { color:#0D6E6E; border-bottom-color:#0D6E6E; }
 .tool-content { padding:12px 14px; flex:1; overflow-y:auto; display:none; }
 .tool-section { display:flex; flex-direction:column; gap:8px; } .tool-output { padding:8px 0; }
 .tool-result { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.6; margin-top:8px; }
-.coach-chips { display:flex; flex-wrap:wrap; gap:4px; } .coach-chip { padding:4px 10px; border-radius:14px; font-size:10px; font-weight:500; font-family:inherit; border:1px solid #e2e8f0; background:#f8fafc; color:#64748b; cursor:pointer; } .coach-chip:hover { border-color:#7F77DD; color:#7F77DD; background:#F0EFFF; }
-.inline-links { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:8px; } .link-btn { background:none; border:none; color:#7F77DD; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; padding:2px 4px; } .link-btn:hover { text-decoration:underline; } .link-sep { color:#e2e8f0; font-size:11px; }
-.ctx-dropzone { border:2px dashed #7F77DD; border-radius:8px; background:#F0EFFF; padding:16px; text-align:center; font-size:11px; color:#7F77DD; display:flex; align-items:center; justify-content:center; min-height:60px; cursor:pointer; } .ctx-dropzone.dragover { background:#e8e4ff; }
+.coach-chips { display:flex; flex-wrap:wrap; gap:4px; } .coach-chip { padding:4px 10px; border-radius:14px; font-size:10px; font-weight:500; font-family:inherit; border:1px solid #e2e8f0; background:#f8fafc; color:#64748b; cursor:pointer; } .coach-chip:hover { border-color:#0D6E6E; color:#0D6E6E; background:#F0EFFF; }
+.inline-links { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:8px; } .link-btn { background:none; border:none; color:#0D6E6E; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; padding:2px 4px; } .link-btn:hover { text-decoration:underline; } .link-sep { color:#e2e8f0; font-size:11px; }
+.ctx-dropzone { border:2px dashed #0D6E6E; border-radius:8px; background:#F0EFFF; padding:16px; text-align:center; font-size:11px; color:#0D6E6E; display:flex; align-items:center; justify-content:center; min-height:60px; cursor:pointer; } .ctx-dropzone.dragover { background:#e8e4ff; }
 .ctx-preview { position:relative; text-align:center; margin-bottom:8px; } .ctx-img { max-width:180px; max-height:100px; border-radius:6px; border:1px solid #e2e8f0; } .ctx-remove { position:absolute; top:-6px; right:calc(50% - 96px); width:18px; height:18px; border-radius:50%; background:#FF3B30; color:#fff; border:none; font-size:11px; cursor:pointer; }
 .alert-item { display:flex; align-items:center; padding:6px 8px; background:#FFF7ED; border:1px solid #FBBF24; border-radius:6px; margin-bottom:4px; font-size:11px; gap:6px; } .alert-time { font-size:10px; color:#92400E; margin-left:auto; } .alert-dismiss { background:none; border:none; color:#94a3b8; cursor:pointer; font-size:14px; }
 .tcpa-inline { padding:4px 14px 8px; font-size:11px; color:#9CA3AF; line-height:1.3; text-align:center; flex-shrink:0; }
 /* Lead Capture */
-.lead-btn { height:24px; padding:0 8px; border-radius:6px; border:1px solid #E5E7EB; background:#fff; color:${isVinSolutions ? '#9CA3AF' : '#7F77DD'}; font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; margin-right:4px; } .lead-btn:hover { background:#f3f4f6; }
-.lead-tab-btn { flex:1; padding:8px 4px; font-size:11px; font-weight:600; font-family:inherit; border:none; background:transparent; color:#94a3b8; cursor:pointer; border-bottom:2px solid transparent; } .lead-tab-btn.active { color:#7F77DD; border-bottom-color:#7F77DD; }
-.lead-field { display:flex; flex-direction:column; gap:2px; margin-bottom:8px; } .lead-field label { font-size:10px; font-weight:600; color:#6B7280; text-transform:uppercase; letter-spacing:0.5px; } .lead-field input { padding:6px 8px; border:1px solid #E5E7EB; border-radius:4px; font-size:13px; font-family:inherit; outline:none; color:#1a202c; } .lead-field input:focus { border-color:#7F77DD; } .lead-field input.empty { background:#FEF08A; }
+.lead-btn { height:24px; padding:0 8px; border-radius:6px; border:1px solid #E5E7EB; background:#fff; color:${isVinSolutions ? '#9CA3AF' : '#0D6E6E'}; font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; margin-right:4px; } .lead-btn:hover { background:#f3f4f6; }
+.lead-tab-btn { flex:1; padding:8px 4px; font-size:11px; font-weight:600; font-family:inherit; border:none; background:transparent; color:#94a3b8; cursor:pointer; border-bottom:2px solid transparent; } .lead-tab-btn.active { color:#0D6E6E; border-bottom-color:#0D6E6E; }
+.lead-field { display:flex; flex-direction:column; gap:2px; margin-bottom:8px; } .lead-field label { font-size:10px; font-weight:600; color:#6B7280; text-transform:uppercase; letter-spacing:0.5px; } .lead-field input { padding:6px 8px; border:1px solid #E5E7EB; border-radius:4px; font-size:13px; font-family:inherit; outline:none; color:#1a202c; } .lead-field input:focus { border-color:#0D6E6E; } .lead-field input.empty { background:#FEF08A; }
 .lead-confidence { text-align:center; font-size:11px; color:#6B7280; margin-bottom:10px; padding:4px 8px; background:#f3f4f6; border-radius:4px; }
-.lead-inject-btn { width:100%; padding:10px; background:#7F77DD; color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; margin-top:4px; } .lead-inject-btn:hover { background:#534AB7; }
+.lead-inject-btn { width:100%; padding:10px; background:#0D6E6E; color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; margin-top:4px; } .lead-inject-btn:hover { background:#0A5555; }
 .lead-inject-btn.locked { background:#9CA3AF; cursor:not-allowed; } .lead-inject-btn.locked:hover { background:#9CA3AF; }
 .lead-cancel-btn { width:100%; padding:8px; background:transparent; border:1px solid #E5E7EB; border-radius:8px; font-size:12px; font-weight:500; color:#475569; cursor:pointer; font-family:inherit; margin-top:6px; } .lead-cancel-btn:hover { background:#f3f4f6; }
 .lead-gate-msg { font-size:10px; color:#9CA3AF; text-align:center; margin-top:6px; }
-.lead-banner { padding:8px 12px; background:#F0EFFF; border-bottom:1px solid #E5E7EB; cursor:pointer; font-size:12px; color:#7F77DD; font-weight:600; display:flex; align-items:center; gap:6px; } .lead-banner:hover { background:#e8e4ff; }
+.lead-banner { padding:8px 12px; background:#F0EFFF; border-bottom:1px solid #E5E7EB; cursor:pointer; font-size:12px; color:#0D6E6E; font-weight:600; display:flex; align-items:center; gap:6px; } .lead-banner:hover { background:#e8e4ff; }
 /* Settings */
 .settings-section { padding:16px 14px; } .settings-label { font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; margin-top:12px; }
-.settings-options { display:flex; flex-direction:column; gap:6px; position:relative; } .settings-options label { font-size:12px; color:#1a202c; display:flex; align-items:center; gap:6px; } .settings-options input[type="radio"] { accent-color:#7F77DD; }
+.settings-options { display:flex; flex-direction:column; gap:6px; position:relative; } .settings-options label { font-size:12px; color:#1a202c; display:flex; align-items:center; gap:6px; } .settings-options input[type="radio"] { accent-color:#0D6E6E; }
 ${isGmail ? `
 /* Gmail overrides */
 #o8 { font-size:13px; border-radius:0; box-shadow:none; border:none; }

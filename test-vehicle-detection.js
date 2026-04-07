@@ -1,5 +1,5 @@
 /**
- * Oper8er Vehicle Detection Test V2
+ * Brevmont Vehicle Detection Test V2
  * Tests extractVehicle() + scanText() against 20 realistic VinSolutions page texts.
  * Includes the REAL failure case: equity line vehicle grabbed instead of actual vehicle.
  * Run: node test-vehicle-detection.js

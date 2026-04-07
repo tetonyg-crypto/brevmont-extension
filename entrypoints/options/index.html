@@ -2,17 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Floq — Profile Settings</title>
+<title>Brevmont — Profile Settings</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;padding:32px 24px;color:#1a202c}
 .wrap{max-width:600px;margin:0 auto}
-h1{font-size:13px;font-weight:700;color:#6D28D9;letter-spacing:4px;margin-bottom:4px}
+h1{font-size:13px;font-weight:700;color:#0D6E6E;letter-spacing:4px;margin-bottom:4px}
 .sub{font-size:13px;color:#94a3b8;margin-bottom:24px}
 
 .section{background:#fff;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:12px;overflow:hidden}
 .section-header{padding:14px 18px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700;color:#1a202c;user-select:none}
-.section-header:hover{background:#faf5ff}
+.section-header:hover{background:#E0F2F2}
 .section-header .arrow{color:#94a3b8;font-size:16px;transition:transform .2s}
 .section-header .arrow.open{transform:rotate(180deg)}
 .section-body{padding:0 18px 18px;display:none}
@@ -21,13 +21,13 @@ h1{font-size:13px;font-weight:700;color:#6D28D9;letter-spacing:4px;margin-bottom
 label{display:block;font-size:11px;font-weight:600;color:#64748b;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;margin-top:14px}
 label:first-child{margin-top:0}
 input,select,textarea{width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;font-family:inherit;outline:none;color:#1a202c}
-input:focus,select:focus,textarea:focus{border-color:#6D28D9;box-shadow:0 0 0 3px rgba(109,40,217,.08)}
+input:focus,select:focus,textarea:focus{border-color:#0D6E6E;box-shadow:0 0 0 3px rgba(13,110,110,.08)}
 textarea{resize:vertical;min-height:50px}
 .hint{font-size:10px;color:#94a3b8;margin-top:2px}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
-.save-btn{margin-top:10px;padding:8px 20px;background:#6D28D9;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
-.save-btn:hover{background:#5b21b6}
+.save-btn{margin-top:10px;padding:8px 20px;background:#0D6E6E;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
+.save-btn:hover{background:#0A5555}
 .saved{font-size:11px;color:#16a34a;display:inline-block;margin-left:10px;opacity:0;transition:opacity .3s}
 .saved.show{opacity:1}
 
@@ -35,16 +35,16 @@ textarea{resize:vertical;min-height:50px}
 .preview-label{font-size:11px;font-weight:600;color:#64748b;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}
 
 .no-profile{text-align:center;padding:48px;color:#94a3b8}
-.no-profile button{margin-top:16px;padding:10px 24px;background:#6D28D9;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+.no-profile button{margin-top:16px;padding:10px 24px;background:#0D6E6E;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>FLOQ</h1>
+  <h1>BREVMONT</h1>
   <div class="sub">Profile Settings</div>
 
   <div id="no-profile" class="no-profile" style="display:none">
-    <p>No profile found. Complete onboarding to set up your Floq profile.</p>
+    <p>No profile found. Complete onboarding to set up your Brevmont profile.</p>
     <button id="setup-btn">Start Setup</button>
   </div>
 
@@ -111,7 +111,7 @@ textarea{resize:vertical;min-height:50px}
     </div>
 
     <!-- CONTEXT PREVIEW -->
-    <div class="preview-label">What Floq knows about you (injected into every prompt):</div>
+    <div class="preview-label">What Brevmont knows about you (injected into every prompt):</div>
     <div class="preview" id="ctx-preview">Loading...</div>
   </div>
 </div>

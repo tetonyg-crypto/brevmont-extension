@@ -1,5 +1,5 @@
 /**
- * Floq Background Service Worker
+ * Brevmont Background Service Worker
  *
  * ALL generation goes through Railway proxy. No direct API calls.
  * No API keys in this file. Proxy owns the Anthropic key and system prompt.
@@ -63,7 +63,7 @@ export default defineBackground(() => {
               timestamp: new Date().toISOString()
             })
           });
-        } catch(e) { console.error('[Floq] Log action failed:', e); }
+        } catch(e) { console.error('[Brevmont] Log action failed:', e); }
       });
       return false;
     }
@@ -86,7 +86,7 @@ export default defineBackground(() => {
               timestamp: new Date().toISOString()
             })
           });
-        } catch(e) { console.error('[Floq] Log copy failed:', e); }
+        } catch(e) { console.error('[Brevmont] Log copy failed:', e); }
       });
       return false;
     }
@@ -439,7 +439,7 @@ async function handleGenerate(payload: {
 
   // All generation goes through Railway proxy — NO direct API calls, NO local keys
   if (!dealerToken) {
-    throw new Error('No license key found. Complete onboarding at floqsales.com to activate Floq.');
+    throw new Error('No license key found. Complete onboarding at brevmont.com to activate Brevmont.');
   }
 
   // Structured metadata for generation_events logging (sent alongside the prompt)
@@ -479,7 +479,7 @@ async function generateViaProxy(dealerToken: string, userMessage: string, platfo
     })
   });
 
-  if (resp.status === 401) throw new Error('License invalid or expired. Contact support to renew your Floq subscription.');
+  if (resp.status === 401) throw new Error('License invalid or expired. Contact support to renew your Brevmont subscription.');
   if (resp.status === 429) throw new Error('Too many requests. Wait a few seconds and try again.');
   if (!resp.ok) {
     const errBody = await resp.json().catch(() => ({ error: 'Unknown error' }));

@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Floq — Setup</title>
+<title>Brevmont — Setup</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;color:#1a202c;min-height:100vh;display:flex;flex-direction:column;align-items:center}
 
 .progress{width:100%;max-width:640px;padding:32px 24px 0;display:flex;gap:8px;align-items:center}
 .step-dot{width:100%;height:4px;border-radius:2px;background:#e2e8f0;transition:background .3s}
-.step-dot.active{background:#6D28D9}
+.step-dot.active{background:#0D6E6E}
 .step-dot.done{background:#16a34a}
 .step-label{font-size:11px;color:#94a3b8;font-weight:600;letter-spacing:1px;margin-left:8px;white-space:nowrap}
 
@@ -25,7 +25,7 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
 .field label{display:block;font-size:11px;font-weight:600;color:#64748b;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px}
 .field label .req{color:#ef4444}
 .field input,.field select,.field textarea{width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit;outline:none;color:#1a202c;background:#fff}
-.field input:focus,.field select:focus,.field textarea:focus{border-color:#6D28D9;box-shadow:0 0 0 3px rgba(109,40,217,.1)}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:#0D6E6E;box-shadow:0 0 0 3px rgba(13,110,110,.1)}
 .field textarea{resize:vertical;min-height:60px}
 .field .hint{font-size:11px;color:#94a3b8;margin-top:3px}
 .field .error{font-size:11px;color:#ef4444;margin-top:3px;display:none}
@@ -35,47 +35,47 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
 /* Tone cards */
 .tone-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .tone-card{padding:14px;border:2px solid #e2e8f0;border-radius:10px;cursor:pointer;transition:all .15s;background:#fff}
-.tone-card:hover{border-color:#c4b5fd}
-.tone-card.selected{border-color:#6D28D9;background:#faf5ff}
+.tone-card:hover{border-color:#7FBFBF}
+.tone-card.selected{border-color:#0D6E6E;background:#E0F2F2}
 .tone-card .tc-name{font-size:13px;font-weight:700;color:#1a202c}
 .tone-card .tc-ex{font-size:11px;color:#64748b;margin-top:2px;font-style:italic}
 
 /* Toggle chips */
 .chip-grid{display:flex;flex-wrap:wrap;gap:6px}
 .chip-toggle{padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;border:1.5px solid #e2e8f0;background:#fff;color:#94a3b8;cursor:pointer;transition:all .15s;font-family:inherit}
-.chip-toggle.on{border-color:#6D28D9;color:#6D28D9;background:#faf5ff}
+.chip-toggle.on{border-color:#0D6E6E;color:#0D6E6E;background:#E0F2F2}
 
 /* Three-way toggle */
 .toggle3{display:flex;gap:4px;background:#f1f5f9;border-radius:8px;padding:3px}
 .toggle3 button{flex:1;padding:8px 12px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#64748b;font-family:inherit;transition:all .15s}
-.toggle3 button.active{background:#6D28D9;color:#fff}
+.toggle3 button.active{background:#0D6E6E;color:#fff}
 
 /* Buttons */
 .btn-row{display:flex;gap:10px;margin-top:24px}
 .btn{padding:12px 32px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:all .15s}
-.btn-primary{background:#6D28D9;color:#fff}
-.btn-primary:hover{background:#5b21b6}
-.btn-primary:disabled{background:#c4b5fd;cursor:not-allowed}
+.btn-primary{background:#0D6E6E;color:#fff}
+.btn-primary:hover{background:#0A5555}
+.btn-primary:disabled{background:#7FBFBF;cursor:not-allowed}
 .btn-secondary{background:#f1f5f9;color:#64748b}
 .btn-secondary:hover{background:#e2e8f0}
 
 /* Completion */
 .complete-card{text-align:center;padding:48px 24px}
 .complete-card h1{font-size:32px;margin-bottom:8px}
-.complete-name{font-size:20px;font-weight:700;color:#6D28D9;margin-top:16px}
+.complete-name{font-size:20px;font-weight:700;color:#0D6E6E;margin-top:16px}
 .complete-dealer{font-size:14px;color:#64748b;margin-top:4px}
 .complete-badges{display:flex;gap:8px;justify-content:center;margin-top:16px}
 .badge{padding:4px 12px;border-radius:12px;font-size:11px;font-weight:600;letter-spacing:0.5px}
-.badge-tone{background:#faf5ff;color:#6D28D9;border:1px solid #c4b5fd}
+.badge-tone{background:#E0F2F2;color:#0D6E6E;border:1px solid #7FBFBF}
 .badge-license{background:#f0fdf4;color:#16a34a;border:1px solid #86efac}
 .complete-btn{margin-top:32px}
 
-.logo{font-size:13px;font-weight:700;color:#6D28D9;letter-spacing:4px;padding:24px;text-align:center}
+.logo{font-size:13px;font-weight:700;color:#0D6E6E;letter-spacing:4px;padding:24px;text-align:center}
 </style>
 </head>
 <body>
 
-<div class="logo">FLOQ</div>
+<div class="logo">BREVMONT</div>
 
 <div class="progress">
   <div class="step-dot active" id="dot-1"></div>
@@ -87,7 +87,7 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
 
 <!-- SCREEN 1: WHO YOU ARE -->
 <div class="screen active" id="screen-1">
-  <h1>Let's build your Floq profile.</h1>
+  <h1>Let's build your Brevmont profile.</h1>
   <div class="sub">This takes 2 minutes and makes every output sound exactly like you.</div>
 
   <div class="field-row">
@@ -131,7 +131,7 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
 <!-- SCREEN 2: WHERE YOU WORK -->
 <div class="screen" id="screen-2">
   <h1>Tell us about your dealership.</h1>
-  <div class="sub">Floq uses this to make every message local and accurate.</div>
+  <div class="sub">Brevmont uses this to make every message local and accurate.</div>
 
   <div class="field"><label>Dealership Name <span class="req">*</span></label><input id="s2-dealer" placeholder="Stone's Auto Group"></div>
 
@@ -143,7 +143,7 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
   <div class="field">
     <label>License Key <span class="req">*</span></label>
     <input id="s2-license" placeholder="stones-op8-2692-live">
-    <div class="hint">Provided by Floq when your dealership is activated</div>
+    <div class="hint">Provided by Brevmont when your dealership is activated</div>
     <div class="valid" id="s2-license-ok">License validated</div>
     <div class="error" id="s2-license-err">Invalid license key</div>
   </div>
@@ -166,7 +166,7 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
       <button >Yes</button>
       <button class="active" >No</button>
     </div>
-    <div class="hint">Affects how Floq handles rust and condition objections for trades</div>
+    <div class="hint">Affects how Brevmont handles rust and condition objections for trades</div>
   </div>
 
   <div class="field-row">
@@ -194,7 +194,7 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
 <!-- SCREEN 3: HOW YOU COMMUNICATE -->
 <div class="screen" id="screen-3">
   <h1>How do you talk to customers?</h1>
-  <div class="sub">The more honest you are here, the better Floq sounds like you.</div>
+  <div class="sub">The more honest you are here, the better Brevmont sounds like you.</div>
 
   <div class="field">
     <label>Communication Tone</label>
@@ -231,7 +231,7 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
       <button class="chip-toggle on" data-val="english" >English</button>
       <button class="chip-toggle" data-val="spanish" >Spanish</button>
     </div>
-    <div class="hint" id="s3-lang-hint" style="display:none">Floq will generate in the language that matches your customer's communication style.</div>
+    <div class="hint" id="s3-lang-hint" style="display:none">Brevmont will generate in the language that matches your customer's communication style.</div>
   </div>
 
   <div class="field">
@@ -249,7 +249,7 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
 <!-- SCREEN 4: YOUR CUSTOMERS -->
 <div class="screen" id="screen-4">
   <h1>Who are you usually selling to?</h1>
-  <div class="sub">This helps Floq match the right energy for your market.</div>
+  <div class="sub">This helps Brevmont match the right energy for your market.</div>
 
   <div class="field">
     <label>Primary Customer Types (select all that apply)</label>
@@ -313,7 +313,7 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
       <span class="badge badge-license">License Active</span>
     </div>
     <div class="complete-btn">
-      <button class="btn btn-primary" id="btn-open" style="padding:14px 48px;font-size:16px">Open Floq</button>
+      <button class="btn btn-primary" id="btn-open" style="padding:14px 48px;font-size:16px">Open Brevmont</button>
     </div>
   </div>
 </div>

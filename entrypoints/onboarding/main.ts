@@ -1,5 +1,5 @@
 /**
- * Oper8er Onboarding — Main Script
+ * Brevmont Onboarding — Main Script
  * Bundled by WXT as a module, CSP-compliant for extension pages.
  */
 

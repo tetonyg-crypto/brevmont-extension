@@ -1,5 +1,5 @@
 /**
- * Oper8er Network Interceptor
+ * Brevmont Network Interceptor
  * Loaded as a web_accessible_resource to bypass CSP.
  * Monkey-patches window.fetch to capture customer/lead/contact API responses
  * and postMessage the extracted data to the content script.

@@ -13,12 +13,12 @@ export default defineConfig({
     }
   }),
   manifest: {
-    name: 'Floq — AI Sales Assistant for VinSolutions',
-    short_name: 'Floq',
+    name: 'Brevmont — AI Sales Assistant for VinSolutions',
+    short_name: 'Brevmont',
     version: '1.9.1',
     version_name: '1.9.1',
     description: 'AI writes the text, email, and CRM note inside VinSolutions. Every rep performs like your best one.',
-    homepage_url: 'https://floqsales.com',
+    homepage_url: 'https://brevmont.com',
     icons: {
       '16': 'icons/icon-16.png',
       '32': 'icons/icon-32.png',
@@ -28,7 +28,7 @@ export default defineConfig({
     commands: {
       'open_command_mode': {
         suggested_key: { default: 'Alt+K' },
-        description: 'Open Floq Command Mode'
+        description: 'Open Brevmont Command Mode'
       }
     },
     permissions: ['activeTab', 'storage', 'alarms'],
