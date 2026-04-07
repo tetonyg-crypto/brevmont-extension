@@ -476,7 +476,7 @@ export default defineContentScript({
       pill.textContent = '⚡ FQ';
 
       Object.assign(pill.style, {
-        position:'fixed', zIndex:'2147483647',
+        position:'fixed', zIndex:'9999',
         background:'#7F77DD', color:'#fff', padding:'5px 8px', borderRadius:'6px',
         fontSize:'11px', fontWeight:'700', fontFamily:'system-ui,sans-serif', cursor:'pointer',
         boxShadow:'0 2px 8px rgba(127,119,221,0.3)', letterSpacing:'0.5px',
@@ -655,6 +655,64 @@ export default defineContentScript({
     window.addEventListener('fullscreenchange', () => { updatePillPosition(); updateSidebarPosition(); });
     setInterval(() => { updatePillPosition(); updateSidebarPosition(); }, 1000);
 
+    // ===== MODAL AWARENESS: Hide pill + sidebar when VinSolutions modals are visible =====
+    if (isVinSolutions) {
+      let pillHiddenByModal = false;
+      function checkForModals() {
+        // VinSolutions uses jQuery UI dialogs, Bootstrap modals, and native role="dialog"
+        const modalSelectors = [
+          '.ui-dialog:not([style*="display: none"])',
+          '.ui-widget-overlay',
+          '.modal.show', '.modal.in', '.modal[style*="display: block"]',
+          '[role="dialog"]:not([aria-hidden="true"])',
+          '.k-overlay', // Kendo UI overlay
+          '#simplemodal-overlay', '#simplemodal-container',
+          '.blockUI.blockOverlay',
+        ];
+        const modalVisible = modalSelectors.some(sel => {
+          const el = document.querySelector(sel);
+          if (!el) return false;
+          const rect = (el as HTMLElement).getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        });
+
+        // Also check iframes for modals (VinSolutions opens modals inside iframes)
+        let iframeModal = false;
+        try {
+          document.querySelectorAll('iframe').forEach(iframe => {
+            try {
+              const idoc = iframe.contentDocument;
+              if (!idoc) return;
+              if (idoc.querySelector('.ui-dialog:not([style*="display: none"])') ||
+                  idoc.querySelector('.ui-widget-overlay') ||
+                  idoc.querySelector('[role="dialog"]:not([aria-hidden="true"])')) {
+                iframeModal = true;
+              }
+            } catch(e) {} // cross-origin iframes will throw
+          });
+        } catch(e) {}
+
+        const shouldHide = modalVisible || iframeModal;
+
+        if (shouldHide && !pillHiddenByModal) {
+          pillHiddenByModal = true;
+          if (pill) { pill.style.visibility = 'hidden'; pill.style.pointerEvents = 'none'; }
+          if (sidebarRoot) { sidebarRoot.style.visibility = 'hidden'; sidebarRoot.style.pointerEvents = 'none'; }
+        } else if (!shouldHide && pillHiddenByModal) {
+          pillHiddenByModal = false;
+          if (pill && !sidebarOpen) { pill.style.visibility = 'visible'; pill.style.pointerEvents = 'auto'; }
+          if (sidebarRoot && sidebarOpen) { sidebarRoot.style.visibility = 'visible'; sidebarRoot.style.pointerEvents = 'auto'; }
+        }
+      }
+
+      // Check every 500ms (modals open/close asynchronously)
+      setInterval(checkForModals, 500);
+
+      // Also watch for DOM changes that might indicate modal insertion
+      const modalObserver = new MutationObserver(() => { requestAnimationFrame(checkForModals); });
+      modalObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'aria-hidden'] });
+    }
+
     // ===== NON-VINSOLUTIONS: Lightweight contact name watcher =====
     // VinSolutions has its own deep scanning. For all other platforms, periodically
     // extract the contact name from the conversation header so it's ready when the
@@ -700,7 +758,7 @@ export default defineContentScript({
             pill.id = 'oper8er-pill';
             pill.textContent = '⚡ FQ';
             Object.assign(pill.style, {
-              position:'fixed', zIndex:'2147483647',
+              position:'fixed', zIndex:'9999',
               background:'#7F77DD', color:'#fff', padding:'5px 8px', borderRadius:'6px',
               fontSize:'11px', fontWeight:'700', fontFamily:'system-ui,sans-serif', cursor:'pointer',
               boxShadow:'0 2px 8px rgba(127,119,221,0.3)', letterSpacing:'0.5px', opacity:'0.85',
@@ -793,7 +851,7 @@ export default defineContentScript({
           if (!pendingBadge) {
             pendingBadge = document.createElement('div');
             pendingBadge.id = 'floq-pending-badge';
-            Object.assign(pendingBadge.style, { position:'fixed', bottom:'16px', right:'16px', zIndex:'2147483645', background:'#7F77DD', color:'#fff', padding:'8px 14px', borderRadius:'20px', fontSize:'12px', fontWeight:'600', fontFamily:'system-ui,sans-serif', cursor:'pointer', boxShadow:'0 2px 12px rgba(127,119,221,0.4)', transition:'transform .15s' });
+            Object.assign(pendingBadge.style, { position:'fixed', bottom:'16px', right:'16px', zIndex:'9997', background:'#7F77DD', color:'#fff', padding:'8px 14px', borderRadius:'20px', fontSize:'12px', fontWeight:'600', fontFamily:'system-ui,sans-serif', cursor:'pointer', boxShadow:'0 2px 12px rgba(127,119,221,0.4)', transition:'transform .15s' });
             pendingBadge.onmouseenter = () => { if (pendingBadge) pendingBadge.style.transform = 'scale(1.05)'; };
             pendingBadge.onmouseleave = () => { if (pendingBadge) pendingBadge.style.transform = 'scale(1)'; };
             pendingBadge.onclick = () => togglePendingPanel();
@@ -810,7 +868,7 @@ export default defineContentScript({
     function togglePendingPanel() {
       if (pendingPanel) { pendingPanel.remove(); pendingPanel = null; return; }
       pendingPanel = document.createElement('div');
-      Object.assign(pendingPanel.style, { position:'fixed', bottom:'56px', right:'16px', width:'320px', maxHeight:'400px', zIndex:'2147483645', background:'#fff', borderRadius:'12px', border:'1px solid #e2e8f0', boxShadow:'0 8px 32px rgba(0,0,0,0.15)', fontFamily:'system-ui,sans-serif', overflow:'hidden', display:'flex', flexDirection:'column' });
+      Object.assign(pendingPanel.style, { position:'fixed', bottom:'56px', right:'16px', width:'320px', maxHeight:'400px', zIndex:'9997', background:'#fff', borderRadius:'12px', border:'1px solid #e2e8f0', boxShadow:'0 8px 32px rgba(0,0,0,0.15)', fontFamily:'system-ui,sans-serif', overflow:'hidden', display:'flex', flexDirection:'column' });
 
       let html = '<div style="padding:12px 16px;border-bottom:1px solid #e8eaed;font-size:13px;font-weight:700;color:#1a202c;display:flex;justify-content:space-between;align-items:center"><span>Pending Notes</span><span id="floq-pn-close" style="cursor:pointer;color:#94a3b8;font-size:18px">&times;</span></div>';
       html += '<div style="overflow-y:auto;flex:1;padding:8px">';
@@ -1035,13 +1093,13 @@ export default defineContentScript({
       // Gmail: LEFT side below header. All others: RIGHT side.
       if (isGmail) {
         // Position below Gmail labels section — labels nav ends around 200px from top
-        Object.assign(host.style, { position:'fixed', top:'435px', left:'0', width: w, height:'auto', maxHeight:'calc(100vh - 445px)', zIndex:'2147483647', overflow:'hidden', borderRadius:'0 8px 0 0', borderRight:'1px solid #e0e0e0', boxShadow:'none', background:'#fff' });
+        Object.assign(host.style, { position:'fixed', top:'435px', left:'0', width: w, height:'auto', maxHeight:'calc(100vh - 445px)', zIndex:'9999', overflow:'hidden', borderRadius:'0 8px 0 0', borderRight:'1px solid #e0e0e0', boxShadow:'none', background:'#fff' });
       } else if (isLinkedIn) {
         // LinkedIn: right side, below nav bar, card-style
-        Object.assign(host.style, { position:'fixed', top:'72px', right:'8px', width: '280px', height:'calc(100vh - 82px)', maxHeight:'calc(100vh - 82px)', zIndex:'2147483647', overflow:'hidden', borderRadius:'8px', border:'1px solid #e0e0e0', boxShadow:'0 0 0 1px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.06)', background:'#fff' });
+        Object.assign(host.style, { position:'fixed', top:'72px', right:'8px', width: '280px', height:'calc(100vh - 82px)', maxHeight:'calc(100vh - 82px)', zIndex:'9999', overflow:'hidden', borderRadius:'8px', border:'1px solid #e0e0e0', boxShadow:'0 0 0 1px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.06)', background:'#fff' });
       } else if (!isVinSolutions) {
         // Cross-platform compact: right side, auto height
-        Object.assign(host.style, { position:'fixed', top:'0', right:'0', width: w, height:'auto', maxHeight:'100vh', zIndex:'2147483647' });
+        Object.assign(host.style, { position:'fixed', top:'0', right:'0', width: w, height:'auto', maxHeight:'100vh', zIndex:'9999' });
       } else {
         // VinSolutions: fixed-width sidebar, right-aligned to the panel seam
         const seam = findPanelSeamX();
@@ -1056,7 +1114,7 @@ export default defineContentScript({
           width: sidebarWidth + 'px',
           height: (seam ? seam.panelHeight : 758) + 'px',
           maxHeight: 'calc(100vh - 200px)',
-          zIndex:'2147483647',
+          zIndex:'9999',
           boxShadow:'2px 0 12px rgba(0,0,0,0.15)',
           overflow:'hidden',
           background:'#fff',
