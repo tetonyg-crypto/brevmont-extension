@@ -1984,9 +1984,27 @@ export default defineContentScript({
       else if (isEmail && isGmail) primaryLabel = 'Apply to Email';
 
       // Two buttons only: primary (solid) + Regenerate (ghost)
-      card.innerHTML = `<div class="out-label">${esc(label)}</div><textarea class="out-textarea">${esc(content)}</textarea><div class="out-actions"><button class="out-action out-primary">${primaryLabel}</button><button class="out-action out-regen">Regenerate</button></div><div class="out-status"></div>`;
+      const CRM_NOTE_CHAR_LIMIT = 500;
+      card.innerHTML = `<div class="out-label">${esc(label)}</div><textarea class="out-textarea">${esc(content)}</textarea>${isCRM ? `<div class="crm-char-count" style="font-size:11px;font-family:'JetBrains Mono',monospace;text-align:right;padding:2px 8px 0;color:#6B6B6B;">${content.length} / ${CRM_NOTE_CHAR_LIMIT}</div>` : ''}<div class="out-actions"><button class="out-action out-primary">${primaryLabel}</button><button class="out-action out-regen">Regenerate</button></div><div class="out-status"></div>`;
 
       const getContent = () => (card.querySelector('.out-textarea') as HTMLTextAreaElement)?.value || content;
+
+      // CRM note character counter — live update on edit
+      if (isCRM) {
+        const textarea = card.querySelector('.out-textarea') as HTMLTextAreaElement;
+        const counter = card.querySelector('.crm-char-count') as HTMLElement;
+        if (textarea && counter) {
+          const updateCounter = () => {
+            const len = textarea.value.length;
+            counter.textContent = `${len} / ${CRM_NOTE_CHAR_LIMIT}`;
+            if (len > CRM_NOTE_CHAR_LIMIT * 0.95) counter.style.color = '#B91C1C';
+            else if (len > CRM_NOTE_CHAR_LIMIT * 0.8) counter.style.color = '#C4841D';
+            else counter.style.color = '#1A7A4C';
+          };
+          updateCounter();
+          textarea.addEventListener('input', updateCounter);
+        }
+      }
 
       // Primary action — always copies to clipboard as side effect
       const primaryBtn = card.querySelector('.out-primary');
