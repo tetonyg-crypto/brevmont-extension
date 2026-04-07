@@ -895,17 +895,33 @@ export default defineContentScript({
       let recognition: any = null;
       let fullTranscript = '';
 
+      function cleanupRecognition() {
+        isListening = false;
+        micBtn.classList.remove('mic-active');
+        if (recognition) {
+          try { recognition.onend = null; recognition.onerror = null; recognition.onresult = null; } catch(e) {}
+          try { recognition.abort(); } catch(e) {}
+          recognition = null;
+        }
+        console.log('[Floq] Mic stopped and cleaned up');
+      }
+
       micBtn.onclick = () => {
         if (isListening) {
-          // STOP — finalize transcript, clean up
-          isListening = false;
-          micBtn.classList.remove('mic-active');
-          if (recognition) { try { recognition.stop(); } catch(e) {} }
-          // Final transcript is already in the input from onresult
+          // STOP — finalize transcript, tear down completely
+          console.log('[Floq] Mic stopping (user click)');
+          cleanupRecognition();
           return;
         }
 
+        // STOP any previous zombie recognition before starting fresh
+        if (recognition) {
+          console.log('[Floq] Tearing down previous mic session before starting new one');
+          cleanupRecognition();
+        }
+
         // START
+        console.log('[Floq] Mic starting...');
         try {
           recognition = new SR();
           recognition.continuous = true;
@@ -932,17 +948,24 @@ export default defineContentScript({
 
           recognition.onerror = (e: any) => {
             if (e.error === 'aborted') return; // normal stop, ignore
-            isListening = false;
-            micBtn.classList.remove('mic-active');
-            showToast(shadow, 'Mic error — type your message');
+            console.log('[Floq] Mic error:', e.error);
+            if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+              showToast(shadow, 'Mic permission denied — enable in Chrome site settings');
+            } else if (e.error === 'audio-capture') {
+              showToast(shadow, 'Mic in use by another tab. Close other tabs and try again.');
+            } else {
+              showToast(shadow, 'Mic error — type your message');
+            }
+            cleanupRecognition();
           };
 
           // Auto-restart on silence instead of stopping
           recognition.onend = () => {
             if (isListening) {
+              console.log('[Floq] Mic auto-restarting after silence');
               try { recognition.start(); } catch(e) {
-                isListening = false;
-                micBtn.classList.remove('mic-active');
+                console.log('[Floq] Mic auto-restart failed, cleaning up');
+                cleanupRecognition();
               }
             }
           };
@@ -950,9 +973,15 @@ export default defineContentScript({
           recognition.start();
           isListening = true;
           micBtn.classList.add('mic-active');
-        } catch(e) {
-          micBtn.style.display = 'none';
-          showToast(shadow, 'Voice not available — type your message');
+          console.log('[Floq] Mic started successfully');
+        } catch(e: any) {
+          console.log('[Floq] Mic start failed:', e.message);
+          cleanupRecognition();
+          if (e.message?.includes('not-allowed') || e.name === 'NotAllowedError') {
+            showToast(shadow, 'Mic permission denied — enable in Chrome site settings');
+          } else {
+            showToast(shadow, 'Voice not available — type your message');
+          }
         }
       };
     }
