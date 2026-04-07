@@ -432,7 +432,7 @@ async function handleGenerate(payload: {
   const finalDealership = payload.dealership || dealership;
   const dealerToken = settings.dealer_token || '';
   const detectedPlatform = payload.platform || 'chrome_extension';
-  const userMessage = buildUserMessage(payload, finalRepName, finalDealership, contextBlock);
+  let userMessage = buildUserMessage(payload, finalRepName, finalDealership, contextBlock);
 
   let text: string;
   let usage: any = {};
@@ -442,11 +442,32 @@ async function handleGenerate(payload: {
     throw new Error('No license key found. Complete onboarding at brevmont.com to activate Brevmont.');
   }
 
+  // Fetch recent notes for same-lead dedup context
+  const customerName = payload.metadata?.customer_name || payload.leadContext?.customerName || null;
+  if (customerName && customerName !== 'there') {
+    try {
+      const recentResp = await fetch(`${PROXY_URL}/api/recent-notes?dealer_token=${encodeURIComponent(dealerToken)}&customer_name=${encodeURIComponent(customerName)}&hours=2`);
+      if (recentResp.ok) {
+        const { notes } = await recentResp.json();
+        if (notes && notes.length > 0) {
+          const priorContext = notes.map((n: any) => {
+            const time = new Date(n.generated_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            const noteText = (n.output || '').substring(0, 200);
+            return `[${time}] ${noteText}`;
+          }).join('\n');
+          userMessage += `\n\nPRIOR NOTES ON THIS CUSTOMER (last 2 hours):\n${priorContext}\n\nDO NOT repeat information from prior notes. Only generate new content if there is new information. For the CRM NOTE specifically: if nothing has changed since the last note, respond with exactly "NO_NEW_NOTE" for the CRM NOTE section.`;
+        }
+      }
+    } catch(e) {
+      // Silent fail — dedup is nice-to-have, not blocking
+    }
+  }
+
   // Structured metadata for generation_events logging (sent alongside the prompt)
   const metadata = {
     rep_name: finalRepName,
     workflow_type: payload.metadata?.workflow_type || payload.type || 'all',
-    customer_name: payload.metadata?.customer_name || payload.leadContext?.customerName || null,
+    customer_name: customerName,
     vehicle: payload.metadata?.vehicle || payload.leadContext?.vehicle || null
   };
 

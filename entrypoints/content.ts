@@ -1867,7 +1867,7 @@ export default defineContentScript({
             metadata: { workflow_type: type === 'all' ? 'all' : type, customer_name: leadData?.customerName || extractContactName() || null, vehicle: leadData?.vehicle || null, email: leadData?.email || null } }
         });
         if (response.error) addOutput(s, 'Error', response.error);
-        else { const sec = response.sections; if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) addOutput(s, outputLabels.crm, sec.crm); if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.'); }
+        else { const sec = response.sections; if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) { if (sec.crm.trim() === 'NO_NEW_NOTE') { showToast(s, 'Nothing new to log — last note covers this.'); } else { addOutput(s, outputLabels.crm, sec.crm); } } if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.'); }
       } catch (e: any) {
         if (e.message.includes('Reload') || e.message.includes('connection') || e.message.includes('invalidated')) { showReconnectBanner(s); }
         addOutput(s, 'Error', e.message.includes('invalidated') ? 'Brevmont needs a refresh. Click Reload Page above.' : e.message);
