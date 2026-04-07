@@ -300,16 +300,48 @@ export default defineContentScript({
     // ===== POPUP INJECTION FUNCTIONS =====
 
     async function injectEmailComposeButton() {
-      // Wait for the email form to load
-      await new Promise(r => setTimeout(r, 1500));
+      // Wait for CKEditor / email form to fully mount
+      await new Promise(r => setTimeout(r, 2500));
 
-      // Find the email body area — VinSolutions uses iframes for rich text
-      const bodyFrame = document.querySelector('iframe[id*="editor"], iframe[id*="body"], iframe[id*="content"]') as HTMLIFrameElement;
-      const bodyTextarea = document.querySelector('textarea[id*="body"], textarea[id*="content"], textarea[name*="body"]') as HTMLTextAreaElement;
-      const subjectInput = document.querySelector('input[id*="subject"], input[name*="subject"], input[id*="Subject"]') as HTMLInputElement;
+      // Find the CKEditor iframe — VinSolutions uses CKEditor for rich text email body
+      // Try multiple selectors: CKEditor standard, VinSolutions custom, generic
+      function findEditorIframe(): HTMLIFrameElement | null {
+        const selectors = [
+          'iframe.cke_wysiwyg_frame',
+          'iframe[id*="Editor"]',
+          'iframe[id*="editor"]',
+          'iframe[id*="cke_"]',
+          'iframe[title*="Rich Text"]',
+          'iframe[title*="editor"]',
+          '.cke_contents iframe',
+          '[id*="cke_contents"] iframe',
+        ];
+        for (const sel of selectors) {
+          const el = document.querySelector(sel) as HTMLIFrameElement;
+          if (el) { console.log('[Brevmont] Found editor iframe via:', sel); return el; }
+        }
+        // Last resort: find any iframe whose src is blank/about:blank (CKEditor pattern)
+        const allIframes = document.querySelectorAll('iframe');
+        for (const iframe of allIframes) {
+          const src = iframe.getAttribute('src') || '';
+          if (!src || src === 'about:blank' || src === 'javascript:void(0)') {
+            // Check if it has a contenteditable body
+            try {
+              const doc = (iframe as HTMLIFrameElement).contentDocument;
+              if (doc?.body?.contentEditable === 'true' || doc?.designMode === 'on') {
+                console.log('[Brevmont] Found editor iframe via contentEditable check');
+                return iframe as HTMLIFrameElement;
+              }
+            } catch(e) {}
+          }
+        }
+        return null;
+      }
+
+      const subjectInput = document.querySelector('input[id*="subject"], input[id*="Subject"], input[name*="subject"], input[name*="Subject"]') as HTMLInputElement;
 
       // Find a toolbar or button area to anchor our button
-      const toolbar = document.querySelector('.mce-toolbar, .k-toolbar, [class*="toolbar"], [id*="toolbar"]')
+      const toolbar = document.querySelector('.cke_top, .mce-toolbar, .k-toolbar, [class*="toolbar"], [id*="toolbar"]')
         || (subjectInput?.parentElement?.parentElement)
         || document.querySelector('table td[class*="button"], [class*="actions"]');
 
@@ -317,10 +349,11 @@ export default defineContentScript({
       const btn = document.createElement('button');
       btn.textContent = 'Generate with Brevmont';
       btn.id = 'brevmont-email-generate';
+      btn.type = 'button'; // Prevent form submission
       Object.assign(btn.style, {
         background: '#0D6E6E', color: '#fff', border: 'none', borderRadius: '8px',
         padding: '8px 16px', fontSize: '13px', fontWeight: '600', fontFamily: 'system-ui,sans-serif',
-        cursor: 'pointer', margin: '8px', whiteSpace: 'nowrap'
+        cursor: 'pointer', margin: '8px', whiteSpace: 'nowrap', position: 'relative', zIndex: '9999'
       });
       btn.onmouseenter = () => { btn.style.background = '#0A5555'; };
       btn.onmouseleave = () => { btn.style.background = '#0D6E6E'; };
@@ -329,23 +362,26 @@ export default defineContentScript({
       if (toolbar) {
         toolbar.insertBefore(btn, toolbar.firstChild);
       } else {
-        // Fallback: insert at top of body
         document.body.insertBefore(btn, document.body.firstChild);
       }
 
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         btn.textContent = 'Generating...'; btn.disabled = true;
 
         try {
           // Extract customer name from popup DOM
-          const customerEl = document.querySelector('[id*="customer"], [id*="name"], .customer-name, h1, h2, [class*="header"] span');
+          const customerEl = document.querySelector('[id*="customer"], [id*="CustomerName"], [id*="name"], .customer-name, h1, h2, [class*="header"] span');
           const customerName = customerEl?.textContent?.trim() || '';
-          const toField = document.querySelector('input[id*="to"], input[name*="to"], input[type="email"]') as HTMLInputElement;
+          const toField = document.querySelector('input[id*="to"], input[id*="To"], input[name*="to"], input[type="email"]') as HTMLInputElement;
           const toEmail = toField?.value || '';
+
+          console.log('[Brevmont] Email popup: customer=' + customerName + ', to=' + toEmail);
 
           // Get rep context from storage
           const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
-          if (!settings.dealer_token) { btn.textContent = 'No license key'; return; }
+          if (!settings.dealer_token) { btn.textContent = 'No license key'; btn.disabled = false; return; }
 
           // Generate via proxy
           const resp = await fetch('https://oper8er-proxy-production.up.railway.app/v1/generate', {
@@ -358,30 +394,74 @@ export default defineContentScript({
               metadata: { rep_name: settings.rep_name || '', workflow_type: 'email', customer_name: customerName }
             })
           });
+
+          if (!resp.ok) throw new Error(`API ${resp.status}: ${resp.statusText}`);
           const data = await resp.json();
           const raw = data.text || data.reply || '';
+          if (!raw) throw new Error('Empty response from proxy');
+
+          console.log('[Brevmont] Email generated, length=' + raw.length);
 
           // Parse subject and body from response
           const subjectMatch = raw.match(/Subject:\s*(.+?)(?:\n|$)/i);
           const emailBody = raw.replace(/^(?:EMAIL\s*\n)?Subject:\s*.+?\n\n?/i, '').trim();
 
-          // Auto-populate fields
+          // Auto-populate subject
           if (subjectInput && subjectMatch?.[1]) {
             safeInjectText(subjectInput, subjectMatch[1].trim());
+            console.log('[Brevmont] Subject injected');
           }
 
-          if (bodyFrame) {
+          // Auto-populate body — SAFELY into the CKEditor iframe
+          const editorFrame = findEditorIframe();
+          if (editorFrame) {
             try {
-              const fdoc = bodyFrame.contentDocument;
-              if (fdoc?.body) {
-                fdoc.body.innerHTML = emailBody.split('\n').map((p: string) => `<p>${p}</p>`).join('');
+              const innerDoc = editorFrame.contentDocument || editorFrame.contentWindow?.document;
+              if (innerDoc) {
+                // Wait for CKEditor to be ready
+                if (innerDoc.readyState !== 'complete') {
+                  await new Promise(r => setTimeout(r, 500));
+                }
+                // Convert plain text to HTML paragraphs
+                const htmlBody = emailBody.split('\n').filter((l: string) => l.trim()).map((p: string) => `<p>${p}</p>`).join('');
+                // Write ONLY to the inner document body — never touch the iframe element itself
+                innerDoc.body.innerHTML = htmlBody;
+                console.log('[Brevmont] Email body injected via iframe.contentDocument.body.innerHTML');
               }
-            } catch(e) { /* cross-origin */ }
-          } else if (bodyTextarea) {
-            safeInjectText(bodyTextarea, emailBody);
+            } catch(frameErr: any) {
+              console.error('[Brevmont] Iframe write failed:', frameErr.message);
+              // Fallback: try execCommand
+              try {
+                editorFrame.contentWindow?.focus();
+                const innerDoc = editorFrame.contentDocument;
+                if (innerDoc) {
+                  innerDoc.execCommand('selectAll', false);
+                  innerDoc.execCommand('insertHTML', false, emailBody.split('\n').filter((l: string) => l.trim()).map((p: string) => `<p>${p}</p>`).join(''));
+                  console.log('[Brevmont] Email body injected via execCommand');
+                }
+              } catch(cmdErr: any) {
+                console.error('[Brevmont] execCommand fallback failed:', cmdErr.message);
+              }
+            }
+          } else {
+            // No iframe found — try textarea fallback
+            const bodyTextarea = document.querySelector('textarea[id*="body"], textarea[id*="Body"], textarea[id*="content"], textarea[name*="body"]') as HTMLTextAreaElement;
+            if (bodyTextarea) {
+              safeInjectText(bodyTextarea, emailBody);
+              console.log('[Brevmont] Email body injected via textarea fallback');
+            } else {
+              console.error('[Brevmont] No editor iframe or textarea found');
+              // Copy to clipboard as last resort
+              navigator.clipboard.writeText(emailBody);
+              const toast = document.createElement('div');
+              toast.textContent = 'Email copied to clipboard — paste into body field.';
+              Object.assign(toast.style, { position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background:'#C4841D', color:'#fff', padding:'8px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:'500', zIndex:'99999' });
+              document.body.appendChild(toast);
+              setTimeout(() => toast.remove(), 4000);
+            }
           }
 
-          // Toast
+          // Success toast
           const toast = document.createElement('div');
           toast.textContent = 'Email generated. Review and send.';
           Object.assign(toast.style, { position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background:'#0F1419', color:'#fff', padding:'8px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:'500', zIndex:'99999' });
@@ -390,21 +470,49 @@ export default defineContentScript({
 
           btn.textContent = 'Generate with Brevmont'; btn.disabled = false;
         } catch(e: any) {
+          console.error('[Brevmont] Email popup error:', e.message);
           btn.textContent = 'Error — try again'; btn.disabled = false;
-          console.error('[Brevmont] Email popup generate error:', e);
           setTimeout(() => { btn.textContent = 'Generate with Brevmont'; }, 2000);
         }
       });
     }
 
     async function injectCallLogButton() {
-      // Wait for the call log form to load
-      await new Promise(r => setTimeout(r, 1500));
+      // Wait for the call log form to fully load
+      await new Promise(r => setTimeout(r, 2000));
 
-      // Find the Call Notes textarea
-      const notesField = document.querySelector('textarea[id*="note"], textarea[id*="Note"], textarea[name*="note"], textarea[id*="comment"], textarea[id*="Comment"]') as HTMLTextAreaElement;
+      // Find the Call Notes textarea — try many selectors
+      function findNotesField(): HTMLTextAreaElement | null {
+        const selectors = [
+          'textarea[id*="CallNote"]', 'textarea[id*="callNote"]',
+          'textarea[id*="Notes"]', 'textarea[id*="notes"]',
+          'textarea[name*="CallNote"]', 'textarea[name*="Notes"]',
+          'textarea[id*="comment"]', 'textarea[id*="Comment"]',
+          'textarea[id*="note"]', 'textarea[id*="Note"]',
+        ];
+        for (const sel of selectors) {
+          const el = document.querySelector(sel) as HTMLTextAreaElement;
+          if (el) { console.log('[Brevmont] Found call notes textarea via:', sel); return el; }
+        }
+        // Last resort: find the largest textarea on the page
+        const allTextareas = document.querySelectorAll('textarea');
+        console.log('[Brevmont] Call log: found ' + allTextareas.length + ' textareas total');
+        if (allTextareas.length === 1) return allTextareas[0] as HTMLTextAreaElement;
+        // If multiple, pick the biggest one (most likely the notes field)
+        let biggest: HTMLTextAreaElement | null = null;
+        let maxArea = 0;
+        allTextareas.forEach(ta => {
+          const rect = (ta as HTMLElement).getBoundingClientRect();
+          const area = rect.width * rect.height;
+          if (area > maxArea) { maxArea = area; biggest = ta as HTMLTextAreaElement; }
+        });
+        if (biggest) console.log('[Brevmont] Using largest textarea as call notes field');
+        return biggest;
+      }
+
+      const notesField = findNotesField();
       if (!notesField) {
-        console.log('[Brevmont] Call log: no notes field found');
+        console.error('[Brevmont] Call log: no notes textarea found on page');
         return;
       }
 
@@ -412,6 +520,7 @@ export default defineContentScript({
       const btn = document.createElement('button');
       btn.textContent = 'Generate Call Note';
       btn.id = 'brevmont-callnote-generate';
+      btn.type = 'button'; // Prevent form submission
       Object.assign(btn.style, {
         background: '#0D6E6E', color: '#fff', border: 'none', borderRadius: '8px',
         padding: '6px 14px', fontSize: '12px', fontWeight: '600', fontFamily: 'system-ui,sans-serif',
@@ -423,14 +532,18 @@ export default defineContentScript({
       // Insert before the textarea
       notesField.parentElement?.insertBefore(btn, notesField);
 
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         btn.textContent = 'Generating...'; btn.disabled = true;
 
         try {
-          const customerEl = document.querySelector('[id*="customer"], [id*="name"], .customer-name, h1, h2');
+          const customerEl = document.querySelector('[id*="customer"], [id*="CustomerName"], [id*="name"], .customer-name, h1, h2');
           const customerName = customerEl?.textContent?.trim() || '';
+          console.log('[Brevmont] Call log: generating for customer=' + customerName);
+
           const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
-          if (!settings.dealer_token) { btn.textContent = 'No license key'; return; }
+          if (!settings.dealer_token) { btn.textContent = 'No license key'; btn.disabled = false; return; }
 
           const resp = await fetch('https://oper8er-proxy-production.up.railway.app/v1/generate', {
             method: 'POST',
@@ -442,12 +555,24 @@ export default defineContentScript({
               metadata: { rep_name: settings.rep_name || '', workflow_type: 'crm', customer_name: customerName }
             })
           });
+
+          if (!resp.ok) throw new Error(`API ${resp.status}: ${resp.statusText}`);
           const data = await resp.json();
           let note = data.text || data.reply || '';
+          if (!note) throw new Error('Empty response from proxy');
+
           // Strip any "CRM NOTE" label prefix
           note = note.replace(/^CRM\s*NOTE\s*\n?/i, '').trim();
 
+          console.log('[Brevmont] Call note generated, length=' + note.length);
+
+          // Write to textarea using native setter + fire events for ASP.NET form state
           safeInjectText(notesField, note);
+          // Fire input + change events — ASP.NET won't register the value without these
+          notesField.dispatchEvent(new Event('input', { bubbles: true }));
+          notesField.dispatchEvent(new Event('change', { bubbles: true }));
+          notesField.dispatchEvent(new Event('blur', { bubbles: true }));
+          console.log('[Brevmont] Call note injected + events dispatched');
 
           const toast = document.createElement('div');
           toast.textContent = 'Call note generated.';
