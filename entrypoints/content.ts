@@ -481,7 +481,8 @@ export default defineContentScript({
         fontSize:'11px', fontWeight:'700', fontFamily:'system-ui,sans-serif', cursor:'pointer',
         boxShadow:'0 2px 8px rgba(13,110,110,0.3)', letterSpacing:'0.5px',
         visibility:'hidden', opacity:'0', // Hidden until positioned
-        userSelect:'none'
+        userSelect:'none', whiteSpace:'nowrap',
+        willChange:'opacity', transition:'opacity 0.15s, background 0.15s'
       });
 
       pill.onmouseenter = () => { if(pill) { pill.style.opacity = '1'; pill.textContent = 'Brevmont'; } };
@@ -762,7 +763,8 @@ export default defineContentScript({
               background:'#0D6E6E', color:'#fff', padding:'5px 8px', borderRadius:'6px',
               fontSize:'11px', fontWeight:'700', fontFamily:'system-ui,sans-serif', cursor:'pointer',
               boxShadow:'0 2px 8px rgba(13,110,110,0.3)', letterSpacing:'0.5px', opacity:'0.85',
-              transition:'opacity 0.15s', userSelect:'none'
+              transition:'opacity 0.15s, background 0.15s', userSelect:'none',
+              whiteSpace:'nowrap', willChange:'opacity'
             });
             pill.onclick = () => { sidebarOpen ? closeSidebar() : openSidebar(); };
             pill.onmouseenter = () => { if(pill) { pill.style.opacity = '1'; pill.textContent = 'Brevmont'; } };
