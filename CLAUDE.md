@@ -1,20 +1,21 @@
-# Floq Chrome Extension — Complete Context
+# Brevmont Chrome Extension — Complete Context
 
 Read this file fully before touching anything. Do not ask what the project is. Do not make assumptions. Confirm you understand the current state, then wait for instructions.
 
 ## Product
 
-Floq is a Chrome extension (MV3) that acts as an AI sales assistant for automotive dealership reps. It injects into VinSolutions CRM (vinsolutions.app.coxautoinc.com) and also supports Gmail, Facebook Messenger, LinkedIn messaging, Instagram DMs, and WhatsApp Web. It scans the CRM page for customer data (name, phone, email, vehicle), then generates personalized text messages, emails, and CRM notes using AI via a Railway proxy server. The proxy owns the Anthropic API key — no keys in the extension.
+Brevmont is a Chrome extension (MV3) that acts as an AI sales assistant for automotive dealership reps. It injects into VinSolutions CRM (vinsolutions.app.coxautoinc.com) and also supports Gmail, Facebook Messenger, LinkedIn messaging, Instagram DMs, and WhatsApp Web. It scans the CRM page for customer data (name, phone, email, vehicle), then generates personalized text messages, emails, and CRM notes using AI via a Railway proxy server. The proxy owns the Anthropic API key — no keys in the extension.
 
-- **Brand name:** Floq (formerly Oper8er)
-- **Brand color:** #7F77DD (purple)
-- **Version:** 1.9.0
+- **Brand name:** Brevmont (formerly Floq, originally Oper8er)
+- **Brand color:** #0D6E6E (deep teal)
+- **Version:** 1.9.1
 - **Extension ID:** odianhkmfpbcnggigamhjbpkkcbkcckh
 - **Proxy:** https://oper8er-proxy-production.up.railway.app
 - **Supabase:** https://mqnmemnogbotgmsmqfie.supabase.co (publishable key: `sb_publishable_-sD_RSqo9SNizbhQ0kqWSA_tJbsWD_m`)
 - **Repo:** https://github.com/tetonyg-crypto/floq-extension.git (branch: main)
 - **Proxy repo:** https://github.com/tetonyg-crypto/oper8er-proxy.git (branch: master)
 - **Tier system:** `floor` (base generation only), `command` (all tools + multi-platform), `group` (campaigns, multi-location, owner dashboard)
+- **homepage_url:** brevmont.com
 
 ## Stack
 
@@ -37,9 +38,9 @@ Floq is a Chrome extension (MV3) that acts as an AI sales assistant for automoti
 
 3. **Vehicle extraction** — `extractVehicle()` at content.ts:137-166 has 10 regex strategies with poison word filtering (POISON_BEFORE/POISON_AFTER patterns at content.ts:130-131). Strategies in order: "Vehicle Info" label, "Active" tab, generic year+make pattern (non-poisoned), year+make only, Stock#/Vehicle label, Sales History rows (Sold/Active/Lost), "Vehicle(s) of Interest" section, "Sale Info" section, near-customer-name search, last-resort any year+make. Also tries `extractVehicleFromTable()` at content.ts:179-187 (table row traversal) and `extractByLabel()` at content.ts:168-177 (XPath).
 
-4. **Pill** — fixed-position "FQ" button at content.ts:371-388, appended to `document.documentElement`. Purple (#7F77DD), z-index 2147483647. Expands to "Floq" on hover. Guard at content.ts:368 prevents duplicate pills. `updatePillPosition()` at content.ts:390-421 positions at VinSolutions panel divider (tries #customerListScrollBarHolder, .scrollBarDiv, #mainAreaPanel, then scans for thin vertical elements). Other platforms: pinned to left edge. ResizeObserver + window resize + fullscreenchange listeners at content.ts:426-429.
+4. **Pill** — fixed-position "BM" button at content.ts:371-388, appended to `document.documentElement`. Teal (#0D6E6E), z-index 2147483647. Expands to "Brevmont" on hover. Guard at content.ts:368 prevents duplicate pills. `updatePillPosition()` at content.ts:390-421 positions at VinSolutions panel divider (tries #customerListScrollBarHolder, .scrollBarDiv, #mainAreaPanel, then scans for thin vertical elements). Other platforms: pinned to left edge. ResizeObserver + window resize + fullscreenchange listeners at content.ts:426-429.
 
-5. **Sidebar** — `openSidebar()` at content.ts:670-902. Uses Shadow DOM (`host.attachShadow({ mode: 'open' })`). VinSolutions: left side at `left:90px`, 320px, full viewport height. Gmail: left side, 280px, below header. All others: right side, 300px, 480px max height. Marker div `#floq-sidebar` prevents double-injection. `pushContent()` is a no-op — pure overlay.
+5. **Sidebar** — `openSidebar()` at content.ts:670-902. Uses Shadow DOM (`host.attachShadow({ mode: 'open' })`). VinSolutions: left side at `left:90px`, 320px, full viewport height. Gmail: left side, 280px, below header. All others: right side, 300px, 480px max height. Marker div `#floq-sidebar` prevents double-injection. `pushContent()` is a no-op — pure overlay. Sidebar header shows "BREVMONT" branding.
 
 6. **Generate flow** — `doGenerate()` at content.ts:958-988. Reads input + chip selection (Message/Email/CRM Note) + tone/goal from storage. Sends GENERATE_OUTPUT to background. Background `handleGenerate()` at background.ts:362-403 builds user message with rep context via `buildRepContext()` at background.ts:308-360. `parseSections()` at background.ts:701-712 splits response into TEXT/EMAIL/CRM sections via regex. `addOutput()` at content.ts:1081-1131 renders output cards with Copy+Log / Paste to CRM / Send to Email buttons.
 
@@ -83,7 +84,7 @@ Floq is a Chrome extension (MV3) that acts as an AI sales assistant for automoti
 
 26. **Error reporting** — `reportError()` at background.ts:568-592 sends errors to `/api/error` with license key, platform, version.
 
-27. **Supabase SMTP** — working via Resend (noreply@floqsales.com). Magic link auth on app.floqsales.com and founder.floqsales.com.
+27. **Supabase SMTP** — working via Resend (noreply@brevmont.com; floqsales.com still active during transition). Magic link auth on app.brevmont.com (floqsales.com still active during transition) and founder.brevmont.com (floqsales.com still active during transition).
 
 28. **Lead Capture** — Command-tier feature. "+ Lead" button in header opens Lead Capture panel with Scan/Voice/Paste tabs. Scan extracts page context (platform-aware selectors), sends to proxy PARSE_LEAD handler, returns JSON with first_name/last_name/phone/email/vehicle_interest/notes/confidence. Parsed card shows editable fields (null = yellow background). Floor tier sees parsed card but inject button is locked with upgrade CTA. Command tier injects into VinSolutions Add Customer form via safeInjectText(). Fallback: if Add Customer button not found, copies formatted data to clipboard. If not on VinSolutions, saves to `floq_pending_lead` in chrome.storage.local; VinSolutions shows banner "You have an uninjected lead" on next load.
 
@@ -96,6 +97,8 @@ Floq is a Chrome extension (MV3) that acts as an AI sales assistant for automoti
 32. **Ghost Lead Alerts** — 6-hour cron checks for 48h+ inactive leads, emails GM, tracks in `ghost_alerts` Supabase table to avoid re-alerting.
 
 33. **Seat Limit Enforcement** — `checkSeatLimit()` validates active rep count against tier limits (Floor:3, Command:6, Group:9) before generation.
+
+34. **Brevmont Rebrand** — All UI strings, element IDs, class names, colors, and icons updated from Floq purple (#7F77DD) to Brevmont teal (#0D6E6E). Pill shows 'BM' collapsed, 'Brevmont' on hover. Sidebar header shows 'BREVMONT'. Onboarding, options, and voice pages all rebranded. Extension icons replaced with keystone trapezoid.
 
 ## Current Broken Features (be specific)
 
@@ -118,7 +121,7 @@ Floq is a Chrome extension (MV3) that acts as an AI sales assistant for automoti
 | `entrypoints/content.ts` | ~1390 | THE content script. Everything: platform detection, customer scanning, vehicle extraction, pill, sidebar (Shadow DOM), generation flow, all 5 tools (Coach, Alerts, Context Reply, Command, Voice), settings panel, pending notes badge/panel, CRM paste, email paste, SPA observers, network interception listener. All sidebar HTML in `getHTML()`, all CSS in `getCSS()`. |
 | `entrypoints/background.ts` | 713 | Service worker. Message router for all content script requests. Proxy calls (`generateViaProxy`, `handleCoach`, `handleCommand`, `handleContextReply`, `handleVoiceReply`). `buildRepContext()` for profile injection. `parseSections()` for TEXT/EMAIL/CRM splitting. Heartbeat via chrome.alarms. Alert checking. Feature gating (`getTierFeatures()`). Error reporting. Pending notes CRUD. |
 | `entrypoints/content/styles.css` | 3 | Minimal — just a comment. All sidebar styles are in Shadow DOM via `getCSS()`. |
-| `entrypoints/onboarding/index.html` | 323 | Onboarding wizard HTML. 4-step + completion screen. Steps: identity, dealership, voice/tone, customer types. Purple (#6D28D9) accent. Loads `main.ts` as module. |
+| `entrypoints/onboarding/index.html` | 323 | Onboarding wizard HTML. 4-step + completion screen. Steps: identity, dealership, voice/tone, customer types. Teal (#0D6E6E) accent. Loads `main.ts` as module. |
 | `entrypoints/onboarding/main.ts` | 254 | Onboarding logic. Profile data collection, step navigation, license key validation against Supabase, profile sync to `reps` table, progress persistence to chrome.storage.sync. |
 | `entrypoints/options/index.html` | 122 | Settings page HTML. Collapsible sections for identity, dealership, voice, market. Context preview block showing what gets injected into prompts. |
 | `entrypoints/options/options.js` | 131 | Settings page logic. Loads profile from chrome.storage.sync, populates fields, saves per-section, renders context preview. CSP-compliant (no inline scripts). |
@@ -178,7 +181,7 @@ All AI generation routes through the Railway proxy at `PROXY_URL`. The proxy own
 Pill at content.ts:387 is appended to `document.documentElement` instead of `document.body` because VinSolutions dynamically replaces body content during SPA navigation. Attaching to `documentElement` survives body replacements.
 
 ### chrome.alarms for periodic tasks (MV3 compliant)
-`setInterval` does not survive MV3 service worker restarts. `chrome.alarms` at background.ts:274-275 creates two alarms: `floq-heartbeat` (5 min) and `floq-check-alerts` (30s). These persist across service worker restarts.
+`setInterval` does not survive MV3 service worker restarts. `chrome.alarms` at background.ts:274-275 creates two alarms: `brevmont-heartbeat` (5 min) and `brevmont-check-alerts` (30s). These persist across service worker restarts.
 
 ### pushContent() is a no-op
 At content.ts:904. The sidebar is pure overlay. Earlier versions tried to push VinSolutions page content to the right when sidebar opened, but this broke VinSolutions layout calculations and caused iframe rendering bugs. Overlay is the correct approach.
@@ -202,7 +205,7 @@ At content.ts:337-347. Debounced MutationObserver replaces the earlier setInterv
 - **Fix applied:** Both functions now recurse into all nested iframe depths. `deepTableVehicleSearch()` uses recursive `searchDoc()` that checks each document + recurses into child iframes.
 
 ### Pill covers task list content on dashboard (FIXED)
-- **Symptom:** "FQ" pill overlaps "Updated" column header on My Tasks view; hardcoded seam position wrong when customer card opens.
+- **Symptom:** "BM" pill overlaps "Updated" column header on My Tasks view; hardcoded seam position wrong when customer card opens.
 - **Root cause:** `findPanelSeamX()` strategies returned wrong values; VinSolutions layout is dynamic (seam ~827 on dashboard, ~507 on customer card).
 - **Fix applied:** `findPanelSeamX()` now dynamically finds the right panel by locating "Customer Dashboard" heading and walking up, or falls back to `#cardashboardframe` left edge. Pill positioned at `seamX - pillWidth - 24` horizontally, `panelTop + panelHeight * 0.45` vertically. Padding `5px 8px`. Confirmed pixel-perfect 2026-04-05.
 
