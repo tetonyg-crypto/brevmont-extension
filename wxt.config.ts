@@ -15,8 +15,8 @@ export default defineConfig({
   manifest: {
     name: 'Brevmont — AI Sales Assistant for VinSolutions',
     short_name: 'Brevmont',
-    version: '1.9.1',
-    version_name: '1.9.1',
+    version: '1.9.2',
+    version_name: '1.9.2',
     description: 'AI writes the text, email, and CRM note inside VinSolutions. Every rep performs like your best one.',
     homepage_url: 'https://brevmont.com',
     icons: {
