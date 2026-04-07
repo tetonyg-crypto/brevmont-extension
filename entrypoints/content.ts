@@ -297,6 +297,190 @@ export default defineContentScript({
     // Vehicle scanning happens in the TOP FRAME via gatherAllText() which reads iframe content
     if (window !== window.top) return;
 
+    // ===== POPUP INJECTION FUNCTIONS =====
+
+    async function injectEmailComposeButton() {
+      // Wait for the email form to load
+      await new Promise(r => setTimeout(r, 1500));
+
+      // Find the email body area — VinSolutions uses iframes for rich text
+      const bodyFrame = document.querySelector('iframe[id*="editor"], iframe[id*="body"], iframe[id*="content"]') as HTMLIFrameElement;
+      const bodyTextarea = document.querySelector('textarea[id*="body"], textarea[id*="content"], textarea[name*="body"]') as HTMLTextAreaElement;
+      const subjectInput = document.querySelector('input[id*="subject"], input[name*="subject"], input[id*="Subject"]') as HTMLInputElement;
+
+      // Find a toolbar or button area to anchor our button
+      const toolbar = document.querySelector('.mce-toolbar, .k-toolbar, [class*="toolbar"], [id*="toolbar"]')
+        || (subjectInput?.parentElement?.parentElement)
+        || document.querySelector('table td[class*="button"], [class*="actions"]');
+
+      // Create the Generate button
+      const btn = document.createElement('button');
+      btn.textContent = 'Generate with Brevmont';
+      btn.id = 'brevmont-email-generate';
+      Object.assign(btn.style, {
+        background: '#0D6E6E', color: '#fff', border: 'none', borderRadius: '8px',
+        padding: '8px 16px', fontSize: '13px', fontWeight: '600', fontFamily: 'system-ui,sans-serif',
+        cursor: 'pointer', margin: '8px', whiteSpace: 'nowrap'
+      });
+      btn.onmouseenter = () => { btn.style.background = '#0A5555'; };
+      btn.onmouseleave = () => { btn.style.background = '#0D6E6E'; };
+
+      // Insert the button
+      if (toolbar) {
+        toolbar.insertBefore(btn, toolbar.firstChild);
+      } else {
+        // Fallback: insert at top of body
+        document.body.insertBefore(btn, document.body.firstChild);
+      }
+
+      btn.addEventListener('click', async () => {
+        btn.textContent = 'Generating...'; btn.disabled = true;
+
+        try {
+          // Extract customer name from popup DOM
+          const customerEl = document.querySelector('[id*="customer"], [id*="name"], .customer-name, h1, h2, [class*="header"] span');
+          const customerName = customerEl?.textContent?.trim() || '';
+          const toField = document.querySelector('input[id*="to"], input[name*="to"], input[type="email"]') as HTMLInputElement;
+          const toEmail = toField?.value || '';
+
+          // Get rep context from storage
+          const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
+          if (!settings.dealer_token) { btn.textContent = 'No license key'; return; }
+
+          // Generate via proxy
+          const resp = await fetch('https://oper8er-proxy-production.up.railway.app/v1/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              dealer_token: settings.dealer_token,
+              user_message: `Generate an EMAIL ONLY for customer ${customerName || 'this customer'}. ${toEmail ? 'Their email: ' + toEmail + '.' : ''} This is a follow-up from VinSolutions. Keep it warm and professional. Just the email — no TEXT, no CRM NOTE.`,
+              platform: 'vinsolutions',
+              metadata: { rep_name: settings.rep_name || '', workflow_type: 'email', customer_name: customerName }
+            })
+          });
+          const data = await resp.json();
+          const raw = data.text || data.reply || '';
+
+          // Parse subject and body from response
+          const subjectMatch = raw.match(/Subject:\s*(.+?)(?:\n|$)/i);
+          const emailBody = raw.replace(/^(?:EMAIL\s*\n)?Subject:\s*.+?\n\n?/i, '').trim();
+
+          // Auto-populate fields
+          if (subjectInput && subjectMatch?.[1]) {
+            safeInjectText(subjectInput, subjectMatch[1].trim());
+          }
+
+          if (bodyFrame) {
+            try {
+              const fdoc = bodyFrame.contentDocument;
+              if (fdoc?.body) {
+                fdoc.body.innerHTML = emailBody.split('\n').map((p: string) => `<p>${p}</p>`).join('');
+              }
+            } catch(e) { /* cross-origin */ }
+          } else if (bodyTextarea) {
+            safeInjectText(bodyTextarea, emailBody);
+          }
+
+          // Toast
+          const toast = document.createElement('div');
+          toast.textContent = 'Email generated. Review and send.';
+          Object.assign(toast.style, { position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background:'#0F1419', color:'#fff', padding:'8px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:'500', zIndex:'99999' });
+          document.body.appendChild(toast);
+          setTimeout(() => toast.remove(), 3000);
+
+          btn.textContent = 'Generate with Brevmont'; btn.disabled = false;
+        } catch(e: any) {
+          btn.textContent = 'Error — try again'; btn.disabled = false;
+          console.error('[Brevmont] Email popup generate error:', e);
+          setTimeout(() => { btn.textContent = 'Generate with Brevmont'; }, 2000);
+        }
+      });
+    }
+
+    async function injectCallLogButton() {
+      // Wait for the call log form to load
+      await new Promise(r => setTimeout(r, 1500));
+
+      // Find the Call Notes textarea
+      const notesField = document.querySelector('textarea[id*="note"], textarea[id*="Note"], textarea[name*="note"], textarea[id*="comment"], textarea[id*="Comment"]') as HTMLTextAreaElement;
+      if (!notesField) {
+        console.log('[Brevmont] Call log: no notes field found');
+        return;
+      }
+
+      // Create the Generate button
+      const btn = document.createElement('button');
+      btn.textContent = 'Generate Call Note';
+      btn.id = 'brevmont-callnote-generate';
+      Object.assign(btn.style, {
+        background: '#0D6E6E', color: '#fff', border: 'none', borderRadius: '8px',
+        padding: '6px 14px', fontSize: '12px', fontWeight: '600', fontFamily: 'system-ui,sans-serif',
+        cursor: 'pointer', margin: '4px 0', whiteSpace: 'nowrap', display: 'block'
+      });
+      btn.onmouseenter = () => { btn.style.background = '#0A5555'; };
+      btn.onmouseleave = () => { btn.style.background = '#0D6E6E'; };
+
+      // Insert before the textarea
+      notesField.parentElement?.insertBefore(btn, notesField);
+
+      btn.addEventListener('click', async () => {
+        btn.textContent = 'Generating...'; btn.disabled = true;
+
+        try {
+          const customerEl = document.querySelector('[id*="customer"], [id*="name"], .customer-name, h1, h2');
+          const customerName = customerEl?.textContent?.trim() || '';
+          const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
+          if (!settings.dealer_token) { btn.textContent = 'No license key'; return; }
+
+          const resp = await fetch('https://oper8er-proxy-production.up.railway.app/v1/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              dealer_token: settings.dealer_token,
+              user_message: `Generate a CRM NOTE ONLY for a phone call with customer ${customerName || 'this customer'}. This is a call log entry for VinSolutions. Format: Next Step | What Happened | Status. Maximum 480 characters. No TEXT, no EMAIL.`,
+              platform: 'vinsolutions',
+              metadata: { rep_name: settings.rep_name || '', workflow_type: 'crm', customer_name: customerName }
+            })
+          });
+          const data = await resp.json();
+          let note = data.text || data.reply || '';
+          // Strip any "CRM NOTE" label prefix
+          note = note.replace(/^CRM\s*NOTE\s*\n?/i, '').trim();
+
+          safeInjectText(notesField, note);
+
+          const toast = document.createElement('div');
+          toast.textContent = 'Call note generated.';
+          Object.assign(toast.style, { position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background:'#0F1419', color:'#fff', padding:'8px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:'500', zIndex:'99999' });
+          document.body.appendChild(toast);
+          setTimeout(() => toast.remove(), 3000);
+
+          btn.textContent = 'Generate Call Note'; btn.disabled = false;
+        } catch(e: any) {
+          btn.textContent = 'Error — try again'; btn.disabled = false;
+          console.error('[Brevmont] Call log generate error:', e);
+          setTimeout(() => { btn.textContent = 'Generate Call Note'; }, 2000);
+        }
+      });
+    }
+
+    // ===== VINSOLUTIONS POPUP HANDLER (email compose, call log) =====
+    // These open in separate Chrome windows with their own DOM. Skip pill/sidebar,
+    // inject a toolbar button instead. This is the deal-closer feature.
+    if (isVinSolutions) {
+      const popupUrl = window.location.href.toLowerCase();
+      if (popupUrl.includes('sendemail.aspx') || popupUrl.includes('communication') && popupUrl.includes('email')) {
+        console.log('[Brevmont] Email compose popup detected');
+        injectEmailComposeButton();
+        return; // Don't inject pill/sidebar in popup
+      }
+      if (popupUrl.includes('logcallv2') || popupUrl.includes('logcall')) {
+        console.log('[Brevmont] Call log popup detected');
+        injectCallLogButton();
+        return; // Don't inject pill/sidebar in popup
+      }
+    }
+
     // ===== FIX 6: HARD GUARD — never inject twice =====
     if (document.getElementById('brevmont-sidebar')) return;
     if (document.getElementById('brevmont-host')) return;
