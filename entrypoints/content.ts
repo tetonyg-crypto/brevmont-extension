@@ -958,19 +958,28 @@ export default defineContentScript({
     }
 
     // ===== IMAGE COMPRESSION for Context Reply =====
-    function compressImage(base64: string, maxWidth: number = 800, quality: number = 0.7): Promise<string> {
+    function compressImage(base64: string, maxLongEdge: number = 1568, quality: number = 0.85): Promise<string> {
       return new Promise((resolve) => {
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const ratio = Math.min(maxWidth / img.width, 1);
-          canvas.width = img.width * ratio;
-          canvas.height = img.height * ratio;
+          const longEdge = Math.max(img.width, img.height);
+          const ratio = longEdge > maxLongEdge ? maxLongEdge / longEdge : 1;
+          canvas.width = Math.round(img.width * ratio);
+          canvas.height = Math.round(img.height * ratio);
           const ctx = canvas.getContext('2d');
           if (ctx) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL('image/jpeg', quality));
+          // Progressive quality reduction to stay under 5MB
+          let result = canvas.toDataURL('image/jpeg', quality);
+          let q = quality;
+          while (result.length > 5 * 1024 * 1024 * 1.37 && q > 0.3) {
+            q -= 0.1;
+            result = canvas.toDataURL('image/jpeg', q);
+          }
+          console.log(`[Floq] Image compressed: ${img.width}x${img.height} → ${canvas.width}x${canvas.height}, quality=${q.toFixed(1)}, size=${(result.length / 1024).toFixed(0)}KB`);
+          resolve(result);
         };
-        img.onerror = () => resolve(base64); // fallback to original if compression fails
+        img.onerror = () => resolve(base64);
         img.src = base64;
       });
     }
@@ -1492,14 +1501,10 @@ export default defineContentScript({
       const ctxGen = s.getElementById('o8-ctx-generate') as HTMLButtonElement;
       const ctxOut = s.getElementById('o8-ctx-output');
       function updCtx() { if (ctxGen) ctxGen.disabled = !contextImage || !ctxDir?.value.trim(); }
-      const MAX_IMAGE_SIZE = 4 * 1024 * 1024; // 4MB
-      function setContextImage(dataUrl: string) {
-        // Check base64 size (~75% of string length)
-        if (dataUrl.length > MAX_IMAGE_SIZE * 1.37) {
-          showToast(s, 'Screenshot too large — try a smaller crop (max 4MB)');
-          return;
-        }
-        contextImage = dataUrl;
+      async function setContextImage(dataUrl: string) {
+        // Auto-downscale any image to fit within proxy limits
+        const compressed = await compressImage(dataUrl, 1568, 0.85);
+        contextImage = compressed;
         if (ctxImg) ctxImg.src = contextImage;
         if (ctxPreview) ctxPreview.style.display = 'block';
         if (dropZone) dropZone.style.display = 'none';
@@ -1508,7 +1513,7 @@ export default defineContentScript({
       if (dropZone) {
         dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
         dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-        dropZone.addEventListener('drop', (e: any) => { e.preventDefault(); dropZone.classList.remove('dragover'); const f = e.dataTransfer?.files?.[0]; if (f?.type.startsWith('image/')) { const r = new FileReader(); r.onload = () => setContextImage(r.result as string); r.readAsDataURL(f); } });
+        dropZone.addEventListener('drop', (e: any) => { e.preventDefault(); dropZone.classList.remove('dragover'); const f = e.dataTransfer?.files?.[0]; if (f?.type.startsWith('image/')) { const r = new FileReader(); r.onload = async () => { await setContextImage(r.result as string); }; r.readAsDataURL(f); } });
       }
       // Ctrl+V paste support for screenshots
       document.addEventListener('paste', (e: ClipboardEvent) => {
@@ -1520,7 +1525,7 @@ export default defineContentScript({
         const blob = item.getAsFile();
         if (!blob) return;
         const reader = new FileReader();
-        reader.onload = () => setContextImage(reader.result as string);
+        reader.onload = async () => { await setContextImage(reader.result as string); };
         reader.readAsDataURL(blob);
         e.preventDefault();
       });
