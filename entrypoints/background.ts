@@ -383,6 +383,54 @@ export default defineBackground(() => {
   // Bootstrap secret on startup (after heartbeat settles)
   setTimeout(bootstrapLicenseSecret, 15000);
 
+  // ===== ITEM 30: Extension version check =====
+  async function checkVersionStatus() {
+    try {
+      const manifest = browser.runtime.getManifest();
+      const chromeMatch = navigator.userAgent.match(/Chrome\/([\d.]+)/);
+      const settings = await browser.storage.sync.get(['dealer_token']);
+
+      const resp = await fetch(`${PROXY_URL}/v1/heartbeat/version`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dealer_token: settings.dealer_token || '',
+          extension_version: manifest.version || '1.9.2',
+          chrome_version: chromeMatch ? chromeMatch[1] : 'unknown',
+        }),
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+
+      // Compare versions
+      const current = (manifest.version || '1.9.2').split('.').map(Number);
+      const minimum = (data.minimum_supported_version || '1.0.0').split('.').map(Number);
+      let belowMinimum = false;
+      for (let i = 0; i < Math.max(current.length, minimum.length); i++) {
+        const diff = (current[i] || 0) - (minimum[i] || 0);
+        if (diff < 0) { belowMinimum = true; break; }
+        if (diff > 0) break;
+      }
+
+      await browser.storage.local.set({
+        brevmont_version_status: {
+          locked: belowMinimum,
+          deprecated: data.deprecated,
+          message: belowMinimum
+            ? `Version ${manifest.version} is no longer supported. Please update to ${data.latest_version}.`
+            : data.deprecated ? data.deprecation_notice : null,
+          latest: data.latest_version,
+        }
+      });
+    } catch (e) {
+      // Silent — don't block on version check failure
+    }
+  }
+
+  // Check version on startup (after 20s) and every hour
+  setTimeout(checkVersionStatus, 20000);
+  setInterval(checkVersionStatus, 60 * 60 * 1000);
+
   browser.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'install') {
       if (browser.runtime.openOptionsPage) {
@@ -391,8 +439,9 @@ export default defineBackground(() => {
         browser.tabs.create({ url: browser.runtime.getURL('options.html') });
       }
     }
-    // Bootstrap secret on install/update
+    // Bootstrap secret + version check on install/update
     setTimeout(bootstrapLicenseSecret, 5000);
+    setTimeout(checkVersionStatus, 8000);
   });
 
   // Alt+K keyboard shortcut for Command Mode
