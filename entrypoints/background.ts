@@ -11,6 +11,8 @@
 
 const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
 
+import { signedFetch } from '../lib/authSigning';
+
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // Health check — content script pings to verify service worker is alive
@@ -346,6 +348,41 @@ export default defineBackground(() => {
   // Fire initial heartbeat after 10 seconds
   setTimeout(sendHeartbeat, 10000);
 
+  // ===== AUTH HARDENING: Bootstrap license secret =====
+  async function bootstrapLicenseSecret() {
+    try {
+      // Check if we already have a secret
+      const existing = await browser.storage.local.get(['brevmont_license_secret']);
+      if (existing.brevmont_license_secret) return;
+
+      const settings = await browser.storage.sync.get(['dealer_token']);
+      const licenseKey = settings.dealer_token;
+      if (!licenseKey) return; // no license yet, onboarding handles this
+
+      const response = await fetch(`${PROXY_URL}/v1/license/secret`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ license_key: licenseKey }),
+      });
+
+      if (!response.ok) {
+        console.warn('[Brevmont] License secret bootstrap failed:', response.status);
+        return;
+      }
+
+      const { license_secret } = await response.json();
+      if (license_secret) {
+        await browser.storage.local.set({ brevmont_license_secret: license_secret });
+        console.log('[Brevmont] License secret bootstrapped successfully');
+      }
+    } catch (err) {
+      console.warn('[Brevmont] License secret bootstrap error:', (err as Error).message);
+    }
+  }
+
+  // Bootstrap secret on startup (after heartbeat settles)
+  setTimeout(bootstrapLicenseSecret, 15000);
+
   browser.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'install') {
       if (browser.runtime.openOptionsPage) {
@@ -354,6 +391,8 @@ export default defineBackground(() => {
         browser.tabs.create({ url: browser.runtime.getURL('options.html') });
       }
     }
+    // Bootstrap secret on install/update
+    setTimeout(bootstrapLicenseSecret, 5000);
   });
 
   // Alt+K keyboard shortcut for Command Mode
@@ -490,22 +529,21 @@ async function handleGenerate(payload: {
 // --- Generate via Proxy ---
 // Does NOT send system prompt — proxy resolves it from dealer's vertical_config
 async function generateViaProxy(dealerToken: string, userMessage: string, platform: string = 'chrome_extension', metadata?: any) {
-  const resp = await fetch(`${PROXY_URL}/v1/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      dealer_token: dealerToken,
-      messages: [{ role: 'user', content: userMessage }],
-      max_tokens: 800,
-      model: 'claude-sonnet-4-20250514',
-      platform: platform,
-      // Structured metadata for accurate generation_events logging
-      rep_name: metadata?.rep_name || null,
-      workflow_type: metadata?.workflow_type || null,
-      customer_name: metadata?.customer_name || null,
-      vehicle: metadata?.vehicle || null
-    })
-  });
+  const body = {
+    dealer_token: dealerToken,
+    messages: [{ role: 'user', content: userMessage }],
+    max_tokens: 800,
+    model: 'claude-sonnet-4-20250514',
+    platform: platform,
+    // Structured metadata for accurate generation_events logging
+    rep_name: metadata?.rep_name || null,
+    workflow_type: metadata?.workflow_type || null,
+    customer_name: metadata?.customer_name || null,
+    vehicle: metadata?.vehicle || null
+  };
+
+  // Use signedFetch for HMAC-signed requests (falls back to unsigned if no secret yet)
+  const resp = await signedFetch(`${PROXY_URL}/v1/generate`, body);
 
   if (resp.status === 401) throw new Error('License invalid or expired. Contact support to renew your Brevmont subscription.');
   if (resp.status === 429) throw new Error('Too many requests. Wait a few seconds and try again.');
