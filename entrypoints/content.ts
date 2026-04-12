@@ -106,9 +106,24 @@ export default defineContentScript({
         await browser.runtime.sendMessage({ type: 'PING' });
       } catch(e: any) {
         // Service worker dead — show reconnect prompt
+        logError('NETWORK_ERROR', 'Service worker disconnected', `platform=${typeof PLATFORM !== 'undefined' ? PLATFORM : 'unknown'}`);
         throw new Error('Brevmont lost connection. Reload this page to reconnect.');
       }
       return browser.runtime.sendMessage(msg);
+    }
+
+    // ===== TELEMETRY: Error reporting from content script =====
+    let _logErrorCount = 0;
+    const _LOG_ERROR_MAX = 20; // max 20 errors per page load to prevent flood
+    function logError(errorType: string, errorMessage: string, context?: string) {
+      if (_logErrorCount >= _LOG_ERROR_MAX) return;
+      _logErrorCount++;
+      try {
+        browser.runtime.sendMessage({
+          type: 'REPORT_ERROR',
+          payload: { error_type: errorType, error_message: errorMessage, context }
+        }).catch(() => {});
+      } catch(e) { /* extension context invalidated — can't report */ }
     }
 
     function showReconnectBanner(shadow: ShadowRoot) {
@@ -389,7 +404,7 @@ export default defineContentScript({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               dealer_token: settings.dealer_token,
-              user_message: `Generate an EMAIL ONLY for customer ${customerName || 'this customer'}. ${toEmail ? 'Their email: ' + toEmail + '.' : ''} This is a follow-up from VinSolutions. Keep it warm and professional. Just the email — no TEXT, no CRM NOTE.`,
+              user_message: `Generate an EMAIL ONLY for customer ${customerName || 'this customer'}. ${toEmail ? 'Their email: ' + toEmail + '.' : ''} This is a follow-up from the CRM. Keep it warm and professional. Just the email — no TEXT, no CRM NOTE.`,
               platform: 'vinsolutions',
               metadata: { rep_name: settings.rep_name || '', workflow_type: 'email', customer_name: customerName }
             })
@@ -430,6 +445,7 @@ export default defineContentScript({
               }
             } catch(frameErr: any) {
               console.error('[Brevmont] Iframe write failed:', frameErr.message);
+              logError('DOM_ERROR', frameErr.message || 'Iframe write failed', 'email_iframe_inject');
               // Fallback: try execCommand
               try {
                 editorFrame.contentWindow?.focus();
@@ -471,6 +487,7 @@ export default defineContentScript({
           btn.textContent = 'Generate with Brevmont'; btn.disabled = false;
         } catch(e: any) {
           console.error('[Brevmont] Email popup error:', e.message);
+          logError('API_ERROR', e.message || 'Email popup generation failed', 'vinsolutions_email_popup');
           btn.textContent = 'Error — try again'; btn.disabled = false;
           setTimeout(() => { btn.textContent = 'Generate with Brevmont'; }, 2000);
         }
@@ -550,7 +567,7 @@ export default defineContentScript({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               dealer_token: settings.dealer_token,
-              user_message: `Generate a CRM NOTE ONLY for a phone call with customer ${customerName || 'this customer'}. This is a call log entry for VinSolutions. Format: Next Step | What Happened | Status. Maximum 480 characters. No TEXT, no EMAIL.`,
+              user_message: `Generate a CRM NOTE ONLY for a phone call with customer ${customerName || 'this customer'}. This is a call log entry for the CRM. Format: Next Step | What Happened | Status. Maximum 480 characters. No TEXT, no EMAIL.`,
               platform: 'vinsolutions',
               metadata: { rep_name: settings.rep_name || '', workflow_type: 'crm', customer_name: customerName }
             })
@@ -584,6 +601,7 @@ export default defineContentScript({
         } catch(e: any) {
           btn.textContent = 'Error — try again'; btn.disabled = false;
           console.error('[Brevmont] Call log generate error:', e);
+          logError('API_ERROR', e?.message || 'Call log generation failed', 'vinsolutions_call_log');
           setTimeout(() => { btn.textContent = 'Generate Call Note'; }, 2000);
         }
       });
@@ -1318,6 +1336,7 @@ export default defineContentScript({
           recognition.onerror = (e: any) => {
             if (e.error === 'aborted') return; // normal stop, ignore
             console.log('[Brevmont] Mic error:', e.error);
+            logError('VOICE_ERROR', `Speech recognition: ${e.error}`, `platform=${PLATFORM}`);
             if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
               showToast(shadow, 'Mic permission denied — enable in Chrome site settings');
             } else if (e.error === 'audio-capture') {
@@ -1392,7 +1411,7 @@ export default defineContentScript({
 
     // ===== SIDEBAR =====
     async function openSidebar() {
-      try { const check = await browser.storage.sync.get(['profile_onboarded']); if (!check.profile_onboarded) { browser.runtime.sendMessage({ type: 'OPEN_ONBOARDING' }); return; } } catch(e) {}
+      try { const check = await browser.storage.sync.get(['profile_onboarded']); if (!check.profile_onboarded) { browser.runtime.sendMessage({ type: 'OPEN_ONBOARDING' }); return; } } catch(e: any) { logError('STORAGE_ERROR', e?.message || 'Storage onboarding check failed', 'pill_click'); }
       if (sidebarRoot) { sidebarRoot.style.display = 'block'; sidebarOpen = true; if (pill) pill.style.display = 'none'; updateSidebarPosition(); pushContent(true); return; }
       if (document.getElementById('brevmont-host')) return;
 
@@ -1636,6 +1655,7 @@ export default defineContentScript({
           const lead = resp.lead || resp;
           showLeadCard(lead, inputMethod);
         } catch(e: any) {
+          logError('API_ERROR', e.message || 'Lead parse failed', `platform=${PLATFORM},method=safeSend`);
           showToast(s, 'Parse error: ' + e.message);
         } finally {
           ['o8-scan-btn', 'o8-lead-voice-parse', 'o8-lead-paste-parse'].forEach(id => {
@@ -2031,7 +2051,7 @@ export default defineContentScript({
                 updateGmailPillBadge(remaining);
               });
             });
-          } catch(e) { console.log('[Brevmont] Pending emails fetch error:', e); }
+          } catch(e: any) { console.log('[Brevmont] Pending emails fetch error:', e); logError('API_ERROR', e?.message || 'Pending emails fetch failed', 'gmail_pending_emails'); }
         }
         loadPendingEmails();
       }
@@ -2178,6 +2198,7 @@ export default defineContentScript({
         if (response.error) addOutput(s, 'Error', response.error);
         else { const sec = response.sections; if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) { if (sec.crm.trim() === 'NO_NEW_NOTE') { showToast(s, 'Nothing new to log — last note covers this.'); } else { addOutput(s, outputLabels.crm, sec.crm); } } if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.'); }
       } catch (e: any) {
+        logError(e.message?.includes('connection') ? 'NETWORK_ERROR' : 'API_ERROR', e.message || 'doGenerate failed', `platform=${PLATFORM},type=${type}`);
         if (e.message.includes('Reload') || e.message.includes('connection') || e.message.includes('invalidated')) { showReconnectBanner(s); }
         addOutput(s, 'Error', e.message.includes('invalidated') ? 'Brevmont needs a refresh. Click Reload Page above.' : e.message);
       }

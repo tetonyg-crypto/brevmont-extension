@@ -162,7 +162,11 @@ async function validateLicense(key: string) {
       return true;
     }
     return false;
-  } catch(e) { return false; }
+  } catch(e: any) {
+    // Report license validation failure to background
+    try { chrome.runtime.sendMessage({ type: 'REPORT_ERROR', payload: { error_type: 'AUTH_ERROR', error_message: e?.message || 'License validation failed', context: 'onboarding_step2' } }); } catch(_) {}
+    return false;
+  }
 }
 
 async function finish() {
@@ -187,7 +191,9 @@ async function finish() {
     document.getElementById('comp-dealer')!.textContent = profileData.dealership.name + ' — ' + profileData.dealership.city + ', ' + profileData.dealership.state;
     document.getElementById('comp-tone')!.textContent = profileData.voice.tone.charAt(0).toUpperCase() + profileData.voice.tone.slice(1);
     goToStep(5);
-    syncProfileToSupabase(profile).catch(() => {});
+    syncProfileToSupabase(profile).catch((e: any) => {
+      try { chrome.runtime.sendMessage({ type: 'REPORT_ERROR', payload: { error_type: 'API_ERROR', error_message: e?.message || 'Profile sync to Supabase failed', context: 'onboarding_finish' } }); } catch(_) {}
+    });
   });
 }
 

@@ -16,6 +16,13 @@ export default defineBackground(() => {
     // Health check — content script pings to verify service worker is alive
     if (msg.type === 'PING') { sendResponse({ pong: true }); return false; }
 
+    if (msg.type === 'REPORT_ERROR') {
+      const { error_type, error_message, context } = msg.payload || {};
+      reportError(error_type || 'UNKNOWN', `[content] ${(error_message || 'unknown error').slice(0, 400)}${context ? ` | ctx: ${context}` : ''}`).catch(() => {});
+      sendResponse({ ok: true });
+      return false;
+    }
+
     if (msg.type === 'GENERATE_OUTPUT') {
       handleGenerate(msg.payload)
         .then(sendResponse)
@@ -63,7 +70,7 @@ export default defineBackground(() => {
               timestamp: new Date().toISOString()
             })
           });
-        } catch(e) { console.error('[Brevmont] Log action failed:', e); }
+        } catch(e: any) { console.error('[Brevmont] Log action failed:', e); reportError('API_ERROR', `Log action failed: ${e?.message || 'unknown'}`).catch(() => {}); }
       });
       return false;
     }
@@ -733,7 +740,7 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
   }
 
   if (lc.customerName || lc.vehicle) {
-    msg += 'LEAD CONTEXT (from VinSolutions CRM):\n';
+    msg += 'LEAD CONTEXT (from CRM):\n';
     if (lc.customerName) msg += `Customer: ${lc.customerName}\n`;
     if (lc.phone) msg += `Phone: ${lc.phone}\n`;
     if (lc.email) msg += `Email: ${lc.email}\n`;
