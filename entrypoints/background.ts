@@ -12,6 +12,7 @@
 const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
 
 import { signedFetch } from '../lib/authSigning';
+import { queueOffline, replayQueue, getQueueSize } from '../lib/resilience';
 
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -26,16 +27,30 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'GENERATE_OUTPUT') {
-      handleGenerate(msg.payload)
-        .then(sendResponse)
-        .catch(err => {
-          const errType = err.message?.includes('License') ? 'AUTH_ERROR'
-            : err.message?.includes('429') ? 'API_ERROR'
-            : err.message?.includes('fetch') ? 'NETWORK_ERROR'
-            : 'UNKNOWN';
-          reportError(errType, err.message).catch(() => {});
-          sendResponse({ error: err.message });
-        });
+      (async () => {
+        try {
+          const result = await handleGenerate(msg.payload);
+          // Success — also try to replay any queued items in background
+          const qSize = await getQueueSize();
+          if (qSize > 0) {
+            replayQueue(async (p) => handleGenerate(p)).catch(() => {});
+          }
+          sendResponse(result);
+        } catch (err: any) {
+          if (err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+            // Network error — queue offline
+            const id = await queueOffline(msg.payload);
+            const qSize = await getQueueSize();
+            sendResponse({ error: `Saved offline (${qSize} queued). Will send when connection returns.`, queued: true, queue_id: id });
+          } else {
+            const errType = err.message?.includes('License') ? 'AUTH_ERROR'
+              : err.message?.includes('429') ? 'API_ERROR'
+              : 'UNKNOWN';
+            reportError(errType, err.message).catch(() => {});
+            sendResponse({ error: err.message });
+          }
+        }
+      })();
       return true;
     }
 
@@ -309,6 +324,14 @@ export default defineBackground(() => {
         // Store tier + features from heartbeat response
         const tier = data.tier || 'floor';
         await browser.storage.local.set({ floq_tier: tier, floq_features: data.features || getTierFeatures(tier), floq_last_heartbeat: Date.now() });
+        // Replay any offline-queued generations now that we have connectivity
+        const qSize = await getQueueSize();
+        if (qSize > 0) {
+          const result = await replayQueue(async (p) => handleGenerate(p));
+          if (result.success > 0) {
+            console.log(`[Brevmont] Replayed ${result.success} queued generations`);
+          }
+        }
       }
     } catch(e) {
       reportError('NETWORK_ERROR', `Heartbeat failed: ${(e as Error).message}`).catch(() => {});
@@ -594,6 +617,15 @@ async function generateViaProxy(dealerToken: string, userMessage: string, platfo
   // Use signedFetch for HMAC-signed requests (falls back to unsigned if no secret yet)
   const resp = await signedFetch(`${PROXY_URL}/v1/generate`, body);
 
+  if (resp.status === 202) {
+    // Async mode — poll for result from BullMQ queue
+    const { job_id } = await resp.json();
+    const result = await pollForResult(job_id);
+    const text = result.content?.[0]?.text || '';
+    if (!text) throw new Error('Empty response from AI. Please try again.');
+    return { text, usage: result.usage || {} };
+  }
+
   if (resp.status === 401) throw new Error('License invalid or expired. Contact support to renew your Brevmont subscription.');
   if (resp.status === 429) throw new Error('Too many requests. Wait a few seconds and try again.');
   if (!resp.ok) {
@@ -606,6 +638,24 @@ async function generateViaProxy(dealerToken: string, userMessage: string, platfo
   if (!text) throw new Error('Empty response from AI. Please try again.');
 
   return { text, usage: data.usage || {} };
+}
+
+// Poll for async generation result from BullMQ queue
+async function pollForResult(jobId: string, maxWait = 30000): Promise<any> {
+  const start = Date.now();
+  while (Date.now() - start < maxWait) {
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const resp = await fetch(`${PROXY_URL}/v1/generate/status/${jobId}`);
+      const data = await resp.json();
+      if (data.status === 'completed') return data.data;
+      if (data.status === 'failed') throw new Error(data.error || 'Generation failed');
+    } catch (e: any) {
+      if (e.message && !e.message.includes('fetch')) throw e;
+      // Network error during poll — continue polling
+    }
+  }
+  throw new Error('Generation timed out. Please try again.');
 }
 
 // --- Generate Direct (fallback — uses local SYSTEM_PROMPT) ---
