@@ -1586,6 +1586,64 @@ export default defineContentScript({
       const settingsBtnInline = s.getElementById('o8-settings-btn-inline');
       if (settingsBtnInline) settingsBtnInline.onclick = openSettings;
 
+      // My Stats panel
+      const statsPanel = s.getElementById('o8-stats-panel');
+      const statsBack = s.getElementById('o8-stats-back');
+      const statsContent = s.getElementById('o8-stats-content');
+      const openStats = async () => {
+        s.getElementById('o8-quick')!.style.display = 'none';
+        if (toolsPanel) toolsPanel.style.display = 'none';
+        if (settingsPanel) settingsPanel.style.display = 'none';
+        if (statsPanel) statsPanel.style.display = 'flex';
+        if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading stats...</div>';
+        try {
+          const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
+          if (!settings.dealer_token || !settings.rep_name) {
+            if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Set your rep name in Settings first.</div>';
+            return;
+          }
+          const resp = await fetch(`https://oper8er-proxy-production.up.railway.app/v1/rep/stats?rep_name=${encodeURIComponent(settings.rep_name)}`, {
+            headers: { 'Authorization': `Bearer ${settings.dealer_token}` }
+          });
+          if (!resp.ok) throw new Error('Failed to load');
+          const d = await resp.json();
+          if (statsContent) statsContent.innerHTML = `
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+              <div style="background:#F0FDF4;border-radius:8px;padding:10px;text-align:center;">
+                <div style="font-size:20px;font-weight:700;color:#166534;">${d.total}</div>
+                <div style="font-size:10px;color:#4B5563;text-transform:uppercase;font-weight:600;">Total (30d)</div>
+              </div>
+              <div style="background:#EFF6FF;border-radius:8px;padding:10px;text-align:center;">
+                <div style="font-size:20px;font-weight:700;color:#1E40AF;">${d.today_count}</div>
+                <div style="font-size:10px;color:#4B5563;text-transform:uppercase;font-weight:600;">Today</div>
+              </div>
+              <div style="background:#FFF7ED;border-radius:8px;padding:10px;text-align:center;">
+                <div style="font-size:20px;font-weight:700;color:#C2410C;">${d.streak}${d.streak >= 7 ? ' ⚡' : ''}</div>
+                <div style="font-size:10px;color:#4B5563;text-transform:uppercase;font-weight:600;">Day Streak</div>
+              </div>
+              <div style="background:#F5F3FF;border-radius:8px;padding:10px;text-align:center;">
+                <div style="font-size:20px;font-weight:700;color:#6D28D9;">#${d.rank}</div>
+                <div style="font-size:10px;color:#4B5563;text-transform:uppercase;font-weight:600;">of ${d.total_reps} reps</div>
+              </div>
+            </div>
+            <div style="background:#F8FAFC;border-radius:8px;padding:10px;margin-bottom:8px;">
+              <div style="font-size:10px;color:#94A3B8;text-transform:uppercase;font-weight:600;margin-bottom:6px;">Breakdown</div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:#1C1C1E;margin-bottom:4px;"><span>Texts</span><strong>${d.texts}</strong></div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:#1C1C1E;margin-bottom:4px;"><span>Emails</span><strong>${d.emails}</strong></div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:#1C1C1E;"><span>CRM Notes</span><strong>${d.crm_notes}</strong></div>
+            </div>
+            <div style="background:#F8FAFC;border-radius:8px;padding:10px;">
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:#1C1C1E;margin-bottom:4px;"><span>Unique Customers</span><strong>${d.unique_customers}</strong></div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:#1C1C1E;"><span>Time Saved</span><strong>${Math.round(d.estimated_time_saved_minutes / 60 * 10) / 10}h</strong></div>
+            </div>`;
+        } catch (e) {
+          if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#EF4444;font-size:12px;padding:24px;">Could not load stats. Try again later.</div>';
+        }
+      };
+      const statsBtnInline = s.getElementById('o8-stats-btn-inline');
+      if (statsBtnInline) statsBtnInline.onclick = openStats;
+      if (statsBack) { statsBack.onclick = () => { statsPanel!.style.display = 'none'; s.getElementById('o8-quick')!.style.display = 'flex'; }; }
+
       // Lead Capture panel
       const leadPanel = s.getElementById('o8-lead-panel');
       const leadBack = s.getElementById('o8-lead-back');
@@ -2603,7 +2661,7 @@ export default defineContentScript({
   <button id="o8-outcome-btn" class="gen-btn" style="background:#34C759; font-size:12px; padding:8px;">Mark Outcome</button>
   <div id="o8-outcome-status" style="font-size:11px; color:#64748b; text-align:center; margin-top:4px;"></div>
 </div>` : ''}
-    <div class="inline-links"><button id="o8-tools-btn-inline" class="link-btn">Tools</button><span class="link-sep">|</span><button id="o8-settings-btn-inline" class="link-btn">Settings</button></div>
+    <div class="inline-links"><button id="o8-tools-btn-inline" class="link-btn">Tools</button><span class="link-sep">|</span><button id="o8-stats-btn-inline" class="link-btn">My Stats</button><span class="link-sep">|</span><button id="o8-settings-btn-inline" class="link-btn">Settings</button></div>
     <div class="tcpa-inline">Messages are for human review. TCPA compliance is your responsibility.</div>
   </div>
   <div id="o8-outputs" class="outputs"></div>
@@ -2620,6 +2678,12 @@ export default defineContentScript({
   <div id="tool-alerts" class="tool-content" style="display:none"><div class="tool-section"><div class="input-wrap"><input id="o8-alert-input" class="main-input" placeholder="e.g. Move the Tacoma by noon" /><button id="o8-alert-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button></div><button id="o8-alert-btn" class="gen-btn" style="background:#FF9500">Set Alert</button></div><div id="o8-alert-list" class="tool-output"></div></div>
   <div id="tool-context" class="tool-content" style="display:none"><div class="tool-section"><div id="o8-ctx-dropzone" class="ctx-dropzone"><span>Drop screenshot or paste (Ctrl+V)</span></div><div id="o8-ctx-preview" class="ctx-preview" style="display:none"><img id="o8-ctx-img" class="ctx-img" /><button id="o8-ctx-remove" class="ctx-remove">&times;</button></div><div class="input-wrap"><textarea id="o8-ctx-direction" class="main-input" placeholder="What do you want to say?" rows="2"></textarea><button id="o8-ctx-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button></div><button id="o8-ctx-generate" class="gen-btn" disabled>Generate Reply</button></div><div id="o8-ctx-output" class="tool-output"></div></div>
   <div id="tool-command" class="tool-content" style="display:none"><div class="tool-section"><div class="input-wrap"><textarea id="o8-cmd-input" class="main-input" placeholder="Type a command..." rows="2"></textarea><button id="o8-cmd-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button></div><button id="o8-cmd-execute" class="gen-btn">Execute</button></div><div id="o8-cmd-status" class="tool-output"></div></div>
+</div>
+<div id="o8-stats-panel" class="tools-panel" style="display:none">
+  <div class="tools-header"><button id="o8-stats-back" class="back-btn">← Back</button><span class="tools-title">My Stats</span></div>
+  <div id="o8-stats-content" class="tool-section" style="padding:12px;">
+    <div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading stats...</div>
+  </div>
 </div>
 <div id="o8-settings-panel" class="tools-panel" style="display:none">
   <div class="tools-header"><button id="o8-settings-back" class="back-btn">← Back</button><span class="tools-title">Settings</span></div>
