@@ -51,7 +51,7 @@
 - **Location:** `C:\inventory_pipeline\fb-extension\`
 - **Name:** Teton Inventory Poster
 - **Version:** 1.0.0
-- **Purpose:** Vehicle listing assistant for Stone's Auto Group (Facebook Marketplace posting)
+- **Purpose:** Vehicle listing assistant for beta dealership (Facebook Marketplace posting)
 - **Not related to Floq — separate extension**
 
 ---
