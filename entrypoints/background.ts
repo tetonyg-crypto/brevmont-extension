@@ -15,6 +15,32 @@ import { signedFetch } from '../lib/authSigning';
 import { queueOffline, replayQueue, getQueueSize } from '../lib/resilience';
 
 export default defineBackground(() => {
+  // One-time migration: floq_ → brevmont_ storage keys
+  (async () => {
+    const migrated = await browser.storage.local.get('brevmont_storage_migrated');
+    if (migrated.brevmont_storage_migrated) return;
+
+    const oldKeys = await browser.storage.local.get(['floq_tier', 'floq_features', 'floq_last_heartbeat', 'floq_alerts']);
+    const newData: Record<string, any> = { brevmont_storage_migrated: true };
+    if (oldKeys.floq_tier) newData.brevmont_tier = oldKeys.floq_tier;
+    if (oldKeys.floq_features) newData.brevmont_features = oldKeys.floq_features;
+    if (oldKeys.floq_last_heartbeat) newData.brevmont_last_heartbeat = oldKeys.floq_last_heartbeat;
+    if (oldKeys.floq_alerts) newData.brevmont_alerts = oldKeys.floq_alerts;
+    await browser.storage.local.set(newData);
+    await browser.storage.local.remove(['floq_tier', 'floq_features', 'floq_last_heartbeat', 'floq_alerts']);
+
+    const oldSync = await browser.storage.sync.get(['floq_tone', 'floq_goal']);
+    const newSync: Record<string, any> = {};
+    if (oldSync.floq_tone) newSync.brevmont_tone = oldSync.floq_tone;
+    if (oldSync.floq_goal) newSync.brevmont_goal = oldSync.floq_goal;
+    if (Object.keys(newSync).length) {
+      await browser.storage.sync.set(newSync);
+      await browser.storage.sync.remove(['floq_tone', 'floq_goal']);
+    }
+
+    console.log('[Brevmont] Storage migration complete');
+  })().catch(() => {});
+
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // Health check — content script pings to verify service worker is alive
     if (msg.type === 'PING') { sendResponse({ pong: true }); return false; }
@@ -55,10 +81,10 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'CHECK_FEATURES') {
-      browser.storage.local.get(['floq_tier', 'floq_features', 'floq_last_heartbeat']).then(data => {
-        const stale = !data.floq_last_heartbeat || (Date.now() - data.floq_last_heartbeat > 30 * 60 * 1000);
-        const tier = stale ? 'floor' : (data.floq_tier || 'floor');
-        sendResponse({ tier, features: data.floq_features || getTierFeatures(tier) });
+      browser.storage.local.get(['brevmont_tier', 'brevmont_features', 'brevmont_last_heartbeat']).then(data => {
+        const stale = !data.brevmont_last_heartbeat || (Date.now() - data.brevmont_last_heartbeat > 30 * 60 * 1000);
+        const tier = stale ? 'floor' : (data.brevmont_tier || 'floor');
+        sendResponse({ tier, features: data.brevmont_features || getTierFeatures(tier) });
       }).catch(() => sendResponse({ tier: 'floor', features: getTierFeatures('floor') }));
       return true;
     }
@@ -120,6 +146,34 @@ export default defineBackground(() => {
       return false;
     }
 
+    if (msg.type === 'MARK_OUTCOME') {
+      (async () => {
+        try {
+          const settings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'dealership']);
+          const resp = await fetch(`${PROXY_URL}/api/outcome`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              dealer_token: settings.dealer_token || '',
+              customer_name: msg.payload.customer_name || '',
+              outcome: msg.payload.outcome,
+              rep_name: settings.rep_name || '',
+            })
+          });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ error: 'Failed' }));
+            sendResponse({ error: err.error || `Error ${resp.status}` });
+          } else {
+            const data = await resp.json();
+            sendResponse(data);
+          }
+        } catch (e: any) {
+          sendResponse({ error: e.message || 'Network error' });
+        }
+      })();
+      return true;
+    }
+
     if (msg.type === 'COACH_ME') {
       handleCoach(msg.payload)
         .then(sendResponse)
@@ -170,26 +224,26 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'SET_ALERT') {
-      browser.storage.local.get('floq_alerts').then(data => {
-        const alerts = data.floq_alerts || [];
+      browser.storage.local.get('brevmont_alerts').then(data => {
+        const alerts = data.brevmont_alerts || [];
         alerts.push({ id: Date.now().toString(), task: msg.payload.task, alertTime: msg.payload.alertTime, dismissed: false });
-        browser.storage.local.set({ floq_alerts: alerts }).then(() => sendResponse({ ok: true }));
+        browser.storage.local.set({ brevmont_alerts: alerts }).then(() => sendResponse({ ok: true }));
       }).catch(() => sendResponse({ error: 'Failed to set alert' }));
       return true;
     }
 
     if (msg.type === 'DISMISS_ALERT') {
-      browser.storage.local.get('floq_alerts').then(data => {
-        const alerts = data.floq_alerts || [];
+      browser.storage.local.get('brevmont_alerts').then(data => {
+        const alerts = data.brevmont_alerts || [];
         const updated = alerts.map((a: any) => a.id === msg.payload.id ? { ...a, dismissed: true } : a);
-        browser.storage.local.set({ floq_alerts: updated }).then(() => sendResponse({ ok: true }));
+        browser.storage.local.set({ brevmont_alerts: updated }).then(() => sendResponse({ ok: true }));
       }).catch(() => sendResponse({ ok: true }));
       return true;
     }
 
     if (msg.type === 'GET_ALERTS') {
-      browser.storage.local.get('floq_alerts').then(data => {
-        const alerts = data.floq_alerts || [];
+      browser.storage.local.get('brevmont_alerts').then(data => {
+        const alerts = data.brevmont_alerts || [];
         sendResponse(alerts.filter((a: any) => !a.dismissed));
       }).catch(() => sendResponse([]));
       return true;
@@ -323,7 +377,7 @@ export default defineBackground(() => {
         const data = await resp.json();
         // Store tier + features from heartbeat response
         const tier = data.tier || 'floor';
-        await browser.storage.local.set({ floq_tier: tier, floq_features: data.features || getTierFeatures(tier), floq_last_heartbeat: Date.now() });
+        await browser.storage.local.set({ brevmont_tier: tier, brevmont_features: data.features || getTierFeatures(tier), brevmont_last_heartbeat: Date.now() });
         // Replay any offline-queued generations now that we have connectivity
         const qSize = await getQueueSize();
         if (qSize > 0) {
@@ -339,8 +393,8 @@ export default defineBackground(() => {
   }
 
   async function checkAlerts() {
-    const data = await browser.storage.local.get('floq_alerts');
-    const alerts = data.floq_alerts || [];
+    const data = await browser.storage.local.get('brevmont_alerts');
+    const alerts = data.brevmont_alerts || [];
     const now = Date.now();
     let changed = false;
     for (const alert of alerts) {
@@ -356,16 +410,16 @@ export default defineBackground(() => {
         }
       }
     }
-    if (changed) await browser.storage.local.set({ floq_alerts: alerts });
+    if (changed) await browser.storage.local.set({ brevmont_alerts: alerts });
   }
 
   // Create alarms — survives service worker restarts
-  browser.alarms.create('floq-heartbeat', { periodInMinutes: 5 });
-  browser.alarms.create('floq-check-alerts', { periodInMinutes: 0.5 });
+  browser.alarms.create('brevmont-heartbeat', { periodInMinutes: 5 });
+  browser.alarms.create('brevmont-check-alerts', { periodInMinutes: 0.5 });
 
   browser.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === 'floq-heartbeat') sendHeartbeat();
-    if (alarm.name === 'floq-check-alerts') checkAlerts();
+    if (alarm.name === 'brevmont-heartbeat') sendHeartbeat();
+    if (alarm.name === 'brevmont-check-alerts') checkAlerts();
   });
 
   // Fire initial heartbeat after 10 seconds

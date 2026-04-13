@@ -1479,6 +1479,82 @@ export default defineContentScript({
       // Main mic
       attachInlineMic(s, mainInput, s.getElementById('o8-mic')!);
 
+      // Mark Outcome handler
+      if (isVinSolutions) {
+        const outcomeSection = s.getElementById('o8-outcome-section');
+        const outcomeBtn = s.getElementById('o8-outcome-btn');
+        const outcomeSelect = s.getElementById('o8-outcome-select') as HTMLSelectElement | null;
+        const outcomeStatus = s.getElementById('o8-outcome-status');
+
+        // Show outcome section when customer name is loaded
+        const showOutcomeIfReady = () => {
+          const nameEl = s.getElementById('o8-name');
+          if (nameEl && outcomeSection && nameEl.textContent && !nameEl.textContent.includes('Open a customer')) {
+            outcomeSection.style.display = 'block';
+          }
+        };
+        // Check periodically (customer card updates async)
+        const outcomeInterval = setInterval(showOutcomeIfReady, 2000);
+        setTimeout(() => clearInterval(outcomeInterval), 60000); // stop checking after 1 min
+
+        if (outcomeBtn && outcomeSelect) {
+          outcomeBtn.addEventListener('click', async () => {
+            const outcome = outcomeSelect.value;
+            if (!outcome) {
+              if (outcomeStatus) outcomeStatus.textContent = 'Please select an outcome';
+              return;
+            }
+
+            // Confirmation for irreversible outcomes
+            if ((outcome === 'vehicle_sold' || outcome === 'deal_lost') && !outcomeBtn.dataset.confirmed) {
+              outcomeBtn.textContent = 'Confirm?';
+              outcomeBtn.style.background = outcome === 'vehicle_sold' ? '#FF9500' : '#FF3B30';
+              outcomeBtn.dataset.confirmed = 'true';
+              setTimeout(() => {
+                outcomeBtn.textContent = 'Mark Outcome';
+                outcomeBtn.style.background = '#34C759';
+                delete outcomeBtn.dataset.confirmed;
+              }, 3000);
+              return;
+            }
+
+            delete outcomeBtn.dataset.confirmed;
+            outcomeBtn.textContent = 'Saving...';
+            outcomeBtn.setAttribute('disabled', 'true');
+
+            const nameEl = s.getElementById('o8-name');
+            const customerName = nameEl?.textContent?.trim() || '';
+
+            try {
+              const resp = await safeSend({
+                type: 'MARK_OUTCOME',
+                payload: { customer_name: customerName, outcome }
+              });
+              if (resp?.error) {
+                if (outcomeStatus) outcomeStatus.textContent = resp.error;
+                outcomeBtn.textContent = 'Mark Outcome';
+                outcomeBtn.style.background = '#34C759';
+              } else {
+                outcomeBtn.textContent = '✓ Saved';
+                outcomeBtn.style.background = '#10B981';
+                if (outcomeStatus) outcomeStatus.textContent = `Marked as ${outcome.replace(/_/g, ' ')}`;
+                outcomeSelect.value = '';
+                setTimeout(() => {
+                  outcomeBtn.textContent = 'Mark Outcome';
+                  outcomeBtn.style.background = '#34C759';
+                  outcomeBtn.removeAttribute('disabled');
+                }, 3000);
+              }
+            } catch (e: any) {
+              if (outcomeStatus) outcomeStatus.textContent = e.message || 'Failed to save';
+              outcomeBtn.textContent = 'Mark Outcome';
+              outcomeBtn.style.background = '#34C759';
+            }
+            outcomeBtn.removeAttribute('disabled');
+          });
+        }
+      }
+
       const settingsPanel = s.getElementById('o8-settings-panel');
       const settingsBack = s.getElementById('o8-settings-back');
       if (settingsBack) {
@@ -1487,14 +1563,14 @@ export default defineContentScript({
 
       // Settings tone/goal radio buttons — all unlocked
       s.querySelectorAll('input[name="brevmont-tone"]').forEach(radio => {
-        radio.addEventListener('change', () => { browser.storage.local.set({ floq_tone: (radio as HTMLInputElement).value }); });
+        radio.addEventListener('change', () => { browser.storage.local.set({ brevmont_tone: (radio as HTMLInputElement).value }); });
       });
       s.querySelectorAll('input[name="brevmont-goal"]').forEach(radio => {
-        radio.addEventListener('change', () => { browser.storage.local.set({ floq_goal: (radio as HTMLInputElement).value }); });
+        radio.addEventListener('change', () => { browser.storage.local.set({ brevmont_goal: (radio as HTMLInputElement).value }); });
       });
-      browser.storage.local.get(['floq_tone', 'floq_goal']).then(r => {
-        if (r.floq_tone) { const el = s.querySelector(`input[name="brevmont-tone"][value="${r.floq_tone}"]`) as HTMLInputElement; if (el) el.checked = true; }
-        if (r.floq_goal) { const el = s.querySelector(`input[name="brevmont-goal"][value="${r.floq_goal}"]`) as HTMLInputElement; if (el) el.checked = true; }
+      browser.storage.local.get(['brevmont_tone', 'brevmont_goal']).then(r => {
+        if (r.brevmont_tone) { const el = s.querySelector(`input[name="brevmont-tone"][value="${r.brevmont_tone}"]`) as HTMLInputElement; if (el) el.checked = true; }
+        if (r.brevmont_goal) { const el = s.querySelector(`input[name="brevmont-goal"][value="${r.brevmont_goal}"]`) as HTMLInputElement; if (el) el.checked = true; }
       });
 
       // Tools panel
@@ -1724,7 +1800,7 @@ export default defineContentScript({
 
             if (!isVinSolutions) {
               // Save pending lead for later
-              await browser.storage.local.set({ floq_pending_lead: data, floq_pending_lead_time: Date.now() });
+              await browser.storage.local.set({ brevmont_pending_lead: data, brevmont_pending_lead_time: Date.now() });
               navigator.clipboard.writeText(`${data.first_name || ''} ${data.last_name || ''}\nPhone: ${data.phone || ''}\nEmail: ${data.email || ''}\nVehicle: ${data.vehicle_interest || ''}\nNotes: ${data.notes || ''}`);
               showToast(s, 'Lead saved — open VinSolutions to inject');
               closeLead();
@@ -1831,8 +1907,8 @@ export default defineContentScript({
 
       // Check for pending lead on VinSolutions load
       if (isVinSolutions) {
-        browser.storage.local.get(['floq_pending_lead', 'floq_pending_lead_time']).then(r => {
-          if (r.floq_pending_lead && r.floq_pending_lead_time && (Date.now() - r.floq_pending_lead_time < 24 * 60 * 60 * 1000)) {
+        browser.storage.local.get(['brevmont_pending_lead', 'brevmont_pending_lead_time']).then(r => {
+          if (r.brevmont_pending_lead && r.brevmont_pending_lead_time && (Date.now() - r.brevmont_pending_lead_time < 24 * 60 * 60 * 1000)) {
             const quickMode = s.getElementById('o8-quick');
             if (quickMode) {
               const banner = document.createElement('div');
@@ -1842,7 +1918,7 @@ export default defineContentScript({
                 banner.remove();
                 openLead();
                 // Show the lead card with saved data
-                showLeadCard(r.floq_pending_lead, 'saved');
+                showLeadCard(r.brevmont_pending_lead, 'saved');
               };
               quickMode.insertBefore(banner, quickMode.firstChild);
             }
@@ -2187,7 +2263,7 @@ export default defineContentScript({
 
       // Read tone/goal from storage for FIX 7
       let tone = 'professional'; let goal = 'close_deal';
-      try { const stored = await browser.storage.local.get(['floq_tone', 'floq_goal']); tone = stored.floq_tone || 'professional'; goal = stored.floq_goal || 'close_deal'; } catch(e) {}
+      try { const stored = await browser.storage.local.get(['brevmont_tone', 'brevmont_goal']); tone = stored.brevmont_tone || 'professional'; goal = stored.brevmont_goal || 'close_deal'; } catch(e) {}
 
       try {
         const response = await safeSend({
@@ -2514,6 +2590,19 @@ export default defineContentScript({
       <button id="o8-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button>
     </div>
     <button id="o8-generate" class="gen-btn">Generate</button>
+    ${isVinSolutions ? `<div id="o8-outcome-section" class="outcome-section" style="display:none; margin-top:8px; padding:8px; background:#f8fafc; border-radius:8px; border:1px solid #E5E7EB;">
+  <div style="font-size:11px; font-weight:600; color:#64748b; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">Deal Outcome</div>
+  <select id="o8-outcome-select" style="width:100%; padding:8px; border:1px solid #E5E7EB; border-radius:6px; font-size:12px; background:#fff; margin-bottom:6px;">
+    <option value="">Select outcome...</option>
+    <option value="vehicle_sold">Vehicle Sold</option>
+    <option value="appointment_set">Appointment Set</option>
+    <option value="appointment_completed">Appointment Completed</option>
+    <option value="deal_lost">Deal Lost</option>
+    <option value="no_response">No Response</option>
+  </select>
+  <button id="o8-outcome-btn" class="gen-btn" style="background:#34C759; font-size:12px; padding:8px;">Mark Outcome</button>
+  <div id="o8-outcome-status" style="font-size:11px; color:#64748b; text-align:center; margin-top:4px;"></div>
+</div>` : ''}
     <div class="inline-links"><button id="o8-tools-btn-inline" class="link-btn">Tools</button><span class="link-sep">|</span><button id="o8-settings-btn-inline" class="link-btn">Settings</button></div>
     <div class="tcpa-inline">Messages are for human review. TCPA compliance is your responsibility.</div>
   </div>
