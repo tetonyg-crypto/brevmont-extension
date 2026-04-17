@@ -59,26 +59,32 @@ export default defineContentScript({
     }
     const outputLabels = getOutputLabels();
 
-    // ===== CLEANUP REGISTRY (Phase T8) =====
+    // ===== CLEANUP REGISTRY (Phase T8 / Wave 7) =====
     // Track every interval + MutationObserver so we can unbind on unload /
     // sidebar close. Prevents dangling observers after SPA tab teardown.
-    const CLEANUP: Array<() => void> = [];
-    function addInterval(fn: () => void, ms: number): number {
+    const __CLEANUP: Array<() => void> = [];
+    function __addInterval(fn: () => void, ms: number): number {
       const id = (window as any).setInterval(fn, ms);
-      CLEANUP.push(() => { try { (window as any).clearInterval(id); } catch {} });
+      __CLEANUP.push(() => { try { (window as any).clearInterval(id); } catch {} });
       return id;
     }
-    function addObserver<T extends MutationObserver | ResizeObserver>(o: T, target: Node | Element, opts?: any): T {
+    function __addObserver<T extends MutationObserver | ResizeObserver>(o: T, target: Node | Element, opts?: any): T {
       try { (o as any).observe(target, opts); } catch {}
-      CLEANUP.push(() => { try { (o as any).disconnect(); } catch {} });
+      __CLEANUP.push(() => { try { (o as any).disconnect(); } catch {} });
       return o;
     }
-    function cleanupAll() {
-      while (CLEANUP.length) {
-        try { CLEANUP.pop()?.(); } catch {}
+    function __cleanupAll() {
+      while (__CLEANUP.length) {
+        try { __CLEANUP.pop()?.(); } catch {}
       }
     }
-    try { window.addEventListener('beforeunload', cleanupAll); } catch {}
+    try { window.addEventListener('beforeunload', __cleanupAll); } catch {}
+    try { window.addEventListener('pagehide', __cleanupAll); } catch {}
+    // Back-compat aliases for existing call sites
+    const CLEANUP = __CLEANUP;
+    const addInterval = __addInterval;
+    const addObserver = __addObserver;
+    const cleanupAll = __cleanupAll;
 
     // ===== REMOTE SELECTORS (Phase 1f) =====
     // Kick off an async load of vinsolutions/gmail selectors. Do NOT block —
@@ -405,8 +411,7 @@ export default defineContentScript({
         return null;
       }
 
-      const subjectInput = (qSel(vinSelectors, 'email_subject_input', 'input[id*="subject"], input[id*="Subject"], input[name*="subject"], input[name*="Subject"]') as HTMLInputElement)
-        || (document.querySelector('input[id*="subject"], input[id*="Subject"], input[name*="subject"], input[name*="Subject"]') as HTMLInputElement);
+      const subjectInput = qSel(vinSelectors, 'email_subject_input', 'input[id*="subject"], input[id*="Subject"], input[name*="subject"], input[name*="Subject"]') as HTMLInputElement;
 
       // Find a toolbar or button area to anchor our button
       const toolbar = document.querySelector('.cke_top, .mce-toolbar, .k-toolbar, [class*="toolbar"], [id*="toolbar"]')
@@ -442,7 +447,7 @@ export default defineContentScript({
           // Extract customer name from popup DOM
           const customerEl = document.querySelector('[id*="customer"], [id*="CustomerName"], [id*="name"], .customer-name, h1, h2, [class*="header"] span');
           const customerName = customerEl?.textContent?.trim() || '';
-          const toField = document.querySelector('input[id*="to"], input[id*="To"], input[name*="to"], input[type="email"]') as HTMLInputElement;
+          const toField = qSel(vinSelectors, 'email_to_input', 'input[id*="to"], input[id*="To"], input[name*="to"], input[type="email"]') as HTMLInputElement;
           const toEmail = toField?.value || '';
 
           console.log('[Brevmont] Email popup: customer=' + customerName + ', to=' + toEmail);
@@ -905,13 +910,11 @@ export default defineContentScript({
 
       // Strategy 3: look inside cardashboardframe for leftpaneframe
       try {
-        const cf = (qSel(vinSelectors, 'customer_dashboard_frame', '#cardashboardframe') as HTMLIFrameElement | null)
-          || (document.getElementById('cardashboardframe') as HTMLIFrameElement);
+        const cf = qSel(vinSelectors, 'customer_dashboard_frame', '#cardashboardframe') as HTMLIFrameElement | null;
         if (cf) {
           const cfd = cf.contentDocument || (cf as any).contentWindow?.document;
           if (cfd) {
-            const lf = (qSel(vinSelectors, 'left_pane_frame', '#leftpaneframe', cfd) as HTMLElement | null)
-              || cfd.getElementById('leftpaneframe');
+            const lf = qSel(vinSelectors, 'left_pane_frame', '#leftpaneframe', cfd) as HTMLElement | null;
             if (lf) {
               const cfRect = cf.getBoundingClientRect();
               const lfRect = lf.getBoundingClientRect();
@@ -1047,6 +1050,13 @@ export default defineContentScript({
     if (isVinSolutions) {
       let pillHiddenByModal = false;
       function checkForModals() {
+        // Remote-config selector first (purpose: modal_overlay), then hardcoded fallbacks
+        const remoteModal = qSel(vinSelectors, 'modal_overlay', '.ui-dialog:not([style*="display: none"])');
+        let modalVisible = false;
+        if (remoteModal) {
+          const rect = (remoteModal as HTMLElement).getBoundingClientRect();
+          modalVisible = rect.width > 0 && rect.height > 0;
+        }
         // VinSolutions uses jQuery UI dialogs, Bootstrap modals, and native role="dialog"
         const modalSelectors = [
           '.ui-dialog:not([style*="display: none"])',
@@ -1057,12 +1067,14 @@ export default defineContentScript({
           '#simplemodal-overlay', '#simplemodal-container',
           '.blockUI.blockOverlay',
         ];
-        const modalVisible = modalSelectors.some(sel => {
-          const el = document.querySelector(sel);
-          if (!el) return false;
-          const rect = (el as HTMLElement).getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        });
+        if (!modalVisible) {
+          modalVisible = modalSelectors.some(sel => {
+            const el = document.querySelector(sel);
+            if (!el) return false;
+            const rect = (el as HTMLElement).getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          });
+        }
 
         // Also check iframes for modals (VinSolutions opens modals inside iframes)
         let iframeModal = false;
@@ -2217,10 +2229,10 @@ export default defineContentScript({
                 const id = (btn as HTMLElement).dataset.id;
                 const subject = card?.dataset.subject || '';
                 const body = card?.dataset.body || '';
-                const composeBody = document.querySelector('div[aria-label="Message Body"][contenteditable="true"]') as HTMLElement;
+                const composeBody = qSel(gmailSelectors, 'compose_body', 'div[aria-label="Message Body"][contenteditable="true"]') as HTMLElement;
                 if (composeBody) {
                   composeBody.focus(); safeInjectText(composeBody, body);
-                  if (subject) { const subjectField = document.querySelector('input[name="subjectbox"]') as HTMLInputElement; if (subjectField) { subjectField.focus(); safeInjectText(subjectField, subject); } }
+                  if (subject) { const subjectField = qSel(gmailSelectors, 'compose_subject', 'input[name="subjectbox"]') as HTMLInputElement; if (subjectField) { subjectField.focus(); safeInjectText(subjectField, subject); } }
                   (btn as HTMLElement).textContent = 'Applied';
                   (btn as HTMLElement).style.background = '#16a34a';
                 } else {
@@ -2433,7 +2445,7 @@ export default defineContentScript({
       function tryInjectInDoc(doc: Document): boolean {
         // Subject field
         if (subject) {
-          const subj = doc.querySelector('input[id*="ubject"], input[name*="ubject"], input[id*="Subject"], input[name*="Subject"]') as HTMLInputElement;
+          const subj = qSel(vinSelectors, 'email_subject_input', 'input[id*="ubject"], input[name*="ubject"], input[id*="Subject"], input[name*="Subject"]', doc) as HTMLInputElement;
           if (subj) { subj.focus(); safeInjectText(subj, subject); }
         }
         // Body: contenteditable > textarea > nested iframe body
@@ -2576,10 +2588,10 @@ export default defineContentScript({
             let subject = ''; let body = curContent;
             const subjectMatch = curContent.match(/^(?:Subject:\s*|Re:\s*)(.+)/i);
             if (subjectMatch) { subject = subjectMatch[1].trim(); body = curContent.slice(curContent.indexOf('\n') + 1).trim(); }
-            const composeBody = document.querySelector('div[aria-label="Message Body"][contenteditable="true"]') as HTMLElement;
+            const composeBody = qSel(gmailSelectors, 'compose_body', 'div[aria-label="Message Body"][contenteditable="true"]') as HTMLElement;
             if (composeBody) {
               composeBody.focus(); safeInjectText(composeBody, body);
-              if (subject) { const subjectField = document.querySelector('input[name="subjectbox"]') as HTMLInputElement; if (subjectField) { subjectField.focus(); safeInjectText(subjectField, subject); } }
+              if (subject) { const subjectField = qSel(gmailSelectors, 'compose_subject', 'input[name="subjectbox"]') as HTMLInputElement; if (subjectField) { subjectField.focus(); safeInjectText(subjectField, subject); } }
               this.textContent = 'Applied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Applied to compose'; st.style.color = '#16a34a';
               try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'EMAIL_APPLIED', platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
             } else {
@@ -2610,7 +2622,7 @@ export default defineContentScript({
 
     function injectContent(parsed: any): boolean {
       const { action, content, subject } = parsed;
-      if ((action === 'write_email' || PLATFORM === 'gmail') && isGmail) { const body = document.querySelector('div[aria-label="Message Body"][contenteditable="true"]') as HTMLElement; if (body) { body.focus(); safeInjectText(body, content); if (subject) { const subj = document.querySelector('input[name="subjectbox"]') as HTMLInputElement; if (subj) { subj.focus(); safeInjectText(subj, subject); } } return true; } }
+      if ((action === 'write_email' || PLATFORM === 'gmail') && isGmail) { const body = qSel(gmailSelectors, 'compose_body', 'div[aria-label="Message Body"][contenteditable="true"]') as HTMLElement; if (body) { body.focus(); safeInjectText(body, content); if (subject) { const subj = qSel(gmailSelectors, 'compose_subject', 'input[name="subjectbox"]') as HTMLInputElement; if (subj) { subj.focus(); safeInjectText(subj, subject); } } return true; } }
       if ((action === 'write_facebook_message' || PLATFORM === 'facebook') && isFacebook) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { box.focus(); safeInjectText(box, content); return true; } }
       if ((action === 'write_linkedin_message' || PLATFORM === 'linkedin') && isLinkedIn) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { box.focus(); safeInjectText(box, content); return true; } }
       if (action === 'log_crm_note' && isVinSolutions) { pasteIntoCRM(content, document.createElement('span')); return true; }
