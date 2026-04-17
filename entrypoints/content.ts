@@ -6,6 +6,8 @@
  */
 
 import './content/styles.css';
+import { selectorManager, type SelectorEntry } from './lib/selectors';
+import { telemetry } from './lib/telemetry';
 
 type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
 
@@ -56,6 +58,51 @@ export default defineContentScript({
       return { text: 'REPLY', email: 'EMAIL', crm: 'NOTE' };
     }
     const outputLabels = getOutputLabels();
+
+    // ===== CLEANUP REGISTRY (Phase T8) =====
+    // Track every interval + MutationObserver so we can unbind on unload /
+    // sidebar close. Prevents dangling observers after SPA tab teardown.
+    const CLEANUP: Array<() => void> = [];
+    function addInterval(fn: () => void, ms: number): number {
+      const id = (window as any).setInterval(fn, ms);
+      CLEANUP.push(() => { try { (window as any).clearInterval(id); } catch {} });
+      return id;
+    }
+    function addObserver<T extends MutationObserver | ResizeObserver>(o: T, target: Node | Element, opts?: any): T {
+      try { (o as any).observe(target, opts); } catch {}
+      CLEANUP.push(() => { try { (o as any).disconnect(); } catch {} });
+      return o;
+    }
+    function cleanupAll() {
+      while (CLEANUP.length) {
+        try { CLEANUP.pop()?.(); } catch {}
+      }
+    }
+    try { window.addEventListener('beforeunload', cleanupAll); } catch {}
+
+    // ===== REMOTE SELECTORS (Phase 1f) =====
+    // Kick off an async load of vinsolutions/gmail selectors. Do NOT block —
+    // callers fall back to hardcoded literals if this array is still empty.
+    let vinSelectors: SelectorEntry[] = [];
+    let gmailSelectors: SelectorEntry[] = [];
+    if (isVinSolutions) {
+      selectorManager.getSelectors('vinsolutions').then(sel => { vinSelectors = sel || []; }).catch(() => {});
+    }
+    if (isGmail) {
+      selectorManager.getSelectors('gmail').then(sel => { gmailSelectors = sel || []; }).catch(() => {});
+    }
+
+    // Hybrid query: prefer remote selector config; fall back to the hardcoded
+    // literal so a cold first run (or proxy outage) still works.
+    function qSel(selectors: SelectorEntry[], purpose: string, hardcoded: string, root: Document | HTMLElement = document): Element | null {
+      try {
+        if (selectors && selectors.length) {
+          const el = selectorManager.query(selectors, purpose, root);
+          if (el) return el;
+        }
+      } catch {}
+      try { return (root as Document).querySelector(hardcoded); } catch { return null; }
+    }
 
     // ===== ADDNOTE POPUP RECEIVER (VinSolutions only) =====
     if (isVinSolutions) {
@@ -321,6 +368,11 @@ export default defineContentScript({
       // Find the CKEditor iframe — VinSolutions uses CKEditor for rich text email body
       // Try multiple selectors: CKEditor standard, VinSolutions custom, generic
       function findEditorIframe(): HTMLIFrameElement | null {
+        // Phase 1f: prefer remote selector config
+        try {
+          const remote = qSel(vinSelectors, 'ckeditor_iframe', 'iframe.cke_wysiwyg_frame') as HTMLIFrameElement | null;
+          if (remote) return remote;
+        } catch {}
         const selectors = [
           'iframe.cke_wysiwyg_frame',
           'iframe[id*="Editor"]',
@@ -353,7 +405,8 @@ export default defineContentScript({
         return null;
       }
 
-      const subjectInput = document.querySelector('input[id*="subject"], input[id*="Subject"], input[name*="subject"], input[name*="Subject"]') as HTMLInputElement;
+      const subjectInput = (qSel(vinSelectors, 'email_subject_input', 'input[id*="subject"], input[id*="Subject"], input[name*="subject"], input[name*="Subject"]') as HTMLInputElement)
+        || (document.querySelector('input[id*="subject"], input[id*="Subject"], input[name*="subject"], input[name*="Subject"]') as HTMLInputElement);
 
       // Find a toolbar or button area to anchor our button
       const toolbar = document.querySelector('.cke_top, .mce-toolbar, .k-toolbar, [class*="toolbar"], [id*="toolbar"]')
@@ -500,6 +553,11 @@ export default defineContentScript({
 
       // Find the Call Notes textarea — try many selectors
       function findNotesField(): HTMLTextAreaElement | null {
+        // Phase 1f: prefer remote selector config
+        try {
+          const remote = qSel(vinSelectors, 'call_note_textarea', 'textarea[id*="CallNote"]') as HTMLTextAreaElement | null;
+          if (remote) return remote;
+        } catch {}
         const selectors = [
           'textarea[id*="CallNote"]', 'textarea[id*="callNote"]',
           'textarea[id*="Notes"]', 'textarea[id*="notes"]',
@@ -721,7 +779,7 @@ export default defineContentScript({
       // MutationObserver CANNOT see changes inside iframes. VinSolutions loads customer
       // data in right-panel iframes WITHOUT changing the URL. The only reliable way to
       // detect customer changes is to periodically read the visible text and compare.
-      setInterval(() => {
+      addInterval(() => {
         const dashText = getDashboardScopedText();
         if (!dashText || dashText.length < 30) {
           // No Customer Dashboard visible — user is on main dashboard or navigating
@@ -781,8 +839,8 @@ export default defineContentScript({
           }
         }, 500);
       });
-      const mainPanel = document.querySelector('#mainAreaPanel') || document.body;
-      vinObserver.observe(mainPanel, { childList: true, subtree: true, characterData: true });
+      const mainPanel = qSel(vinSelectors, 'main_panel', '#mainAreaPanel') || document.body;
+      addObserver(vinObserver, mainPanel, { childList: true, subtree: true, characterData: true });
     }
 
     // ===== SIDEBAR WIDTH PER PLATFORM =====
@@ -847,11 +905,13 @@ export default defineContentScript({
 
       // Strategy 3: look inside cardashboardframe for leftpaneframe
       try {
-        const cf = document.getElementById('cardashboardframe') as HTMLIFrameElement;
+        const cf = (qSel(vinSelectors, 'customer_dashboard_frame', '#cardashboardframe') as HTMLIFrameElement | null)
+          || (document.getElementById('cardashboardframe') as HTMLIFrameElement);
         if (cf) {
           const cfd = cf.contentDocument || (cf as any).contentWindow?.document;
           if (cfd) {
-            const lf = cfd.getElementById('leftpaneframe');
+            const lf = (qSel(vinSelectors, 'left_pane_frame', '#leftpaneframe', cfd) as HTMLElement | null)
+              || cfd.getElementById('leftpaneframe');
             if (lf) {
               const cfRect = cf.getBoundingClientRect();
               const lfRect = lf.getBoundingClientRect();
@@ -866,7 +926,7 @@ export default defineContentScript({
       } catch(e) {}
 
       // Strategy 4: use #mainAreaPanel right edge as fallback
-      const map = document.getElementById('mainAreaPanel');
+      const map = (qSel(vinSelectors, 'main_panel', '#mainAreaPanel') as HTMLElement | null);
       if (map) {
         const r = map.getBoundingClientRect();
         if (r.width > 100 && r.width < window.innerWidth * 0.7) {
@@ -893,7 +953,7 @@ export default defineContentScript({
       }
 
       // Strategy 6: cardashboardframe left edge as final fallback
-      const cdf = document.getElementById('cardashboardframe');
+      const cdf = (qSel(vinSelectors, 'customer_dashboard_frame', '#cardashboardframe') as HTMLElement | null);
       if (cdf) {
         const r = cdf.getBoundingClientRect();
         if (r.width > 100) {
@@ -978,10 +1038,10 @@ export default defineContentScript({
 
     // Keep pill + sidebar locked to divider on resize/zoom/fullscreen
     const pillResizeObserver = new ResizeObserver(() => { requestAnimationFrame(() => { updatePillPosition(); updateSidebarPosition(); }); });
-    pillResizeObserver.observe(document.documentElement);
+    addObserver(pillResizeObserver, document.documentElement);
     window.addEventListener('resize', () => { updatePillPosition(); updateSidebarPosition(); });
     window.addEventListener('fullscreenchange', () => { updatePillPosition(); updateSidebarPosition(); });
-    setInterval(() => { updatePillPosition(); updateSidebarPosition(); }, 1000);
+    addInterval(() => { updatePillPosition(); updateSidebarPosition(); }, 1000);
 
     // ===== MODAL AWARENESS: Hide pill + sidebar when VinSolutions modals are visible =====
     if (isVinSolutions) {
@@ -1034,11 +1094,11 @@ export default defineContentScript({
       }
 
       // Check every 500ms (modals open/close asynchronously)
-      setInterval(checkForModals, 500);
+      addInterval(checkForModals, 500);
 
       // Also watch for DOM changes that might indicate modal insertion
       const modalObserver = new MutationObserver(() => { requestAnimationFrame(checkForModals); });
-      modalObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'aria-hidden'] });
+      addObserver(modalObserver, document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'aria-hidden'] });
     }
 
     // ===== NON-VINSOLUTIONS: Lightweight contact name watcher =====
@@ -1046,14 +1106,14 @@ export default defineContentScript({
     // extract the contact name from the conversation header so it's ready when the
     // rep generates output. This runs every 3 seconds and is cheap (DOM queries only).
     if (!isVinSolutions) {
-      setInterval(() => {
+      addInterval(() => {
         const name = extractContactName();
         if (name && (!leadData || !leadData.customerName)) {
           leadData = leadData || {};
           leadData.customerName = name;
           // Gmail: also grab email from sender element
           if (isGmail) {
-            const emailEl = document.querySelector('.gD');
+            const emailEl = qSel(gmailSelectors, 'sender_email_badge', '.gD');
             if (emailEl) {
               const emailAddr = emailEl.getAttribute('email');
               if (emailAddr) leadData.email = emailAddr;
@@ -1065,7 +1125,7 @@ export default defineContentScript({
         if (name && leadData && leadData.customerName && leadData.customerName !== name) {
           leadData.customerName = name;
           if (isGmail) {
-            const emailEl = document.querySelector('.gD');
+            const emailEl = qSel(gmailSelectors, 'sender_email_badge', '.gD');
             if (emailEl) leadData.email = emailEl.getAttribute('email') || leadData.email;
           }
           console.log('[Brevmont] Contact name updated to:', name);
@@ -1101,7 +1161,7 @@ export default defineContentScript({
           }
         }
       });
-      spaObserver.observe(target, { childList: true, subtree: true });
+      addObserver(spaObserver, target, { childList: true, subtree: true });
       // No timeout — keep watching for SPA navigation for the life of the page
     }
 
@@ -1133,7 +1193,7 @@ export default defineContentScript({
           }, 1500);
         }
       });
-      vinUrlObserver.observe(document.body, { childList: true, subtree: true });
+      addObserver(vinUrlObserver, document.body, { childList: true, subtree: true });
 
       // Validated scan: checks that detected name actually appears in visible page text
       // Retries up to 5 times with 500ms delay if validation fails
@@ -1270,7 +1330,7 @@ export default defineContentScript({
     // Poll pending notes every 30 seconds on VinSolutions
     if (isVinSolutions) {
       setTimeout(refreshPendingBadge, 5000); // first check after 5s
-      setInterval(refreshPendingBadge, 30000);
+      addInterval(refreshPendingBadge, 30000);
     }
 
     // ===== INLINE MIC =====
@@ -1705,7 +1765,7 @@ export default defineContentScript({
       function extractContactName(): string | null {
         if (isGmail) {
           // Gmail: sender name from email header elements
-          const senderEl = document.querySelector('.gD');
+          const senderEl = qSel(gmailSelectors, 'sender_email_badge', '.gD');
           if (senderEl) {
             const name = (senderEl as HTMLElement).getAttribute('name')
               || (senderEl as HTMLElement).textContent?.trim()

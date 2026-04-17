@@ -13,6 +13,7 @@ const PROXY_URL = 'https://brevmont-proxy-production.up.railway.app';
 
 import { signedFetch } from '../lib/authSigning';
 import { queueOffline, replayQueue, getQueueSize } from '../lib/resilience';
+import { telemetry } from './lib/telemetry';
 
 export default defineBackground(() => {
   // One-time migration: brevmont_ → brevmont_ storage keys
@@ -99,21 +100,21 @@ export default defineBackground(() => {
       const p = msg.payload;
       browser.storage.sync.get(['dealer_token', 'rep_name']).then(async (settings) => {
         try {
-          await fetch(`${PROXY_URL}/api/log-action`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              dealer_token: settings.dealer_token || '',
-              action: p.action_type || 'unknown',
-              customer_name: p.customer || null,
-              vehicle: p.vehicle || null,
-              platform: p.platform || 'unknown',
-              rep_name: settings.rep_name || '',
-              success: p.success ?? true,
-              timestamp: new Date().toISOString()
-            })
+          await signedFetch(`${PROXY_URL}/api/log-action`, {
+            dealer_token: settings.dealer_token || '',
+            action: p.action_type || 'unknown',
+            customer_name: p.customer || null,
+            vehicle: p.vehicle || null,
+            platform: p.platform || 'unknown',
+            rep_name: settings.rep_name || '',
+            success: p.success ?? true,
+            timestamp: new Date().toISOString()
           });
-        } catch(e: any) { console.error('[Brevmont] Log action failed:', e); reportError('API_ERROR', `Log action failed: ${e?.message || 'unknown'}`).catch(() => {}); }
+        } catch(e: any) {
+          console.error('[Brevmont] Log action failed:', e);
+          telemetry.trackError(e, { flow: 'log_action' });
+          reportError('API_ERROR', `Log action failed: ${e?.message || 'unknown'}`).catch(() => {});
+        }
       });
       return false;
     }
@@ -122,21 +123,20 @@ export default defineBackground(() => {
       const p = msg.payload;
       browser.storage.sync.get(['dealer_token', 'rep_name']).then(async (settings) => {
         try {
-          await fetch(`${PROXY_URL}/api/log-action`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              dealer_token: settings.dealer_token || '',
-              action: p.label || 'COPY',
-              customer_name: p.customer || null,
-              vehicle: p.vehicle || null,
-              platform: p.platform || 'unknown',
-              rep_name: settings.rep_name || '',
-              success: true,
-              timestamp: new Date().toISOString()
-            })
+          await signedFetch(`${PROXY_URL}/api/log-action`, {
+            dealer_token: settings.dealer_token || '',
+            action: p.label || 'COPY',
+            customer_name: p.customer || null,
+            vehicle: p.vehicle || null,
+            platform: p.platform || 'unknown',
+            rep_name: settings.rep_name || '',
+            success: true,
+            timestamp: new Date().toISOString()
           });
-        } catch(e) { console.error('[Brevmont] Log copy failed:', e); }
+        } catch(e: any) {
+          console.error('[Brevmont] Log copy failed:', e);
+          telemetry.trackError(e, { flow: 'log_copy' });
+        }
       });
       return false;
     }
@@ -150,15 +150,11 @@ export default defineBackground(() => {
       (async () => {
         try {
           const settings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'dealership']);
-          const resp = await fetch(`${PROXY_URL}/api/outcome`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              dealer_token: settings.dealer_token || '',
-              customer_name: msg.payload.customer_name || '',
-              outcome: msg.payload.outcome,
-              rep_name: settings.rep_name || '',
-            })
+          const resp = await signedFetch(`${PROXY_URL}/api/outcome`, {
+            dealer_token: settings.dealer_token || '',
+            customer_name: msg.payload.customer_name || '',
+            outcome: msg.payload.outcome,
+            rep_name: settings.rep_name || '',
           });
           if (!resp.ok) {
             const err = await resp.json().catch(() => ({ error: 'Failed' }));
@@ -168,6 +164,7 @@ export default defineBackground(() => {
             sendResponse(data);
           }
         } catch (e: any) {
+          telemetry.trackError(e, { flow: 'mark_outcome' });
           sendResponse({ error: e.message || 'Network error' });
         }
       })();
@@ -254,13 +251,12 @@ export default defineBackground(() => {
       browser.storage.sync.get(['dealer_token', 'rep_name']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ error: 'No dealer_token' }); return; }
         try {
-          const resp = await fetch(`${PROXY_URL}/api/pending-notes`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dealer_token: settings.dealer_token, rep_name: settings.rep_name || '', customer_name: msg.payload.customer_name || '', contact_id: msg.payload.contact_id || null, note_text: msg.payload.note_text })
+          const resp = await signedFetch(`${PROXY_URL}/api/pending-notes`, {
+            dealer_token: settings.dealer_token, rep_name: settings.rep_name || '', customer_name: msg.payload.customer_name || '', contact_id: msg.payload.contact_id || null, note_text: msg.payload.note_text
           });
           const data = await resp.json();
           sendResponse(data);
-        } catch(e: any) { sendResponse({ error: e.message }); }
+        } catch(e: any) { telemetry.trackError(e, { flow: 'save_pending_note' }); sendResponse({ error: e.message }); }
       });
       return true;
     }
@@ -269,7 +265,12 @@ export default defineBackground(() => {
       browser.storage.sync.get(['dealer_token']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ notes: [] }); return; }
         try {
-          const resp = await fetch(`${PROXY_URL}/api/pending-notes?dealer_token=${encodeURIComponent(settings.dealer_token)}`);
+          // Proxy reads dealer_token from Authorization header (req.headers['authorization']
+          // OR req.query.dealer_token). We send via header only so the token never
+          // lands in access logs, browser history, or CDN caches.
+          const resp = await fetch(`${PROXY_URL}/api/pending-notes`, {
+            headers: { 'Authorization': `Bearer ${settings.dealer_token}` }
+          });
           const data = await resp.json();
           sendResponse(data);
         } catch(e: any) { sendResponse({ notes: [] }); }
@@ -296,13 +297,12 @@ export default defineBackground(() => {
       browser.storage.sync.get(['dealer_token', 'rep_name']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ error: 'No dealer_token' }); return; }
         try {
-          const resp = await fetch(`${PROXY_URL}/api/pending-emails`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dealer_token: settings.dealer_token, rep_name: settings.rep_name || '', customer_name: msg.payload.customer_name || '', subject: msg.payload.subject || '', body: msg.payload.body || '' })
+          const resp = await signedFetch(`${PROXY_URL}/api/pending-emails`, {
+            dealer_token: settings.dealer_token, rep_name: settings.rep_name || '', customer_name: msg.payload.customer_name || '', subject: msg.payload.subject || '', body: msg.payload.body || ''
           });
           const data = await resp.json();
           sendResponse(data);
-        } catch(e: any) { sendResponse({ error: e.message }); }
+        } catch(e: any) { telemetry.trackError(e, { flow: 'save_pending_email' }); sendResponse({ error: e.message }); }
       });
       return true;
     }
@@ -311,7 +311,9 @@ export default defineBackground(() => {
       browser.storage.sync.get(['dealer_token']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ emails: [] }); return; }
         try {
-          const resp = await fetch(`${PROXY_URL}/api/pending-emails?dealer_token=${encodeURIComponent(settings.dealer_token)}`);
+          const resp = await fetch(`${PROXY_URL}/api/pending-emails`, {
+            headers: { 'Authorization': `Bearer ${settings.dealer_token}` }
+          });
           const data = await resp.json();
           sendResponse(data);
         } catch(e: any) { sendResponse({ emails: [] }); }
@@ -323,13 +325,12 @@ export default defineBackground(() => {
       browser.storage.sync.get(['dealer_token']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ error: 'No dealer_token' }); return; }
         try {
-          const resp = await fetch(`${PROXY_URL}/api/parse-lead`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dealer_token: settings.dealer_token, raw_text: msg.payload.raw_text, platform: msg.payload.platform || 'unknown' })
+          const resp = await signedFetch(`${PROXY_URL}/api/parse-lead`, {
+            dealer_token: settings.dealer_token, raw_text: msg.payload.raw_text, platform: msg.payload.platform || 'unknown'
           });
           const data = await resp.json();
           sendResponse(data);
-        } catch(e: any) { sendResponse({ error: e.message }); }
+        } catch(e: any) { telemetry.trackError(e, { flow: 'parse_lead' }); sendResponse({ error: e.message }); }
       });
       return true;
     }
@@ -361,17 +362,13 @@ export default defineBackground(() => {
         const tabs = await browser.tabs.query({ active: true, currentWindow: true });
         if (tabs[0]?.url) platform = new URL(tabs[0].url).hostname;
       } catch(e) {}
-      const resp = await fetch(`${PROXY_URL}/api/heartbeat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          license_key: settings.dealer_token,
-          rep_name: settings.rep_name || 'Unknown',
-          dealership: settings.dealership || '',
-          extension_version: manifest.version || '1.8.0',
-          platform: platform,
-          timestamp: new Date().toISOString()
-        })
+      const resp = await signedFetch(`${PROXY_URL}/api/heartbeat`, {
+        license_key: settings.dealer_token,
+        rep_name: settings.rep_name || 'Unknown',
+        dealership: settings.dealership || '',
+        extension_version: manifest.version || '1.8.0',
+        platform: platform,
+        timestamp: new Date().toISOString()
       });
       if (resp.ok) {
         const data = await resp.json();
@@ -467,14 +464,10 @@ export default defineBackground(() => {
       const chromeMatch = navigator.userAgent.match(/Chrome\/([\d.]+)/);
       const settings = await browser.storage.sync.get(['dealer_token']);
 
-      const resp = await fetch(`${PROXY_URL}/v1/heartbeat/version`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          dealer_token: settings.dealer_token || '',
-          extension_version: manifest.version || '1.9.2',
-          chrome_version: chromeMatch ? chromeMatch[1] : 'unknown',
-        }),
+      const resp = await signedFetch(`${PROXY_URL}/v1/heartbeat/version`, {
+        dealer_token: settings.dealer_token || '',
+        extension_version: manifest.version || '1.9.2',
+        chrome_version: chromeMatch ? chromeMatch[1] : 'unknown',
       });
       if (!resp.ok) return;
       const data = await resp.json();
@@ -532,6 +525,40 @@ export default defineBackground(() => {
     }
   });
 });
+
+// --- License Revocation Helpers (Phase T7) ---
+async function handleRevocationResponse(resp: Response): Promise<void> {
+  if (resp.status !== 401 && resp.status !== 403) return;
+  let body: any = null;
+  try {
+    // Clone so downstream consumers can still read the body
+    body = await resp.clone().json();
+  } catch {}
+  if (body?.error === 'license_revoked') {
+    const msg = body?.message || body?.error_message || 'Your Brevmont license has been revoked. Contact support.';
+    try {
+      await browser.storage.local.set({
+        license_revoked: true,
+        license_revoked_at: Date.now(),
+        license_revoked_message: msg,
+      });
+    } catch {}
+    try {
+      (browser as any).action?.setBadgeText?.({ text: '!' });
+      (browser as any).action?.setBadgeBackgroundColor?.({ color: '#DC2626' });
+    } catch {}
+    try { telemetry.track('license_revoked', { source: 'proxy_401', severity: 'critical', metadata: { status: resp.status } }); } catch {}
+  }
+}
+
+async function assertNotRevoked(): Promise<void> {
+  try {
+    const { license_revoked } = await browser.storage.local.get(['license_revoked']);
+    if (license_revoked) throw new Error('license_revoked');
+  } catch (e: any) {
+    if (e?.message === 'license_revoked') throw e;
+  }
+}
 
 // --- Build rep context from profile for prompt injection ---
 async function buildRepContext(): Promise<{ repName: string; dealership: string; contextBlock: string }> {
@@ -597,6 +624,8 @@ async function handleGenerate(payload: {
   platform?: string;
   metadata?: { workflow_type?: string; customer_name?: string | null; vehicle?: string | null };
 }) {
+  // Phase T7: block generation outright if license is revoked
+  await assertNotRevoked();
   const settings = await browser.storage.sync.get(['dealer_token']);
   const { repName, dealership, contextBlock } = await buildRepContext();
 
@@ -618,7 +647,15 @@ async function handleGenerate(payload: {
   const customerName = payload.metadata?.customer_name || payload.leadContext?.customerName || null;
   if (customerName && customerName !== 'there') {
     try {
-      const recentResp = await fetch(`${PROXY_URL}/api/recent-notes?dealer_token=${encodeURIComponent(dealerToken)}&customer_name=${encodeURIComponent(customerName)}&hours=2`);
+      // NOTE: /api/recent-notes is currently 404 on the proxy. The dedup
+      // feature silently no-ops when the endpoint is absent. If/when that
+      // handler is restored, this call is already sending customer_name
+      // via query string and the dealer_token via Authorization header —
+      // no further extension change needed.
+      const params = new URLSearchParams({ customer_name: customerName, hours: '2' });
+      const recentResp = await fetch(`${PROXY_URL}/api/recent-notes?${params.toString()}`, {
+        headers: { 'Authorization': `Bearer ${dealerToken}` }
+      });
       if (recentResp.ok) {
         const { notes } = await recentResp.json();
         if (notes && notes.length > 0) {
@@ -671,6 +708,9 @@ async function generateViaProxy(dealerToken: string, userMessage: string, platfo
   // Use signedFetch for HMAC-signed requests (falls back to unsigned if no secret yet)
   const resp = await signedFetch(`${PROXY_URL}/v1/generate`, body);
 
+  // Phase T7: detect revocation responses
+  await handleRevocationResponse(resp);
+
   if (resp.status === 202) {
     // Async mode — poll for result from BullMQ queue
     const { job_id } = await resp.json();
@@ -716,17 +756,20 @@ async function pollForResult(jobId: string, maxWait = 30000): Promise<any> {
 // --- Coach via Proxy ---
 async function handleCoach(payload: { situation: string; vehicleContext?: string }) {
   const settings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'dealership']);
-  const resp = await fetch(`${PROXY_URL}/api/coach`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  let resp: Response;
+  try {
+    resp = await signedFetch(`${PROXY_URL}/api/coach`, {
       situation: payload.situation,
       rep_name: settings.rep_name || '',
       dealership: settings.dealership || '',
       vehicle_context: payload.vehicleContext || '',
       dealer_token: settings.dealer_token || ''
-    })
-  });
+    });
+  } catch (e: any) {
+    telemetry.trackError(e, { flow: 'coach' });
+    throw e;
+  }
+  await handleRevocationResponse(resp);
   if (!resp.ok) throw new Error('Coach unavailable. Try again.');
   const data = await resp.json();
   return { coaching: data.coaching };
@@ -735,18 +778,21 @@ async function handleCoach(payload: { situation: string; vehicleContext?: string
 // --- Command Mode via Proxy ---
 async function handleCommand(payload: { command: string; currentUrl?: string; vehicleContext?: string }) {
   const settings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'dealership']);
-  const resp = await fetch(`${PROXY_URL}/api/command`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  let resp: Response;
+  try {
+    resp = await signedFetch(`${PROXY_URL}/api/command`, {
       command: payload.command,
       current_url: payload.currentUrl || '',
       rep_name: settings.rep_name || '',
       dealership: settings.dealership || '',
       customer_context: null,
       dealer_token: settings.dealer_token || ''
-    })
-  });
+    });
+  } catch (e: any) {
+    telemetry.trackError(e, { flow: 'command' });
+    throw e;
+  }
+  await handleRevocationResponse(resp);
   if (!resp.ok) throw new Error('Command service unavailable. Try again.');
   const data = await resp.json();
   if (data.error) throw new Error(data.error);
@@ -764,24 +810,22 @@ async function handleContextReply(payload: { image: string; direction: string })
 
   // Try dedicated endpoint first
   try {
-    const resp = await fetch(`${PROXY_URL}/api/context-reply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        dealer_token: dealerToken,
-        image: payload.image,
-        direction: payload.direction,
-        rep_name: settings.rep_name || 'Unknown'
-      })
+    const resp = await signedFetch(`${PROXY_URL}/api/context-reply`, {
+      dealer_token: dealerToken,
+      image: payload.image,
+      direction: payload.direction,
+      rep_name: settings.rep_name || 'Unknown'
     });
 
+    await handleRevocationResponse(resp);
     if (resp.status === 401) throw new Error('License invalid or expired.');
     if (resp.status === 413) throw new Error('Screenshot too large — try a smaller crop');
     if (resp.status === 429) throw new Error('Too many requests. Wait a few seconds.');
     // If 403 (tier gate) or other error, fall through to vision fallback
     if (resp.ok) return await resp.json();
   } catch(e: any) {
-    if (e.message.includes('License') || e.message.includes('Too many')) throw e;
+    if (e.message?.includes('License') || e.message?.includes('Too many')) { telemetry.trackError(e, { flow: 'context_reply_dedicated' }); throw e; }
+    telemetry.trackError(e, { flow: 'context_reply_dedicated' });
     // Fall through to fallback
   }
 
@@ -789,10 +833,9 @@ async function handleContextReply(payload: { image: string; direction: string })
   const imageMediaType = payload.image.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
   const base64Data = payload.image.replace(/^data:image\/\w+;base64,/, '');
 
-  const resp = await fetch(`${PROXY_URL}/v1/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  let resp: Response;
+  try {
+    resp = await signedFetch(`${PROXY_URL}/v1/generate`, {
       dealer_token: dealerToken,
       messages: [{
         role: 'user',
@@ -804,8 +847,12 @@ async function handleContextReply(payload: { image: string; direction: string })
       max_tokens: 800,
       model: 'claude-sonnet-4-20250514',
       platform: 'context_reply'
-    })
-  });
+    });
+  } catch (e: any) {
+    telemetry.trackError(e, { flow: 'context_reply_vision' });
+    throw e;
+  }
+  await handleRevocationResponse(resp);
 
   if (resp.status === 413) throw new Error('Screenshot too large — try a smaller crop');
   if (!resp.ok) {

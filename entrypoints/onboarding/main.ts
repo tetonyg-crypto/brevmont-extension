@@ -3,6 +3,10 @@
  * Bundled by WXT as a module, CSP-compliant for extension pages.
  */
 
+import { telemetry } from '../lib/telemetry';
+
+const PROXY_URL = 'https://brevmont-proxy-production.up.railway.app';
+
 let currentStep = 1;
 let profileData = {
   identity: { firstName:'', lastName:'', jobTitle:'', customTitle:'', yearsExperience:'' },
@@ -127,43 +131,88 @@ function next(from: number) {
 function prev(from: number) { collectCurrentStep(); saveProgress(); goToStep(from - 1); }
 
 async function validateLicense(key: string) {
-  const SB_URL = 'https://mqnmemnogbotgmsmqfie.supabase.co';
-  const SB_KEY = 'sb_publishable_-sD_RSqo9SNizbhQ0kqWSA_tJbsWD_m';
-  const headers = { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}` };
+  const errEl = document.getElementById('s2-license-err');
+  const okEl = document.getElementById('s2-license-ok');
+  function showError(msg: string) {
+    if (errEl) {
+      errEl.textContent = msg;
+      errEl.style.display = 'block';
+    }
+    if (okEl) okEl.style.display = 'none';
+  }
   try {
-    // Check dealerships table first (matches proxy /api/validate logic)
-    const dlResp = await fetch(`${SB_URL}/rest/v1/dealerships?license_key=eq.${encodeURIComponent(key)}&subscription_status=eq.active&select=name,tier&limit=1`, { headers });
-    const dlRows = await dlResp.json();
-    if (dlRows.length > 0) {
-      // Auto-fill dealership name from DB so rep can't mistype it
-      const dbName = dlRows[0].name;
-      if (dbName) {
-        profileData.dealership.name = dbName;
-        const nameInput = document.getElementById('s2-dealership') as HTMLInputElement;
-        if (nameInput) { nameInput.value = dbName; nameInput.readOnly = true; nameInput.style.opacity = '0.7'; }
-      }
-      document.getElementById('s2-license-ok')!.style.display = 'block';
-      document.getElementById('s2-license-err')!.style.display = 'none';
-      return true;
+    const resp = await fetch(`${PROXY_URL}/v1/license/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ license_key: key }),
+    });
+
+    if (resp.status === 400) {
+      let body: any = {};
+      try { body = await resp.json(); } catch {}
+      showError(body?.error || 'Invalid license key format. Please check and try again.');
+      telemetry.trackError(new Error(body?.error || 'bad_license_format'), { flow: 'license_validation', status: 400 });
+      return false;
     }
-    // Fallback: legacy dealer_tokens table
-    const resp = await fetch(`${SB_URL}/rest/v1/dealer_tokens?token=eq.${encodeURIComponent(key)}&active=eq.true&select=dealership&limit=1`, { headers });
-    const rows = await resp.json();
-    if (rows.length > 0) {
-      // Auto-fill from legacy token
-      const dbName = rows[0].dealership;
-      if (dbName) {
-        profileData.dealership.name = dbName;
-        const nameInput = document.getElementById('s2-dealership') as HTMLInputElement;
-        if (nameInput) { nameInput.value = dbName; nameInput.readOnly = true; nameInput.style.opacity = '0.7'; }
-      }
-      document.getElementById('s2-license-ok')!.style.display = 'block';
-      document.getElementById('s2-license-err')!.style.display = 'none';
-      return true;
+    if (resp.status === 401) {
+      let body: any = {};
+      try { body = await resp.json(); } catch {}
+      showError(body?.error || 'License key is invalid. Contact support if you believe this is a mistake.');
+      telemetry.trackError(new Error(body?.error || 'license_invalid'), { flow: 'license_validation', status: 401 });
+      return false;
     }
-    return false;
+    if (resp.status === 403) {
+      let body: any = {};
+      try { body = await resp.json(); } catch {}
+      showError(body?.error || 'This license has been revoked. Please contact support to reactivate.');
+      telemetry.trackError(new Error(body?.error || 'license_revoked'), { flow: 'license_validation', status: 403 });
+      return false;
+    }
+    if (!resp.ok) {
+      showError(`License check failed (${resp.status}). Try again in a moment.`);
+      telemetry.trackError(new Error('license_http_' + resp.status), { flow: 'license_validation', status: resp.status });
+      return false;
+    }
+
+    const data = await resp.json();
+    if (!data?.valid) {
+      showError(data?.error || 'License key not recognized.');
+      telemetry.trackError(new Error(data?.error || 'invalid_license'), { flow: 'license_validation' });
+      return false;
+    }
+
+    const dbName = data.dealership || null;
+    if (dbName) {
+      profileData.dealership.name = dbName;
+      const nameInput = document.getElementById('s2-dealership') as HTMLInputElement;
+      if (nameInput) { nameInput.value = dbName; nameInput.readOnly = true; nameInput.style.opacity = '0.7'; }
+    }
+
+    // Persist credentials returned by proxy. Clear any prior revocation flag.
+    const toStore: Record<string, any> = {
+      license_key: key,
+      activated_at: Date.now(),
+      license_revoked: false,
+    };
+    if (data.dealer_token) toStore.dealer_token = data.dealer_token;
+    if (data.license_secret) toStore.license_secret = data.license_secret;
+    if (dbName) toStore.dealership = dbName;
+    try {
+      await chrome.storage.local.set(toStore);
+      // Also remove the stale revocation fields so old state doesn't linger
+      await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
+    } catch {}
+
+    // Clear revocation badge
+    try { chrome.action?.setBadgeText?.({ text: '' }); } catch {}
+
+    if (okEl) okEl.style.display = 'block';
+    if (errEl) errEl.style.display = 'none';
+    return true;
   } catch(e: any) {
-    // Report license validation failure to background
+    showError('Network error validating license. Check your connection and try again.');
+    telemetry.trackError(e instanceof Error ? e : new Error(String(e)), { flow: 'license_validation' });
+    // Report to background too (legacy channel)
     try { chrome.runtime.sendMessage({ type: 'REPORT_ERROR', payload: { error_type: 'AUTH_ERROR', error_message: e?.message || 'License validation failed', context: 'onboarding_step2' } }); } catch(_) {}
     return false;
   }
@@ -198,25 +247,35 @@ async function finish() {
 }
 
 async function syncProfileToSupabase(profile: any) {
-  await fetch('https://mqnmemnogbotgmsmqfie.supabase.co/rest/v1/reps', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': 'sb_publishable_-sD_RSqo9SNizbhQ0kqWSA_tJbsWD_m',
-      'Authorization': 'Bearer sb_publishable_-sD_RSqo9SNizbhQ0kqWSA_tJbsWD_m',
-      'Prefer': 'return=minimal,resolution=merge-duplicates'
-    },
-    body: JSON.stringify({
-      first_name: profile.identity.firstName,
-      last_name: profile.identity.lastName,
-      job_title: profile.identity.jobTitle,
-      years_experience: profile.identity.yearsExperience,
-      dealership: profile.dealership.name,
-      tone: profile.voice.tone,
-      languages: profile.voice.languages,
-      market_type: profile.market.marketType
-    })
-  });
+  // Phase 1e: Supabase key removed from extension. Rep profile now flows
+  // through the proxy. If a proxy profile-sync endpoint exists it goes here;
+  // otherwise this is a best-effort no-op — the profile is already persisted
+  // locally in chrome.storage.sync and the proxy can re-derive rep identity
+  // from dealer_token + heartbeat.
+  try {
+    const r = await chrome.storage.local.get(['dealer_token']);
+    const dealerToken = r?.dealer_token as string | undefined;
+    if (!dealerToken) return;
+    await fetch(`${PROXY_URL}/api/rep-profile`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${dealerToken}`,
+      },
+      body: JSON.stringify({
+        first_name: profile.identity.firstName,
+        last_name: profile.identity.lastName,
+        job_title: profile.identity.jobTitle,
+        years_experience: profile.identity.yearsExperience,
+        dealership: profile.dealership.name,
+        tone: profile.voice.tone,
+        languages: profile.voice.languages,
+        market_type: profile.market.marketType,
+      }),
+    });
+  } catch (e: any) {
+    telemetry.trackError(e instanceof Error ? e : new Error(String(e)), { flow: 'profile_sync' });
+  }
 }
 
 function openBrevmont() { window.close(); }

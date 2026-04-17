@@ -55,7 +55,7 @@ export default defineConfig({
       '*://www.linkedin.com/*',
       '*://web.whatsapp.com/*',
       'https://oper8er-proxy-production.up.railway.app/*',
-      'https://mqnmemnogbotgmsmqfie.supabase.co/*'
+      'https://brevmont-proxy-production.up.railway.app/*'
     ],
   },
 });
