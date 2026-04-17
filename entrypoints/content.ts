@@ -43,6 +43,35 @@ export default defineContentScript({
     console.log('[Brevmont] Content script loaded on', PLATFORM, _url);
     if (PLATFORM === 'unknown') return;
 
+    // ===== Version-gated force update =====
+    // Background writes brevmont_version_status = {locked, latest, message} when
+    // the extension is below minimum_supported_version. If locked, inject a
+    // blocking overlay and return BEFORE any selectors/DOM work.
+    try {
+      const vs = await browser.storage.local.get('brevmont_version_status');
+      const status = vs?.brevmont_version_status as { locked?: boolean; latest?: string; message?: string } | undefined;
+      if (status?.locked && document.body && !document.getElementById('brevmont-version-lock')) {
+        const overlay = document.createElement('div');
+        overlay.id = 'brevmont-version-lock';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(15,20,25,0.92);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif;';
+        overlay.innerHTML = `
+          <div style="max-width:480px;background:#F8F6F1;color:#0F1419;border-radius:16px;padding:32px 28px;box-shadow:0 24px 60px rgba(0,0,0,0.45);">
+            <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#0D6E6E;margin-bottom:12px;font-weight:700;">BREVMONT UPDATE REQUIRED</div>
+            <h2 style="font-size:22px;font-weight:800;margin:0 0 10px;line-height:1.25;">Please update the extension</h2>
+            <p style="font-size:14px;line-height:1.55;margin:0 0 18px;color:#3A3F43;">${status.message || 'This version of Brevmont is no longer supported.'}</p>
+            <p style="font-size:12px;line-height:1.5;margin:0 0 20px;color:#5A6066;">Head to the Chrome Web Store or contact <a href="mailto:founder@brevmont.com" style="color:#0D6E6E;">founder@brevmont.com</a> for the current build.</p>
+            <button id="brevmont-version-lock-dismiss" style="background:transparent;border:1px solid #D3CFC5;color:#3A3F43;padding:8px 14px;border-radius:8px;font-size:12px;cursor:pointer;">Dismiss for this tab</button>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+        const dismiss = document.getElementById('brevmont-version-lock-dismiss');
+        if (dismiss) dismiss.addEventListener('click', () => overlay.remove(), { once: true });
+        return; // hard-stop content script on locked version
+      }
+    } catch (_err) {
+      // Version-status read fails → behave as if unlocked, don't block users
+    }
+
     const isVinSolutions = PLATFORM === 'vinsolutions';
     const isGmail = PLATFORM === 'gmail';
     const isFacebook = PLATFORM === 'facebook';
