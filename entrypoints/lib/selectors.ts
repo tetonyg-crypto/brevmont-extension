@@ -12,7 +12,7 @@
 
 import { telemetry } from './telemetry';
 
-const PROXY_URL = 'https://brevmont-proxy-production.up.railway.app';
+const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
 
 export interface SelectorEntry {
   purpose: string;

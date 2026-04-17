@@ -457,7 +457,7 @@ export default defineContentScript({
           if (!settings.dealer_token) { btn.textContent = 'No license key'; btn.disabled = false; return; }
 
           // Generate via proxy
-          const resp = await fetch('https://brevmont-proxy-production.up.railway.app/v1/generate', {
+          const resp = await fetch('https://oper8er-proxy-production.up.railway.app/v1/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -625,7 +625,7 @@ export default defineContentScript({
           const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
           if (!settings.dealer_token) { btn.textContent = 'No license key'; btn.disabled = false; return; }
 
-          const resp = await fetch('https://brevmont-proxy-production.up.railway.app/v1/generate', {
+          const resp = await fetch('https://oper8er-proxy-production.up.railway.app/v1/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1674,7 +1674,7 @@ export default defineContentScript({
             if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Set your rep name in Settings first.</div>';
             return;
           }
-          const resp = await fetch(`https://brevmont-proxy-production.up.railway.app/v1/rep/stats?rep_name=${encodeURIComponent(settings.rep_name)}`, {
+          const resp = await fetch(`https://oper8er-proxy-production.up.railway.app/v1/rep/stats?rep_name=${encodeURIComponent(settings.rep_name)}`, {
             headers: { 'Authorization': `Bearer ${settings.dealer_token}` }
           });
           if (!resp.ok) throw new Error('Failed to load');

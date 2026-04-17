@@ -9,7 +9,7 @@
  *   - 2026-04-17: Initial creation — Phase 1e extension hardening
  */
 
-const PROXY_URL = 'https://brevmont-proxy-production.up.railway.app';
+const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
 
 export type TelemetrySeverity = 'info' | 'warn' | 'error' | 'critical';
 

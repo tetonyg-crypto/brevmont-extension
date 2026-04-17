@@ -5,7 +5,7 @@
 
 import { telemetry } from '../lib/telemetry';
 
-const PROXY_URL = 'https://brevmont-proxy-production.up.railway.app';
+const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
 
 let currentStep = 1;
 let profileData = {
