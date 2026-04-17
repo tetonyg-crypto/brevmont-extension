@@ -34,7 +34,7 @@ function App() {
     setVersion(manifest.version || '');
 
     // Check connectivity
-    fetch('https://oper8er-proxy-production.up.railway.app/health')
+    fetch('https://brevmont-proxy-production.up.railway.app/health')
       .then(r => setStatus(r.ok ? 'online' : 'offline'))
       .catch(() => setStatus('offline'));
   }, []);

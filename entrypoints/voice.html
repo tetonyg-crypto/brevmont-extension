@@ -74,7 +74,7 @@
   function send() {
     const text = document.getElementById('transcript').value.trim();
     if (text) {
-      chrome.storage.local.set({ oper8er_voice: text, oper8er_voice_time: Date.now() });
+      chrome.storage.local.set({ brevmont_voice: text, brevmont_voice_time: Date.now() });
     }
     window.close();
   }

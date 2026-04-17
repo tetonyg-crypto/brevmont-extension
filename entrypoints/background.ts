@@ -9,33 +9,33 @@
 // No SYSTEM_PROMPT in extension — proxy resolves from vertical_config.
 // No API keys in extension — all calls routed through PROXY_URL.
 
-const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
+const PROXY_URL = 'https://brevmont-proxy-production.up.railway.app';
 
 import { signedFetch } from '../lib/authSigning';
 import { queueOffline, replayQueue, getQueueSize } from '../lib/resilience';
 
 export default defineBackground(() => {
-  // One-time migration: floq_ → brevmont_ storage keys
+  // One-time migration: brevmont_ → brevmont_ storage keys
   (async () => {
     const migrated = await browser.storage.local.get('brevmont_storage_migrated');
     if (migrated.brevmont_storage_migrated) return;
 
-    const oldKeys = await browser.storage.local.get(['floq_tier', 'floq_features', 'floq_last_heartbeat', 'floq_alerts']);
+    const oldKeys = await browser.storage.local.get(['brevmont_tier', 'brevmont_features', 'brevmont_last_heartbeat', 'brevmont_alerts']);
     const newData: Record<string, any> = { brevmont_storage_migrated: true };
-    if (oldKeys.floq_tier) newData.brevmont_tier = oldKeys.floq_tier;
-    if (oldKeys.floq_features) newData.brevmont_features = oldKeys.floq_features;
-    if (oldKeys.floq_last_heartbeat) newData.brevmont_last_heartbeat = oldKeys.floq_last_heartbeat;
-    if (oldKeys.floq_alerts) newData.brevmont_alerts = oldKeys.floq_alerts;
+    if (oldKeys.brevmont_tier) newData.brevmont_tier = oldKeys.brevmont_tier;
+    if (oldKeys.brevmont_features) newData.brevmont_features = oldKeys.brevmont_features;
+    if (oldKeys.brevmont_last_heartbeat) newData.brevmont_last_heartbeat = oldKeys.brevmont_last_heartbeat;
+    if (oldKeys.brevmont_alerts) newData.brevmont_alerts = oldKeys.brevmont_alerts;
     await browser.storage.local.set(newData);
-    await browser.storage.local.remove(['floq_tier', 'floq_features', 'floq_last_heartbeat', 'floq_alerts']);
+    await browser.storage.local.remove(['brevmont_tier', 'brevmont_features', 'brevmont_last_heartbeat', 'brevmont_alerts']);
 
-    const oldSync = await browser.storage.sync.get(['floq_tone', 'floq_goal']);
+    const oldSync = await browser.storage.sync.get(['brevmont_tone', 'brevmont_goal']);
     const newSync: Record<string, any> = {};
-    if (oldSync.floq_tone) newSync.brevmont_tone = oldSync.floq_tone;
-    if (oldSync.floq_goal) newSync.brevmont_goal = oldSync.floq_goal;
+    if (oldSync.brevmont_tone) newSync.brevmont_tone = oldSync.brevmont_tone;
+    if (oldSync.brevmont_goal) newSync.brevmont_goal = oldSync.brevmont_goal;
     if (Object.keys(newSync).length) {
       await browser.storage.sync.set(newSync);
-      await browser.storage.sync.remove(['floq_tone', 'floq_goal']);
+      await browser.storage.sync.remove(['brevmont_tone', 'brevmont_goal']);
     }
 
     console.log('[Brevmont] Storage migration complete');

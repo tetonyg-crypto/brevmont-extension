@@ -12,10 +12,10 @@ const SUPABASE_KEY = 'sb_publishable_-sD_RSqo9SNizbhQ0kqWSA_tJbsWD_m';
 
 const testEvent = {
   session_id: `ext-test-${Date.now()}`,
-  rep_name: 'Yancy Garcia',
-  dealership: "Stone's Auto Group",
+  rep_name: 'Jane Smith',
+  dealership: "ABC Motors",
   input: 'TEST: new lead walked in, interested in 2025 Tahoe Z71',
-  output: 'TEXT\nHey Michael, great meeting you today. The 2025 Tahoe Z71 is a solid choice with the magnetic ride and off-road package. When works best to come take it for a spin?\n\nEMAIL\nSubject: 2025 Chevrolet Tahoe Z71\n\nMichael, it was great meeting you at Stone\'s today. The 2025 Tahoe Z71 you looked at is one of the best-equipped trucks on the lot. I\'d love to get you behind the wheel for a test drive.\n\nYancy Garcia\nSales Consultant\nStone\'s Auto Group\n307-699-3743\n\nCRM NOTE\n04/01/26 Walk-in Yancy Garcia\nContact Type: Walk-in\nSummary: Customer came in interested in 2025 Tahoe Z71.\nVehicle Interest: 2025 Chevrolet Tahoe Z71\nIntent Level: Hot\nAction Taken: Showed vehicle, discussed features\nNext Step: Follow up tomorrow for test drive\nNotes: None',
+  output: 'TEXT\nHey Michael, great meeting you today. The 2025 Tahoe Z71 is a solid choice with the magnetic ride and off-road package. When works best to come take it for a spin?\n\nEMAIL\nSubject: 2025 Chevrolet Tahoe Z71\n\nMichael, it was great meeting you at ABC Motors today. The 2025 Tahoe Z71 you looked at is one of the best-equipped trucks on the lot. I\'d love to get you behind the wheel for a test drive.\n\nJane Smith\nSales Consultant\nABC Motors\n555-123-4567\n\nCRM NOTE\n04/01/26 Walk-in Jane Smith\nContact Type: Walk-in\nSummary: Customer came in interested in 2025 Tahoe Z71.\nVehicle Interest: 2025 Chevrolet Tahoe Z71\nIntent Level: Hot\nAction Taken: Showed vehicle, discussed features\nNext Step: Follow up tomorrow for test drive\nNotes: None',
   has_text: true,
   has_email: true,
   has_crm: true,

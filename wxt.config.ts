@@ -13,11 +13,11 @@ export default defineConfig({
     }
   }),
   manifest: {
-    name: 'Brevmont — AI Sales Assistant for VinSolutions',
+    name: 'Brevmont — AI Sales Assistant',
     short_name: 'Brevmont',
     version: '1.9.2',
     version_name: '1.9.2',
-    description: 'AI writes the text, email, and CRM note inside VinSolutions. Every rep performs like your best one.',
+    description: 'AI writes the text, email, and CRM note inside your CRM. Every rep performs like your best one.',
     homepage_url: 'https://brevmont.com',
     icons: {
       '16': 'icons/icon-16.png',
@@ -33,7 +33,7 @@ export default defineConfig({
     },
     permissions: ['activeTab', 'storage', 'alarms'],
     web_accessible_resources: [{
-      resources: ['voice.html', 'oper8er-intercept.js'],
+      resources: ['voice.html', 'brevmont-intercept.js'],
       matches: [
         '*://*.vinsolutions.com/*',
         '*://vinsolutions.app.coxautoinc.com/*',

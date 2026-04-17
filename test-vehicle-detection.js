@@ -127,7 +127,7 @@ Lead Info
 OEM Lead: 236563992
 Status: Active
 Sales: unassigned
-Rep: Yancy Garcia
+Rep: Jane Smith
 Source: Repeat Customer (Phone)
 Contacted: Yes (0:00)
 Created: 3/3/26 11:32a (256)

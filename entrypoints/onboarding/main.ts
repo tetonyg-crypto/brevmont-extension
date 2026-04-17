@@ -219,7 +219,7 @@ async function syncProfileToSupabase(profile: any) {
   });
 }
 
-function openOper8er() { window.close(); }
+function openBrevmont() { window.close(); }
 
 // UI helpers
 function setTone(el: HTMLElement) { document.querySelectorAll('.tone-card[data-tone]').forEach(c => c.classList.remove('selected')); el.classList.add('selected'); profileData.voice.tone = el.dataset.tone || ''; }
@@ -250,7 +250,7 @@ document.getElementById('btn-prev-2')!.addEventListener('click', () => prev(2));
 document.getElementById('btn-prev-3')!.addEventListener('click', () => prev(3));
 document.getElementById('btn-prev-4')!.addEventListener('click', () => prev(4));
 document.getElementById('btn-finish')!.addEventListener('click', () => finish());
-document.getElementById('btn-open')!.addEventListener('click', () => openOper8er());
+document.getElementById('btn-open')!.addEventListener('click', () => openBrevmont());
 
 document.querySelectorAll('#s2-salt button').forEach(b => b.addEventListener('click', () => setSalt(b.textContent!.toLowerCase())));
 document.querySelectorAll('#s3-emoji button').forEach(b => b.addEventListener('click', () => setEmoji(b.textContent!.toLowerCase())));

@@ -63,15 +63,15 @@ export default defineContentScript({
       if (pageUrl.includes('AddNote') || (document.body?.innerText || '').includes('Add Note')) {
         setTimeout(async () => {
           try {
-            const r = await browser.storage.local.get(['oper8er_paste_note', 'oper8er_paste_note_time']);
-            if (r.oper8er_paste_note && r.oper8er_paste_note_time > Date.now() - 30000) {
+            const r = await browser.storage.local.get(['brevmont_paste_note', 'brevmont_paste_note_time']);
+            if (r.brevmont_paste_note && r.brevmont_paste_note_time > Date.now() - 30000) {
               const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
               if (textarea) {
                 textarea.focus();
-                safeInjectText(textarea, r.oper8er_paste_note);
+                safeInjectText(textarea, r.brevmont_paste_note);
                 textarea.style.border = '2px solid #16a34a';
                 setTimeout(() => { textarea.style.border = ''; }, 2000);
-                await browser.storage.local.remove(['oper8er_paste_note', 'oper8er_paste_note_time']);
+                await browser.storage.local.remove(['brevmont_paste_note', 'brevmont_paste_note_time']);
               }
             }
           } catch(e) {}
@@ -399,7 +399,7 @@ export default defineContentScript({
           if (!settings.dealer_token) { btn.textContent = 'No license key'; btn.disabled = false; return; }
 
           // Generate via proxy
-          const resp = await fetch('https://oper8er-proxy-production.up.railway.app/v1/generate', {
+          const resp = await fetch('https://brevmont-proxy-production.up.railway.app/v1/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -562,7 +562,7 @@ export default defineContentScript({
           const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
           if (!settings.dealer_token) { btn.textContent = 'No license key'; btn.disabled = false; return; }
 
-          const resp = await fetch('https://oper8er-proxy-production.up.railway.app/v1/generate', {
+          const resp = await fetch('https://brevmont-proxy-production.up.railway.app/v1/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -710,9 +710,9 @@ export default defineContentScript({
           const allPageText = gatherAllText();
           if (!allPageText.includes(s.customerName)) return; // stale data, skip
           leadData = s;
-          browser.storage.local.set({ oper8er_lead: s, oper8er_lead_time: Date.now() });
+          browser.storage.local.set({ brevmont_lead: s, brevmont_lead_time: Date.now() });
         }
-        if (s.vehicle) browser.storage.local.set({ oper8er_vehicle_info: s.vehicle, oper8er_vehicle_info_time: Date.now() });
+        if (s.vehicle) browser.storage.local.set({ brevmont_vehicle_info: s.vehicle, brevmont_vehicle_info_time: Date.now() });
       }
       attemptScan();
       let lastScannedName = '';
@@ -729,7 +729,7 @@ export default defineContentScript({
           if (leadData) {
             leadData = null;
             lastScannedName = '';
-            browser.storage.local.remove(['oper8er_lead', 'oper8er_lead_time', 'oper8er_vehicle_info', 'oper8er_vehicle_info_time']);
+            browser.storage.local.remove(['brevmont_lead', 'brevmont_lead_time', 'brevmont_vehicle_info', 'brevmont_vehicle_info_time']);
             updateSidebar();
           }
           return;
@@ -743,7 +743,7 @@ export default defineContentScript({
           console.log(`[Brevmont] Customer changed: "${lastScannedName}" → "${curName}"`);
           lastScannedName = curName;
           leadData = null;
-          browser.storage.local.remove(['oper8er_lead', 'oper8er_lead_time', 'oper8er_vehicle_info', 'oper8er_vehicle_info_time']);
+          browser.storage.local.remove(['brevmont_lead', 'brevmont_lead_time', 'brevmont_vehicle_info', 'brevmont_vehicle_info_time']);
           attemptScan();
           // Also update sidebar immediately with fresh data
           if (leadData) updateSidebar();
@@ -757,7 +757,7 @@ export default defineContentScript({
           const v = deepTableVehicleSearch();
           if (v) {
             leadData.vehicle = v;
-            browser.storage.local.set({ oper8er_lead: leadData, oper8er_lead_time: Date.now(), oper8er_vehicle_info: v, oper8er_vehicle_info_time: Date.now() });
+            browser.storage.local.set({ brevmont_lead: leadData, brevmont_lead_time: Date.now(), brevmont_vehicle_info: v, brevmont_vehicle_info_time: Date.now() });
             updateSidebar();
           }
         }
@@ -775,7 +775,7 @@ export default defineContentScript({
             console.log(`[Brevmont] MutationObserver detected: "${lastScannedName}" → "${curName}"`);
             lastScannedName = curName;
             leadData = null;
-            browser.storage.local.remove(['oper8er_lead', 'oper8er_lead_time', 'oper8er_vehicle_info', 'oper8er_vehicle_info_time']);
+            browser.storage.local.remove(['brevmont_lead', 'brevmont_lead_time', 'brevmont_vehicle_info', 'brevmont_vehicle_info_time']);
             attemptScan();
             updateSidebar();
           }
@@ -1123,7 +1123,7 @@ export default defineContentScript({
           // BUG 1 FIX: Clear stale customer data immediately on SPA navigation
           leadData = null;
           lastScannedName = '';
-          browser.storage.local.remove(['oper8er_lead', 'oper8er_lead_time', 'oper8er_vehicle_info', 'oper8er_vehicle_info_time']);
+          browser.storage.local.remove(['brevmont_lead', 'brevmont_lead_time', 'brevmont_vehicle_info', 'brevmont_vehicle_info_time']);
           updateSidebar();
 
           // Delayed rescan with validation — wait 1500ms for iframes to settle
@@ -1158,8 +1158,8 @@ export default defineContentScript({
           }
           leadData = s;
           lastScannedName = s.customerName;
-          browser.storage.local.set({ oper8er_lead: s, oper8er_lead_time: Date.now() });
-          if (s.vehicle) browser.storage.local.set({ oper8er_vehicle_info: s.vehicle, oper8er_vehicle_info_time: Date.now() });
+          browser.storage.local.set({ brevmont_lead: s, brevmont_lead_time: Date.now() });
+          if (s.vehicle) browser.storage.local.set({ brevmont_vehicle_info: s.vehicle, brevmont_vehicle_info_time: Date.now() });
           updateSidebar();
         } else if (attempt < 5) {
           setTimeout(() => validatedScan(attempt + 1), 500);
@@ -1602,7 +1602,7 @@ export default defineContentScript({
             if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Set your rep name in Settings first.</div>';
             return;
           }
-          const resp = await fetch(`https://oper8er-proxy-production.up.railway.app/v1/rep/stats?rep_name=${encodeURIComponent(settings.rep_name)}`, {
+          const resp = await fetch(`https://brevmont-proxy-production.up.railway.app/v1/rep/stats?rep_name=${encodeURIComponent(settings.rep_name)}`, {
             headers: { 'Authorization': `Bearer ${settings.dealer_token}` }
           });
           if (!resp.ok) throw new Error('Failed to load');
@@ -2346,10 +2346,10 @@ export default defineContentScript({
       if (!isVinSolutions) { statusEl.textContent = 'VinSolutions only'; return; }
       dodgeSidebar(); // Move sidebar out of the way before note popup opens
       statusEl.textContent = 'Opening note form...'; statusEl.style.color = '#2563eb';
-      await browser.storage.local.set({ oper8er_paste_note: noteText, oper8er_paste_note_time: Date.now() });
+      await browser.storage.local.set({ brevmont_paste_note: noteText, brevmont_paste_note_time: Date.now() });
       let textarea = findNoteTextarea();
       if (!textarea) { const clicked = clickNoteIcon(); if (clicked) { for (let i = 0; i < 15; i++) { await new Promise(r => setTimeout(r, 500)); textarea = findNoteTextarea(); if (textarea) break; } } }
-      if (textarea) { textarea.focus(); safeInjectText(textarea, noteText); statusEl.textContent = 'Pasted'; statusEl.style.color = '#16a34a'; textarea.style.border = '2px solid #16a34a'; setTimeout(() => { textarea!.style.border = ''; }, 2000); browser.storage.local.remove(['oper8er_paste_note', 'oper8er_paste_note_time']); }
+      if (textarea) { textarea.focus(); safeInjectText(textarea, noteText); statusEl.textContent = 'Pasted'; statusEl.style.color = '#16a34a'; textarea.style.border = '2px solid #16a34a'; setTimeout(() => { textarea!.style.border = ''; }, 2000); browser.storage.local.remove(['brevmont_paste_note', 'brevmont_paste_note_time']); }
       else {
         statusEl.textContent = 'Saved to pending notes'; statusEl.style.color = '#2563eb';
         // Persist to Supabase so it survives session/navigation
@@ -2426,7 +2426,7 @@ export default defineContentScript({
       } else {
         // Fallback: copy to clipboard + stage for auto-paste
         navigator.clipboard.writeText(emailContent);
-        await browser.storage.local.set({ oper8er_paste_email_subject: subject, oper8er_paste_email_body: body, oper8er_paste_email_time: Date.now() });
+        await browser.storage.local.set({ brevmont_paste_email_subject: subject, brevmont_paste_email_body: body, brevmont_paste_email_time: Date.now() });
         statusEl.textContent = 'Copied — paste into email manually'; statusEl.style.color = '#2563eb';
       }
     }
@@ -2803,8 +2803,8 @@ ${isLinkedIn ? `
 
     // ===== NETWORK INTERCEPTION (VinSolutions) =====
     if (isVinSolutions) {
-      try { const script = document.createElement('script'); script.src = browser.runtime.getURL('oper8er-intercept.js'); (document.head || document.documentElement).appendChild(script); script.onload = () => script.remove(); } catch(e) {}
-      window.addEventListener('message', (event) => { if (event.data?.type === 'OPER8ER_LEAD_DATA' && event.data?.data?.customerName) { leadData = event.data.data; updateSidebar(); } });
+      try { const script = document.createElement('script'); script.src = browser.runtime.getURL('brevmont-intercept.js'); (document.head || document.documentElement).appendChild(script); script.onload = () => script.remove(); } catch(e) {}
+      window.addEventListener('message', (event) => { if (event.data?.type === 'BREVMONT_LEAD_DATA' && event.data?.data?.customerName) { leadData = event.data.data; updateSidebar(); } });
     }
   },
 });
