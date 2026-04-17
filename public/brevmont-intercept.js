@@ -24,7 +24,7 @@
             const email = str.match(/"(?:email|emailAddress)"\s*:\s*"([^"]+)"/i);
             if (email) extracted.email = email[1];
             if (Object.keys(extracted).length > 0) {
-              window.postMessage({ type: 'OPER8ER_LEAD_DATA', data: extracted }, '*');
+              window.postMessage({ type: 'BREVMONT_LEAD_DATA', data: extracted }, '*');
             }
           } catch(x) {}
         }).catch(() => {});
