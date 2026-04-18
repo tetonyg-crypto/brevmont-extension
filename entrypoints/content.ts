@@ -1790,18 +1790,18 @@ export default defineContentScript({
         if (r.brevmont_goal) { const el = s.querySelector(`input[name="brevmont-goal"][value="${r.brevmont_goal}"]`) as HTMLInputElement; if (el) el.checked = true; }
       });
 
-      // Tools panel
+      // Tools panel — openTools kept reachable in case other surfaces route here;
+      // the inline footer button was removed per the overlay-footer removal task.
       const toolsPanel = s.getElementById('o8-tools-panel');
       const toolsBack = s.getElementById('o8-tools-back');
       const openTools = () => { s.getElementById('o8-quick')!.style.display = 'none'; if (toolsPanel) toolsPanel.style.display = 'flex'; };
-      const toolsBtnInline = s.getElementById('o8-tools-btn-inline');
-      if (toolsBtnInline) toolsBtnInline.onclick = openTools;
+      void openTools;
       if (toolsBack) { toolsBack.onclick = () => { toolsPanel!.style.display = 'none'; s.getElementById('o8-quick')!.style.display = 'flex'; }; }
 
-      // Settings
+      // Settings — openSettings kept reachable (options page still needs a way
+      // in if one is wired up later). Inline footer button removed.
       const openSettings = () => { s.getElementById('o8-quick')!.style.display = 'none'; if (toolsPanel) toolsPanel.style.display = 'none'; if (settingsPanel) settingsPanel.style.display = 'flex'; };
-      const settingsBtnInline = s.getElementById('o8-settings-btn-inline');
-      if (settingsBtnInline) settingsBtnInline.onclick = openSettings;
+      void openSettings;
 
       // My Stats panel
       const statsPanel = s.getElementById('o8-stats-panel');
@@ -1857,8 +1857,7 @@ export default defineContentScript({
           if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#EF4444;font-size:12px;padding:24px;">Could not load stats. Try again later.</div>';
         }
       };
-      const statsBtnInline = s.getElementById('o8-stats-btn-inline');
-      if (statsBtnInline) statsBtnInline.onclick = openStats;
+      void openStats; // inline footer button removed; openStats kept for future re-entry
       if (statsBack) { statsBack.onclick = () => { statsPanel!.style.display = 'none'; s.getElementById('o8-quick')!.style.display = 'flex'; }; }
 
       // Lead Capture panel
@@ -2878,8 +2877,6 @@ export default defineContentScript({
   <button id="o8-outcome-btn" class="gen-btn" style="background:#34C759; font-size:12px; padding:8px;">Mark Outcome</button>
   <div id="o8-outcome-status" style="font-size:11px; color:#64748b; text-align:center; margin-top:4px;"></div>
 </div>` : ''}
-    <div class="inline-links"><button id="o8-tools-btn-inline" class="link-btn">Tools</button><span class="link-sep">|</span><button id="o8-stats-btn-inline" class="link-btn">My Stats</button><span class="link-sep">|</span><button id="o8-settings-btn-inline" class="link-btn">Settings</button></div>
-    <div class="tcpa-inline">Messages are for human review. TCPA compliance is your responsibility.</div>
   </div>
   <div id="o8-outputs" class="outputs"></div>
 </div>
@@ -2969,11 +2966,9 @@ export default defineContentScript({
 .tool-section { display:flex; flex-direction:column; gap:8px; } .tool-output { padding:8px 0; }
 .tool-result { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.6; margin-top:8px; }
 .coach-chips { display:flex; flex-wrap:wrap; gap:4px; } .coach-chip { padding:4px 10px; border-radius:14px; font-size:10px; font-weight:500; font-family:inherit; border:1px solid #e2e8f0; background:#f8fafc; color:#64748b; cursor:pointer; } .coach-chip:hover { border-color:#0D6E6E; color:#0D6E6E; background:#F0EFFF; }
-.inline-links { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:8px; } .link-btn { background:none; border:none; color:#0D6E6E; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; padding:2px 4px; } .link-btn:hover { text-decoration:underline; } .link-sep { color:#e2e8f0; font-size:11px; }
 .ctx-dropzone { border:2px dashed #0D6E6E; border-radius:8px; background:#F0EFFF; padding:16px; text-align:center; font-size:11px; color:#0D6E6E; display:flex; align-items:center; justify-content:center; min-height:60px; cursor:pointer; } .ctx-dropzone.dragover { background:#e8e4ff; }
 .ctx-preview { position:relative; text-align:center; margin-bottom:8px; } .ctx-img { max-width:180px; max-height:100px; border-radius:6px; border:1px solid #e2e8f0; } .ctx-remove { position:absolute; top:-6px; right:calc(50% - 96px); width:18px; height:18px; border-radius:50%; background:#FF3B30; color:#fff; border:none; font-size:11px; cursor:pointer; }
 .alert-item { display:flex; align-items:center; padding:6px 8px; background:#FFF7ED; border:1px solid #FBBF24; border-radius:6px; margin-bottom:4px; font-size:11px; gap:6px; } .alert-time { font-size:10px; color:#92400E; margin-left:auto; } .alert-dismiss { background:none; border:none; color:#94a3b8; cursor:pointer; font-size:14px; }
-.tcpa-inline { padding:4px 14px 8px; font-size:11px; color:#9CA3AF; line-height:1.3; text-align:center; flex-shrink:0; }
 /* Lead Capture */
 .lead-btn { height:24px; padding:0 8px; border-radius:6px; border:1px solid #E5E7EB; background:#fff; color:${isVinSolutions ? '#9CA3AF' : '#0D6E6E'}; font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; margin-right:4px; } .lead-btn:hover { background:#f3f4f6; }
 .lead-tab-btn { flex:1; padding:8px 4px; font-size:11px; font-weight:600; font-family:inherit; border:none; background:transparent; color:#94a3b8; cursor:pointer; border-bottom:2px solid transparent; } .lead-tab-btn.active { color:#0D6E6E; border-bottom-color:#0D6E6E; }
@@ -2998,8 +2993,6 @@ ${isGmail ? `
 .main-input { padding:8px 36px 8px 10px; font-size:13px; }
 .inline-mic { width:26px; height:26px; right:5px; top:5px; }
 .gen-btn { padding:9px; font-size:13px; margin-top:8px; border-radius:6px; }
-.inline-links { margin-top:6px; gap:5px; } .link-btn { font-size:11px; }
-.tcpa-inline { padding:3px 12px 6px; }
 .outputs { padding:6px 12px; overflow-y:auto; flex:1; min-height:0; }
 .out-card { padding:8px 10px; margin-bottom:6px; }
 .out-label { font-size:9px; margin-bottom:3px; }
@@ -3013,8 +3006,6 @@ ${isLinkedIn ? `
 .chips { gap:4px; margin-bottom:8px; }
 .chip { padding:4px 10px; font-size:11px; border-radius:14px; }
 .gen-btn { padding:8px; font-size:13px; margin-top:6px; }
-.inline-links { margin-top:6px; } .link-btn { font-size:10px; }
-.tcpa-inline { padding:2px 12px 6px; font-size:8px; }
 ` : ''}
 `;
     }
