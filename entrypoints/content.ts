@@ -442,12 +442,9 @@ export default defineContentScript({
 
       const subjectInput = qSel(vinSelectors, 'email_subject_input', 'input[id*="subject"], input[id*="Subject"], input[name*="subject"], input[name*="Subject"]') as HTMLInputElement;
 
-      // Find a toolbar or button area to anchor our button
-      const toolbar = document.querySelector('.cke_top, .mce-toolbar, .k-toolbar, [class*="toolbar"], [id*="toolbar"]')
-        || (subjectInput?.parentElement?.parentElement)
-        || document.querySelector('table td[class*="button"], [class*="actions"]');
-
-      // Create the Generate button
+      // Create the Generate button — floating top-right of the popup so it
+      // doesn't distort the CKEditor toolbar layout. Injecting into
+      // .cke_top broke the toolbar spacing on VinConnect's email compose.
       const btn = document.createElement('button');
       btn.textContent = 'Generate with Brevmont';
       btn.id = 'brevmont-email-generate';
@@ -455,17 +452,15 @@ export default defineContentScript({
       Object.assign(btn.style, {
         background: '#0D6E6E', color: '#fff', border: 'none', borderRadius: '8px',
         padding: '8px 16px', fontSize: '13px', fontWeight: '600', fontFamily: 'system-ui,sans-serif',
-        cursor: 'pointer', margin: '8px', whiteSpace: 'nowrap', position: 'relative', zIndex: '9999'
+        cursor: 'pointer', whiteSpace: 'nowrap',
+        position: 'fixed', top: '12px', right: '12px', zIndex: '2147483647',
+        boxShadow: '0 2px 6px rgba(0,0,0,.18)',
       });
       btn.onmouseenter = () => { btn.style.background = '#0A5555'; };
       btn.onmouseleave = () => { btn.style.background = '#0D6E6E'; };
 
-      // Insert the button
-      if (toolbar) {
-        toolbar.insertBefore(btn, toolbar.firstChild);
-      } else {
-        document.body.insertBefore(btn, document.body.firstChild);
-      }
+      // Anchor to body so the toolbar doesn't reflow.
+      document.body.appendChild(btn);
 
       btn.addEventListener('click', async (e) => {
         e.preventDefault();
@@ -481,25 +476,23 @@ export default defineContentScript({
 
           console.log('[Brevmont] Email popup: customer=' + customerName + ', to=' + toEmail);
 
-          // Get rep context from storage
-          const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
-          if (!settings.dealer_token) { btn.textContent = 'No license key'; btn.disabled = false; return; }
-
-          // Generate via proxy
-          const resp = await fetch('https://oper8er-proxy-production.up.railway.app/v1/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              dealer_token: settings.dealer_token,
-              user_message: `Generate an EMAIL ONLY for customer ${customerName || 'this customer'}. ${toEmail ? 'Their email: ' + toEmail + '.' : ''} This is a follow-up from the CRM. Keep it warm and professional. Just the email — no TEXT, no CRM NOTE.`,
+          // Route through the background script so the request goes out with
+          // the correct { messages: [{role, content}] } shape AND the HMAC
+          // signing headers that Phase 2 enforcement requires. The old direct
+          // fetch from here used `user_message` (wrong) and was unsigned.
+          const response: any = await browser.runtime.sendMessage({
+            type: 'GENERATE_OUTPUT',
+            payload: {
+              type: 'email',
+              leadContext: { customerName, customerEmail: toEmail, vehicle: null },
+              repInput: 'Follow up from the CRM. Keep it warm and professional.',
+              repName: '', dealership: '',
               platform: 'vinsolutions',
-              metadata: { rep_name: settings.rep_name || '', workflow_type: 'email', customer_name: customerName }
-            })
+              metadata: { workflow_type: 'email', customer_name: customerName, email: toEmail, vehicle: null },
+            },
           });
-
-          if (!resp.ok) throw new Error(`API ${resp.status}: ${resp.statusText}`);
-          const data = await resp.json();
-          const raw = data.text || data.reply || '';
+          if (response?.error) throw new Error(response.error);
+          const raw = response?.sections?.email || response?.text || '';
           if (!raw) throw new Error('Empty response from proxy');
 
           console.log('[Brevmont] Email generated, length=' + raw.length);
@@ -526,9 +519,34 @@ export default defineContentScript({
                 }
                 // Convert plain text to HTML paragraphs
                 const htmlBody = emailBody.split('\n').filter((l: string) => l.trim()).map((p: string) => `<p>${p}</p>`).join('');
-                // Write ONLY to the inner document body — never touch the iframe element itself
-                innerDoc.body.innerHTML = htmlBody;
-                console.log('[Brevmont] Email body injected via iframe.contentDocument.body.innerHTML');
+
+                // PRESERVE the existing dealership template / signature. The
+                // VinConnect email body already has a header (dealership logo,
+                // "No Photo" placeholder, sales rep block). Blowing it away
+                // with innerHTML = ... erases the signature every dealer paid
+                // to set up. Instead: prepend the generated paragraphs at the
+                // top of the body so the rep's signature stays intact.
+                const existingHTML = innerDoc.body.innerHTML || '';
+                const looksEmpty = !existingHTML.trim() || existingHTML === '<p>&nbsp;</p>' || existingHTML === '<br>';
+                if (looksEmpty) {
+                  innerDoc.body.innerHTML = htmlBody;
+                } else {
+                  // Insert a hidden marker + the new paragraphs before the existing content.
+                  const marker = '<!--brevmont-generated-start-->';
+                  const endMarker = '<!--brevmont-generated-end-->';
+                  // If a prior generation is still present, replace it; else insert fresh.
+                  const existingMarkerStart = existingHTML.indexOf(marker);
+                  const existingMarkerEnd = existingHTML.indexOf(endMarker);
+                  if (existingMarkerStart >= 0 && existingMarkerEnd > existingMarkerStart) {
+                    innerDoc.body.innerHTML =
+                      existingHTML.slice(0, existingMarkerStart) +
+                      marker + htmlBody + endMarker +
+                      existingHTML.slice(existingMarkerEnd + endMarker.length);
+                  } else {
+                    innerDoc.body.innerHTML = marker + htmlBody + endMarker + existingHTML;
+                  }
+                }
+                console.log('[Brevmont] Email body injected, preserved existing signature');
               }
             } catch(frameErr: any) {
               console.error('[Brevmont] Iframe write failed:', frameErr.message);
@@ -651,23 +669,22 @@ export default defineContentScript({
           const customerName = customerEl?.textContent?.trim() || '';
           console.log('[Brevmont] Call log: generating for customer=' + customerName);
 
-          const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
-          if (!settings.dealer_token) { btn.textContent = 'No license key'; btn.disabled = false; return; }
-
-          const resp = await fetch('https://oper8er-proxy-production.up.railway.app/v1/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              dealer_token: settings.dealer_token,
-              user_message: `Generate a CRM NOTE ONLY for a phone call with customer ${customerName || 'this customer'}. This is a call log entry for the CRM. Format: Next Step | What Happened | Status. Maximum 480 characters. No TEXT, no EMAIL.`,
+          // Route through background script so the request has the correct
+          // { messages:[{role,content}] } shape and signed headers. The old
+          // direct fetch used `user_message` and was unsigned — 401/400.
+          const response: any = await browser.runtime.sendMessage({
+            type: 'GENERATE_OUTPUT',
+            payload: {
+              type: 'crm',
+              leadContext: { customerName, vehicle: null },
+              repInput: `Phone call logged. Write a CRM NOTE capturing next step, what happened, and current status.`,
+              repName: '', dealership: '',
               platform: 'vinsolutions',
-              metadata: { rep_name: settings.rep_name || '', workflow_type: 'crm', customer_name: customerName }
-            })
+              metadata: { workflow_type: 'crm', customer_name: customerName, vehicle: null },
+            },
           });
-
-          if (!resp.ok) throw new Error(`API ${resp.status}: ${resp.statusText}`);
-          const data = await resp.json();
-          let note = data.text || data.reply || '';
+          if (response?.error) throw new Error(response.error);
+          let note = response?.sections?.crm || response?.text || '';
           if (!note) throw new Error('Empty response from proxy');
 
           // Strip any "CRM NOTE" label prefix
@@ -699,7 +716,97 @@ export default defineContentScript({
       });
     }
 
-    // ===== VINSOLUTIONS POPUP HANDLER (email compose, call log) =====
+    async function injectTextMessageButton() {
+      // The VinSolutions texting popup (rims2.aspx?...VinWFETexting) loads a
+      // message composer with a textarea + Send button. The dealership-text
+      // integration is the "deal closer" flow — reps hit Text on the customer,
+      // this popup opens with the phone number pre-filled, and they type.
+      // Inject a floating "Generate with Brevmont" button so one click drops
+      // a generated SMS directly into the textarea.
+      await new Promise(r => setTimeout(r, 1500));
+
+      function findMessageField(): HTMLTextAreaElement | HTMLInputElement | null {
+        const byId = document.querySelector(
+          'textarea[id*="message" i], textarea[id*="body" i], textarea[name*="message" i], textarea[name*="body" i]'
+        ) as HTMLTextAreaElement | null;
+        if (byId) return byId;
+        // Fallback: biggest textarea in the popup.
+        const all = Array.from(document.querySelectorAll('textarea')) as HTMLTextAreaElement[];
+        if (all.length === 1) return all[0];
+        let biggest: HTMLTextAreaElement | null = null; let area = 0;
+        for (const ta of all) {
+          const r = ta.getBoundingClientRect();
+          const a = r.width * r.height;
+          if (a > area) { area = a; biggest = ta; }
+        }
+        return biggest;
+      }
+
+      const field = findMessageField();
+      if (!field) { console.warn('[Brevmont] Text popup: no message textarea found'); return; }
+
+      const btn = document.createElement('button');
+      btn.textContent = 'Generate with Brevmont';
+      btn.id = 'brevmont-text-generate';
+      btn.type = 'button';
+      Object.assign(btn.style, {
+        background: '#0D6E6E', color: '#fff', border: 'none', borderRadius: '8px',
+        padding: '8px 16px', fontSize: '13px', fontWeight: '600', fontFamily: 'system-ui,sans-serif',
+        cursor: 'pointer', whiteSpace: 'nowrap',
+        position: 'fixed', top: '12px', right: '12px', zIndex: '2147483647',
+        boxShadow: '0 2px 6px rgba(0,0,0,.18)',
+      });
+      btn.onmouseenter = () => { btn.style.background = '#0A5555'; };
+      btn.onmouseleave = () => { btn.style.background = '#0D6E6E'; };
+      document.body.appendChild(btn);
+
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault(); e.stopPropagation();
+        btn.textContent = 'Generating...'; btn.disabled = true;
+
+        try {
+          const customerEl = document.querySelector('[id*="customer" i], [id*="CustomerName" i], h1, h2, [class*="header" i] span');
+          const customerName = customerEl?.textContent?.trim() || '';
+          const phoneField = document.querySelector('input[id*="phone" i], input[id*="Phone" i], input[name*="phone" i]') as HTMLInputElement | null;
+          const phone = phoneField?.value || '';
+
+          const response: any = await browser.runtime.sendMessage({
+            type: 'GENERATE_OUTPUT',
+            payload: {
+              type: 'text',
+              leadContext: { customerName, customerPhone: phone, vehicle: null },
+              repInput: 'Follow-up SMS to the customer. Keep it 2-3 sentences max.',
+              repName: '', dealership: '',
+              platform: 'vinsolutions',
+              metadata: { workflow_type: 'text', customer_name: customerName, vehicle: null },
+            },
+          });
+          if (response?.error) throw new Error(response.error);
+          let msg = response?.sections?.text || response?.text || '';
+          if (!msg) throw new Error('Empty response from proxy');
+          msg = msg.replace(/^TEXT\s*\n?/i, '').trim();
+
+          safeInjectText(field as HTMLElement, msg);
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+          field.dispatchEvent(new Event('change', { bubbles: true }));
+
+          const toast = document.createElement('div');
+          toast.textContent = 'Text generated — review before sending.';
+          Object.assign(toast.style, { position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background:'#0F1419', color:'#fff', padding:'8px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:'500', zIndex:'2147483647' });
+          document.body.appendChild(toast);
+          setTimeout(() => toast.remove(), 3000);
+
+          btn.textContent = 'Generate with Brevmont'; btn.disabled = false;
+        } catch (err: any) {
+          btn.textContent = 'Error — try again'; btn.disabled = false;
+          console.error('[Brevmont] Text popup generate error:', err);
+          logError('API_ERROR', err?.message || 'Text popup generation failed', 'vinsolutions_text_popup');
+          setTimeout(() => { btn.textContent = 'Generate with Brevmont'; }, 2000);
+        }
+      });
+    }
+
+    // ===== VINSOLUTIONS POPUP HANDLER (email compose, call log, text) =====
     // These open in separate Chrome windows with their own DOM. Skip pill/sidebar,
     // inject a toolbar button instead. This is the deal-closer feature.
     if (isVinSolutions) {
@@ -712,6 +819,15 @@ export default defineContentScript({
       if (popupUrl.includes('logcallv2') || popupUrl.includes('logcall')) {
         console.log('[Brevmont] Call log popup detected');
         injectCallLogButton();
+        return; // Don't inject pill/sidebar in popup
+      }
+      // Text message popup: rims2.aspx?urlSettingName=Communication.VinWFETexting...
+      // Dealers who have VinSolutions texting configured open a dedicated popup
+      // with its own message textarea. Inject a button so the rep gets one-click
+      // "generate + drop into the text box" without leaving the popup.
+      if (popupUrl.includes('rims2') && (popupUrl.includes('texting') || popupUrl.includes('vinwfetexting') || popupUrl.includes('textmessage'))) {
+        console.log('[Brevmont] Text message popup detected');
+        injectTextMessageButton();
         return; // Don't inject pill/sidebar in popup
       }
     }
@@ -2809,12 +2925,12 @@ export default defineContentScript({
       return `
 * { margin:0; padding:0; box-sizing:border-box; }
 :host { all:initial; font-family:system-ui,-apple-system,sans-serif; font-size:13px; color:#1a202c; }
-#o8 { width:${width}; height:100%; max-height:100%; background:#FFFFFF; border:1px solid #E5E7EB; border-radius:12px; box-shadow:0 0 0 1px rgba(0,0,0,0.05), 0 8px 24px -4px rgba(0,0,0,0.1); overflow:hidden; overscroll-behavior:contain; display:flex; flex-direction:column; padding-bottom:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+#o8 { width:${width}; height:auto; max-height:100%; background:#FFFFFF; border:1px solid #E5E7EB; border-radius:12px; box-shadow:0 0 0 1px rgba(0,0,0,0.05), 0 8px 24px -4px rgba(0,0,0,0.1); overflow:hidden; overscroll-behavior:contain; display:flex; flex-direction:column; padding-bottom:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
 .header { padding:0 14px; height:48px; border-bottom:1px solid #E5E7EB; display:flex; align-items:center; gap:8px; flex-shrink:0; background:#fff; border-radius:12px 12px 0 0; }
 .header-icon { flex-shrink:0; }
 .logo { font-size:13px; font-weight:500; color:#1a202c; letter-spacing:0.5px; }
 .close { font-size:20px; color:#94a3b8; cursor:pointer; padding:0 4px; } .close:hover { color:#475569; }
-.quick-mode { display:flex; flex-direction:column; flex:1; overflow:hidden; }
+.quick-mode { display:flex; flex-direction:column; flex:0 0 auto; overflow:hidden; }
 .card { padding:10px 14px; border-bottom:1px solid #e8eaed; flex-shrink:0; }
 .name { font-size:14px; font-weight:600; } .vehicle { font-size:11px; color:#2563eb; margin-top:1px; } .meta { font-size:10px; color:#64748b; margin-top:2px; }
 .input-section { padding:12px 14px; border-bottom:1px solid #e8eaed; flex-shrink:0; }
@@ -2834,7 +2950,8 @@ export default defineContentScript({
 .gen-btn:hover { background:#0A5555; } .gen-btn:disabled { background:#94a3b8; cursor:wait; }
 .gen-spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:gen-spin 0.6s linear infinite; vertical-align:middle; margin-right:4px; }
 @keyframes gen-spin { to { transform:rotate(360deg); } }
-.outputs { padding:8px 14px; overflow-y:auto; flex:1; min-height:0; }
+.outputs { padding:0 14px; overflow-y:auto; flex:0 0 auto; }
+.outputs:not(:empty) { padding:8px 14px; flex:1 1 auto; min-height:0; }
 .out-card { background:#fff; border:1px solid #E5E7EB; border-radius:12px; padding:10px 12px; margin-bottom:8px; }
 .out-label { font-size:9px; font-weight:700; color:#0D6E6E; letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
 .out-textarea { width:100%; min-height:80px; max-height:200px; padding:10px; border:1px solid #E5E7EB; border-radius:8px; font-size:12px; line-height:1.6; font-family:inherit; color:#1a202c; background:#fff; resize:vertical; outline:none; } .out-textarea:focus { border-color:#0D6E6E; }
