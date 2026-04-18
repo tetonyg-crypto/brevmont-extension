@@ -228,14 +228,20 @@ async function finish() {
     onboarded: true,
     onboarded_at: new Date().toISOString()
   };
-  chrome.storage.sync.set({
+  // Write to BOTH local (instant, source of truth) and sync (cross-device
+  // mirror). sync can lag several seconds replicating through Chrome sync
+  // servers; local reads never lag. Options page + popup read local first.
+  const payload = {
     'profile': JSON.stringify(profile),
     'profile_onboarded': true,
     'rep_name': profileData.identity.firstName + ' ' + profileData.identity.lastName,
     'dealership': profileData.dealership.name,
-    'dealer_token': profileData.dealership.licenseKey
-  }, () => {
+    'dealer_token': profileData.dealership.licenseKey,
+  };
+  try { await chrome.storage.local.set(payload); } catch (_) { /* noop */ }
+  chrome.storage.sync.set(payload, () => {
     chrome.storage.sync.remove('profile_onboarding');
+    chrome.storage.local.remove('profile_onboarding');
     document.getElementById('comp-name')!.textContent = profileData.identity.firstName + ' ' + profileData.identity.lastName;
     document.getElementById('comp-dealer')!.textContent = profileData.dealership.name + ' — ' + profileData.dealership.city + ', ' + profileData.dealership.state;
     document.getElementById('comp-tone')!.textContent = profileData.voice.tone.charAt(0).toUpperCase() + profileData.voice.tone.slice(1);
@@ -278,7 +284,17 @@ async function syncProfileToSupabase(profile: any) {
   }
 }
 
-function openBrevmont() { window.close(); }
+function openBrevmont() {
+  // Send the dealer to the actual dashboard where they see their stats,
+  // onboarding checklist, and rep invites. Previous behavior (window.close)
+  // just left them staring at a dead tab after a successful activation.
+  try {
+    chrome.tabs.create({ url: 'https://app.brevmont.com/dashboard' });
+    window.close();
+  } catch (_) {
+    window.location.href = 'https://app.brevmont.com/dashboard';
+  }
+}
 
 // UI helpers
 function setTone(el: HTMLElement) { document.querySelectorAll('.tone-card[data-tone]').forEach(c => c.classList.remove('selected')); el.classList.add('selected'); profileData.voice.tone = el.dataset.tone || ''; }
