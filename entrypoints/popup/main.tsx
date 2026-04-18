@@ -14,14 +14,27 @@ function App() {
   const [status, setStatus] = useState<'online' | 'offline' | 'checking'>('checking');
 
   useEffect(() => {
-    // Load settings
-    browser.storage.sync.get(['rep_name', 'dealership', 'dealer_token']).then((data: any) => {
+    // Load settings — prefer local (no sync-replication lag), fall back to sync
+    // for users onboarded on another device. Both buckets are checked so the
+    // popup shows rep identity instantly after onboarding.
+    const loadSettings = async () => {
+      const local = await browser.storage.local.get(['rep_name', 'dealership', 'dealer_token']) as any;
+      const sync = await browser.storage.sync.get(['rep_name', 'dealership', 'dealer_token']) as any;
       setSettings({
-        rep_name: data.rep_name || '',
-        dealership: data.dealership || '',
-        dealer_token: data.dealer_token || '',
+        rep_name: local.rep_name || sync.rep_name || '',
+        dealership: local.dealership || sync.dealership || '',
+        dealer_token: local.dealer_token || sync.dealer_token || '',
       });
-    });
+    };
+    loadSettings();
+
+    // Live-update when onboarding finishes (or when a manager rotates tokens).
+    const onChange = (changes: any, area: string) => {
+      if ((area === 'local' || area === 'sync') && ('rep_name' in changes || 'dealership' in changes || 'dealer_token' in changes)) {
+        loadSettings();
+      }
+    };
+    browser.storage.onChanged.addListener(onChange);
 
     // Load offline queue size
     browser.storage.local.get('brevmont_offline_queue').then((data: any) => {
@@ -37,6 +50,10 @@ function App() {
     fetch('https://oper8er-proxy-production.up.railway.app/health')
       .then(r => setStatus(r.ok ? 'online' : 'offline'))
       .catch(() => setStatus('offline'));
+
+    return () => {
+      try { browser.storage.onChanged.removeListener(onChange); } catch (_) { /* noop */ }
+    };
   }, []);
 
   const copyToken = () => {

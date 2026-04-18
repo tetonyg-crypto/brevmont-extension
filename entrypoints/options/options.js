@@ -1,14 +1,41 @@
 let profile = null;
 
-chrome.storage.sync.get(['profile', 'profile_onboarded'], d => {
-  if (!d.profile_onboarded) {
-    document.getElementById('no-profile').style.display = 'block';
+// Read profile from both local and sync storage. local is the source of truth
+// (instant, no replication lag), sync is a cross-device mirror. If either
+// reports onboarded, render settings. This prevents the "No profile found"
+// flash when a user who just completed onboarding opens the options page
+// before chrome.storage.sync finishes replicating.
+function readProfileState(cb) {
+  chrome.storage.local.get(['profile', 'profile_onboarded'], localD => {
+    if (localD && localD.profile_onboarded) { cb(localD); return; }
+    chrome.storage.sync.get(['profile', 'profile_onboarded'], syncD => {
+      cb(syncD && syncD.profile_onboarded ? syncD : localD || {});
+    });
+  });
+}
+
+function renderProfileState(d) {
+  const noProfileEl = document.getElementById('no-profile');
+  const bodyEl = document.getElementById('settings-body');
+  if (!d || !d.profile_onboarded) {
+    if (noProfileEl) noProfileEl.style.display = 'block';
+    if (bodyEl) bodyEl.style.display = 'none';
     return;
   }
+  if (noProfileEl) noProfileEl.style.display = 'none';
   try { profile = JSON.parse(d.profile); } catch(e) { profile = {}; }
-  document.getElementById('settings-body').style.display = 'block';
+  if (bodyEl) bodyEl.style.display = 'block';
   loadFields();
   renderPreview();
+}
+
+readProfileState(renderProfileState);
+
+// Live-update when onboarding finishes in another tab (or this one).
+chrome.storage.onChanged.addListener((changes, area) => {
+  if ((area === 'local' || area === 'sync') && ('profile' in changes || 'profile_onboarded' in changes)) {
+    readProfileState(renderProfileState);
+  }
 });
 
 // Setup button
