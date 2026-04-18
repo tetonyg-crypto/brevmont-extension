@@ -189,13 +189,21 @@ async function validateLicense(key: string) {
     }
 
     // Persist credentials returned by proxy. Clear any prior revocation flag.
+    // Stored under BOTH `license_secret` (legacy key, kept for backward compat)
+    // AND `brevmont_license_secret` (the key authSigning.getLicenseCredentials
+    // actually reads). Without the canonical key, requests stay unsigned until
+    // the 15s bootstrap fetcher runs — and Phase 2 rejects every unsigned
+    // generate in that window with 401 signature_required.
     const toStore: Record<string, any> = {
       license_key: key,
       activated_at: Date.now(),
       license_revoked: false,
     };
     if (data.dealer_token) toStore.dealer_token = data.dealer_token;
-    if (data.license_secret) toStore.license_secret = data.license_secret;
+    if (data.license_secret) {
+      toStore.license_secret = data.license_secret;
+      toStore.brevmont_license_secret = data.license_secret;
+    }
     if (dbName) toStore.dealership = dbName;
     try {
       await chrome.storage.local.set(toStore);
