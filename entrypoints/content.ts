@@ -1456,7 +1456,7 @@ export default defineContentScript({
             // Show confirmation before removing
             (btn as HTMLElement).textContent = '';
             const confirm = document.createElement('span');
-            confirm.textContent = 'Note logged to VinSolutions';
+            confirm.textContent = 'Note logged to your CRM';
             confirm.style.cssText = 'color:#16a34a;font-size:11px;font-weight:600;';
             (btn as HTMLElement).replaceWith(confirm);
             setTimeout(() => { card?.remove(); refreshPendingBadge(); }, 2000);
@@ -2083,10 +2083,10 @@ export default defineContentScript({
         }
 
         if (isLocked) {
-          html += `<button class="lead-inject-btn locked" disabled>🔒 Inject to VinSolutions</button>`;
+          html += `<button class="lead-inject-btn locked" disabled>🔒 Inject to CRM</button>`;
           html += `<div class="lead-gate-msg">Lead Capture requires Command. Upgrade at brevmont.com</div>`;
         } else {
-          html += `<button id="o8-lead-inject" class="lead-inject-btn">Inject to VinSolutions</button>`;
+          html += `<button id="o8-lead-inject" class="lead-inject-btn">Inject to CRM</button>`;
         }
         html += `<button id="o8-lead-cancel" class="lead-cancel-btn">Cancel</button>`;
 
@@ -2118,7 +2118,7 @@ export default defineContentScript({
               // Save pending lead for later
               await browser.storage.local.set({ brevmont_pending_lead: data, brevmont_pending_lead_time: Date.now() });
               navigator.clipboard.writeText(`${data.first_name || ''} ${data.last_name || ''}\nPhone: ${data.phone || ''}\nEmail: ${data.email || ''}\nVehicle: ${data.vehicle_interest || ''}\nNotes: ${data.notes || ''}`);
-              showToast(s, 'Lead saved — open VinSolutions to inject');
+              showToast(s, 'Lead saved — open your CRM to inject');
               closeLead();
               return;
             }
@@ -2129,7 +2129,7 @@ export default defineContentScript({
               if (pageText.includes(data.phone)) {
                 const confirmDiv = document.createElement('div');
                 confirmDiv.style.cssText = 'padding:8px;background:#FEF08A;border:1px solid #FDE047;border-radius:6px;margin-top:8px;font-size:12px;text-align:center;';
-                confirmDiv.innerHTML = `This number may already exist in VinSolutions.<br><button id="o8-lead-confirm-yes" style="padding:4px 12px;background:#0D6E6E;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;margin:4px">Inject Anyway</button><button id="o8-lead-confirm-no" style="padding:4px 12px;background:#fff;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;cursor:pointer;margin:4px">Cancel</button>`;
+                confirmDiv.innerHTML = `This number may already exist in your CRM.<br><button id="o8-lead-confirm-yes" style="padding:4px 12px;background:#0D6E6E;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;margin:4px">Inject Anyway</button><button id="o8-lead-confirm-no" style="padding:4px 12px;background:#fff;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;cursor:pointer;margin:4px">Cancel</button>`;
                 leadResult.appendChild(confirmDiv);
                 confirmDiv.querySelector('#o8-lead-confirm-no')!.addEventListener('click', () => confirmDiv.remove());
                 confirmDiv.querySelector('#o8-lead-confirm-yes')!.addEventListener('click', () => { confirmDiv.remove(); doVinSolutionsInject(data, inputMethod); });
@@ -2185,7 +2185,7 @@ export default defineContentScript({
               if (lastNameField && data.last_name) { lastNameField.focus(); safeInjectText(lastNameField, data.last_name); }
               if (phoneField && data.phone) { phoneField.focus(); safeInjectText(phoneField, data.phone); }
               if (emailField && data.email) { emailField.focus(); safeInjectText(emailField, data.email); }
-              showToast(s, 'Form filled — review and click Save in VinSolutions');
+              showToast(s, 'Form filled — review and click Save in your CRM');
 
               // Log capture event
               try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'LEAD_CAPTURED', platform: PLATFORM, customer: `${data.first_name || ''} ${data.last_name || ''}`.trim(), input_method: inputMethod, fields_populated: Object.values(data).filter(Boolean).length, tier: currentTier } }); } catch(e) {}
@@ -2601,7 +2601,7 @@ export default defineContentScript({
     function findNoteTextarea(): HTMLTextAreaElement | null { if (!isVinSolutions) return null; const iframes = document.querySelectorAll('iframe'); for (const iframe of iframes) { try { if (iframe.src?.includes('AddNote')) { const doc = iframe.contentDocument || (iframe as any).contentWindow?.document; if (doc) { const ta = doc.querySelector('textarea'); if (ta) return ta; } } } catch(e) {} } for (const iframe of iframes) { try { const doc = iframe.contentDocument || (iframe as any).contentWindow?.document; if (!doc) continue; if ((doc.body?.innerText || '').includes('Add Note') || (doc.body?.innerText || '').includes('Note Type')) { const ta = doc.querySelector('textarea'); if (ta) return ta; } } catch(e) {} } return null; }
     function clickNoteIcon(): boolean { if (!isVinSolutions) return false; for (const el of document.querySelectorAll('a, button, div, span, td')) { if (el.textContent?.trim() === 'Note' && (el as HTMLElement).offsetWidth > 0) { (el as HTMLElement).click(); return true; } } return false; }
     async function pasteIntoCRM(noteText: string, statusEl: HTMLElement) {
-      if (!isVinSolutions) { statusEl.textContent = 'VinSolutions only'; return; }
+      if (!isVinSolutions) { statusEl.textContent = 'Available on your dealer CRM only'; return; }
       dodgeSidebar(); // Move sidebar out of the way before note popup opens
       statusEl.textContent = 'Opening note form...'; statusEl.style.color = '#2563eb';
       await browser.storage.local.set({ brevmont_paste_note: noteText, brevmont_paste_note_time: Date.now() });
@@ -2744,7 +2744,7 @@ export default defineContentScript({
             const custName = leadData?.customerName || document.title.split(' - ')[0] || 'Unknown Customer';
             try { browser.runtime.sendMessage({ type: 'SAVE_PENDING_NOTE', payload: { customer_name: custName, note_text: curContent, contact_id: null } }); } catch(e) {}
             this.textContent = 'Queued'; this.style.background = '#16a34a'; this.style.color = '#fff';
-            st.textContent = 'Note queued for VinSolutions'; st.style.color = '#16a34a';
+            st.textContent = 'Note queued for your CRM'; st.style.color = '#16a34a';
             try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'CRM_NOTE_QUEUED', platform: PLATFORM, customer: custName } }); } catch(e) {}
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
           } else if (isEmail && !isVinSolutions && !isGmail) {
@@ -2858,7 +2858,7 @@ export default defineContentScript({
 
     function getBadge() {
       switch (PLATFORM) {
-        case 'vinsolutions': return { label: 'VinSolutions', color: '#0D6E6E', bg: '#F0EFFF' };
+        case 'vinsolutions': return { label: 'Dealer CRM', color: '#0D6E6E', bg: '#F0EFFF' };
         case 'gmail': return { label: 'Gmail', color: '#dc2626', bg: '#fef2f2' };
         case 'facebook': return { label: 'Messenger', color: '#1877f2', bg: '#eff6ff' };
         case 'linkedin': return { label: 'LinkedIn', color: '#0a66c2', bg: '#eff6ff' };
