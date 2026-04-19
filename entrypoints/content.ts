@@ -1648,19 +1648,29 @@ export default defineContentScript({
         // Cross-platform compact: right side, auto height
         Object.assign(host.style, { position:'fixed', top:'0', right:'0', width: w, height:'auto', maxHeight:'100vh', zIndex:'9999' });
       } else {
-        // VinSolutions: fixed-width sidebar, right-aligned to the panel seam
+        // VinSolutions: fixed-width sidebar, right-aligned to the panel seam.
+        // Height is content-driven (idle = tight fit to TCPA footer, grows as
+        // outputs stream in). The CRM panel height and 'calc(100vh - 200px)'
+        // act as the expansion CEILING, not the forced height — prior behavior
+        // reserved ~378px of empty whitespace below the TCPA line when no
+        // generation was active. Inner #o8 already has height:auto + flex
+        // column layout with .outputs :empty/:not(:empty) sizing rules, so
+        // switching the host to height:auto lets that layout actually take
+        // effect. Overflow beyond max-height is handled by .outputs having
+        // overflow-y:auto.
         const seam = findPanelSeamX();
         const seamX = seam ? seam.seamX : 640;
         const panelTop = seam ? seam.panelTop : 186;
         const sidebarWidth = 340;
+        const panelHeightPx = (seam ? seam.panelHeight : 758);
         Object.assign(host.style, {
           position:'fixed',
           left: (seamX - sidebarWidth) + 'px',
           top: panelTop + 'px',
           margin:'0', padding:'0',
           width: sidebarWidth + 'px',
-          height: (seam ? seam.panelHeight : 758) + 'px',
-          maxHeight: 'calc(100vh - 200px)',
+          height: 'auto',
+          maxHeight: `min(calc(100vh - 200px), ${panelHeightPx}px)`,
           zIndex:'9999',
           boxShadow:'2px 0 12px rgba(0,0,0,0.15)',
           overflow:'hidden',
@@ -2509,7 +2519,10 @@ export default defineContentScript({
         sidebarRoot.style.left = (seam.seamX - sidebarWidth) + 'px';
       }
       sidebarRoot.style.top = seam.panelTop + 'px';
-      sidebarRoot.style.maxHeight = seam.panelHeight + 'px';
+      // Mirror the openSidebar() ceiling expression so the idle-collapse
+      // fix stays consistent across resize / seam reflows. height:'auto' set
+      // in openSidebar is preserved (never reassigned here).
+      sidebarRoot.style.maxHeight = `min(calc(100vh - 200px), ${seam.panelHeight}px)`;
     }
 
     function closeSidebar() {
