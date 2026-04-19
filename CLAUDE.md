@@ -8,7 +8,7 @@ Brevmont is a Chrome extension (MV3) that acts as an AI sales assistant for auto
 
 - **Brand name:** Brevmont (formerly Floq, originally Oper8er)
 - **Brand color:** #0D6E6E (deep teal)
-- **Version:** 1.9.1
+- **Version:** 1.10.0
 - **Extension ID:** odianhkmfpbcnggigamhjbpkkcbkcckh
 - **Proxy:** https://oper8er-proxy-production.up.railway.app
 - **Supabase:** https://mqnmemnogbotgmsmqfie.supabase.co (publishable key: `sb_publishable_-sD_RSqo9SNizbhQ0kqWSA_tJbsWD_m`)
@@ -45,6 +45,8 @@ Brevmont is a Chrome extension (MV3) that acts as an AI sales assistant for auto
 5a. **Panel height is content-driven** (v1.9.9). VinSolutions host is `height:'auto'` with `maxHeight: min(calc(100vh - 200px), panelHeightPx)` as the expansion ceiling. Idle state = tight fit ending at the TCPA footer (no reserved whitespace). Outputs streaming in grows the panel up to the ceiling, at which point `.outputs { overflow-y:auto }` scrolls internally. Source of truth: `openSidebar()` VinSolutions branch in content.ts around line 1650-1680, mirrored in `updateSidebarPosition()` at content.ts:2508-2525. Inner #o8 flex-column layout + `.outputs:not(:empty) { flex:1 1 auto }` at content.ts:2994-2995 does the actual growth. Do NOT reintroduce a fixed `height` on the host — that's what caused the ~378px dead whitespace below the TCPA line in 1.9.7. If a future report says "the fix didn't land", FIRST open VinSolutions DevTools and run `document.getElementById('brevmont-host').style.height` — if it shows `"Nnn.nnnpx"` (not `"auto"`), Chrome is caching an old bundle. A page reload does NOT refresh an unpacked extension's JS; only a chrome://extensions reload (or dropping a fresh ZIP) does. Use `scripts/debug-panel-height.js` for ground truth before touching CSS.
 
 6. **Generate flow** — `doGenerate()` at content.ts:958-988. Reads input + chip selection (Message/Email/CRM Note) + tone/goal from storage. Sends GENERATE_OUTPUT to background. Background `handleGenerate()` at background.ts:362-403 builds user message with rep context via `buildRepContext()` at background.ts:308-360. `parseSections()` at background.ts:701-712 splits response into TEXT/EMAIL/CRM sections via regex. `addOutput()` at content.ts:1081-1131 renders output cards with Copy+Log / Paste to CRM / Send to Email buttons.
+
+6a. **Outputs render as tabs, not a stack** (v1.10.0). Chips (`.chip[data-type="text|email|crm"]`) play a dual role: pre-generation they toggle selection (`.on` class = will be generated); post-generation they switch the visible card (`.tab-active` class = currently viewed). Each generated card is stamped with `card.dataset.outputType = 'text'|'email'|'crm'` inside `addOutput()`. CSS rule `.out-card[data-output-type]:not(.tab-visible) { display:none; }` hides inactive cards entirely (not just visually) so the panel height stays content-driven on a single card. `setActiveOutputTab(s, type)` is the ONLY state mutator — it toggles `.tab-active` on the chip and `.tab-visible` on the matching card. `doGenerate()` clears all `.tab-active` state before streaming and auto-activates the first ready tab in preference order `text → email → crm` after outputs arrive. DO NOT regress to a stacked vertical render — the panel was visibly broken with 3 simultaneous cards + reserved whitespace. If you need to show multiple outputs side by side, add a new layout mode; do not remove `[data-output-type]:not(.tab-visible){display:none}`.
 
 7. **Copy+Log** — copies to clipboard, logs to Supabase via LOG_COPY message at background.ts:71-92 which calls `/api/log-action` on the proxy.
 
@@ -285,6 +287,7 @@ At content.ts:337-347. Debounced MutationObserver replaces the earlier setInterv
 22. **Messenger pill position** — `left:72px`, `top:50%`, `translateY(-50%)`. Clears Messenger's left nav column. Confirmed 2026-04-05. Do not change.
 23. **extractContactName() DOM selectors** — platform-specific, tested across Gmail/FB/LinkedIn/IG. Do not simplify.
 24. **Non-VinSolutions name watcher interval (3 seconds)** — balances responsiveness vs DOM query cost.
+25. **Tabbed output rendering** — `.out-card[data-output-type]:not(.tab-visible){display:none}` + `setActiveOutputTab()` + chip dual-role click handler + `doGenerate()` clearing `.tab-active` on new runs. Removing any one piece breaks either idle height, auto-selection of the first output, or tab switching. See item 6a for full architectural reasoning.
 
 ## Next Task
 
