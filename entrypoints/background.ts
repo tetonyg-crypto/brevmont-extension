@@ -442,7 +442,13 @@ export default defineBackground(() => {
       // still has the human license_key. Never overwrite a valid dtk_ sync.
       if (localVal && localVal.startsWith('dtk_') && syncVal && !syncVal.startsWith('dtk_')) {
         await browser.storage.sync.set({ dealer_token: localVal });
-        console.log('[Brevmont] healed sync.dealer_token from license_key -> session token');
+        // The stale license_secret was bootstrapped with license_key=TEST-...
+        // and (pre-proxy-fix) holds dealerships.license_secret, which does not
+        // match the dealer_tokens.license_secret that the server verifies
+        // against. Clear it so bootstrapLicenseSecret re-fetches with the
+        // dtk_ value + post-fix server returns the unified secret.
+        await browser.storage.local.remove(['brevmont_license_secret']);
+        console.log('[Brevmont] healed sync.dealer_token and cleared stale license_secret');
       }
     } catch (err) {
       console.warn('[Brevmont] dealer_token heal error:', (err as Error).message);
