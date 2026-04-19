@@ -1736,8 +1736,23 @@ export default defineContentScript({
       // Close
       s.getElementById('o8-close')!.onclick = closeSidebar;
 
-      // Output chips
-      s.querySelectorAll('.chip').forEach(c => { c.addEventListener('click', () => c.classList.toggle('on')); });
+      // Output chips — dual role (2026-04-19 tabbed-outputs refactor):
+      //   1. Pre-generation (no card exists for this type): toggle `.on` =
+      //      include-in-next-generation. Same as the legacy behavior.
+      //   2. Post-generation (a card already exists for this type): tab-
+      //      switch to that card without regenerating. Does NOT re-toggle
+      //      `.on` — the user just wants to view that output.
+      s.querySelectorAll('.chip').forEach(c => {
+        c.addEventListener('click', () => {
+          const type = c.getAttribute('data-type') || '';
+          const existing = s.querySelector(`.out-card[data-output-type="${type}"]`);
+          if (existing) {
+            setActiveOutputTab(s, type);
+          } else {
+            c.classList.toggle('on');
+          }
+        });
+      });
 
       // Generate
       s.getElementById('o8-generate')!.onclick = () => doGenerate(s);
@@ -2589,6 +2604,10 @@ export default defineContentScript({
       const btn = s.getElementById('o8-generate') as HTMLButtonElement;
       btn.innerHTML = '<span class="gen-spinner"></span> Generating\u2026'; btn.disabled = true;
       s.getElementById('o8-outputs')!.innerHTML = '';
+      // Reset tab-active state on chips before the new generation — stale
+      // card-specific `.tab-active` would otherwise carry over when the DOM
+      // is cleared above (the chip class lives on the chip, not the card).
+      s.querySelectorAll('.chip.tab-active').forEach((c) => c.classList.remove('tab-active'));
 
       // Read tone/goal from storage for FIX 7
       let tone = 'professional'; let goal = 'close_deal';
@@ -2602,6 +2621,15 @@ export default defineContentScript({
         });
         if (response.error) addOutput(s, 'Error', response.error);
         else { const sec = response.sections; if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) { if (sec.crm.trim() === 'NO_NEW_NOTE') { showToast(s, 'Nothing new to log — last note covers this.'); } else { addOutput(s, outputLabels.crm, sec.crm); } } if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.'); }
+        // Tabbed outputs refactor (2026-04-19): auto-activate the first
+        // generated output so the panel shows exactly one card post-gen.
+        // Preference order: text → email → crm (matches the marketing demo
+        // default and the rep's most common follow-up action).
+        {
+          const tabOrder: Array<'text'|'email'|'crm'> = ['text','email','crm'];
+          const firstReady = tabOrder.find((t) => !!s.querySelector(`.out-card[data-output-type="${t}"]`));
+          if (firstReady) setActiveOutputTab(s, firstReady);
+        }
       } catch (e: any) {
         logError(e.message?.includes('connection') ? 'NETWORK_ERROR' : 'API_ERROR', e.message || 'doGenerate failed', `platform=${PLATFORM},type=${type}`);
         if (e.message.includes('Reload') || e.message.includes('connection') || e.message.includes('invalidated')) { showReconnectBanner(s); }
@@ -2702,12 +2730,34 @@ export default defineContentScript({
       }
     }
 
+    // Tabbed outputs refactor (2026-04-19): make the Message / Email / CRM
+    // Note chips behave as tabs post-generation. Pre-generation they remain
+    // include-in-next-generation toggles (`.on`). Post-generation, clicking a
+    // chip whose output exists switches the visible card — no regeneration,
+    // no scroll. Keeps the panel compact regardless of how many outputs were
+    // generated. Matches the marketing demo UX at brevmont.com/try.
+    function setActiveOutputTab(s: ShadowRoot, type: string) {
+      s.querySelectorAll('.chip').forEach((c) => {
+        c.classList.toggle('tab-active', c.getAttribute('data-type') === type);
+      });
+      s.querySelectorAll('.out-card[data-output-type]').forEach((card) => {
+        card.classList.toggle('tab-visible', (card as HTMLElement).dataset.outputType === type);
+      });
+    }
+
     function addOutput(s: ShadowRoot, label: string, content: string, containerId: string = 'o8-outputs') {
       const container = s.getElementById(containerId) || s.getElementById('o8-outputs')!;
       const card = document.createElement('div'); card.className = 'out-card';
       const isCRM = label === 'CRM NOTE';
       const isEmail = label === 'EMAIL' || label === 'EMAIL REPLY';
       const isText = !isCRM && !isEmail;
+      // Tabbed outputs refactor (2026-04-19): stamp the card with a type that
+      // matches the chip's data-type. CSS hides non-active cards so the panel
+      // shows one output at a time instead of stacking all three. Untyped
+      // labels (Error / OUTPUT / REPLY) stay unstamped and fall through the
+      // CSS default — they always render.
+      const outputType = isCRM ? 'crm' : isEmail ? 'email' : (label === 'TEXT MESSAGE' || label === 'TEXT') ? 'text' : '';
+      if (outputType) card.dataset.outputType = outputType;
 
       // Primary button label — platform × output type
       let primaryLabel = 'Copy';
@@ -2992,6 +3042,9 @@ export default defineContentScript({
 .chip { padding:5px 12px; border-radius:16px; font-size:11px; font-weight:600; font-family:inherit; border:1.5px solid #e2e8f0; background:#fff; color:#94a3b8; cursor:pointer; transition:all 0.15s; position:relative; }
 .chip.on { border-color:#0D6E6E; color:#0D6E6E; background:#F0EFFF; }
 .chip.on::after { content:''; position:absolute; top:-2px; right:-2px; width:7px; height:7px; border-radius:50%; background:#16a34a; border:1.5px solid #fff; }
+/* Tabbed-outputs refactor (2026-04-19): .tab-active = currently viewed tab. */
+.chip.tab-active { background:#0D6E6E; color:#F5F1E8; border-color:#0D6E6E; }
+.chip.tab-active.on::after { background:#F5F1E8; border-color:#0D6E6E; }
 .input-wrap { position:relative; display:flex; align-items:flex-start; }
 .main-input { flex:1; padding:8px 40px 8px 10px; border:1px solid #e2e8f0; border-radius:6px; font-size:13px; font-family:inherit; resize:none; outline:none; color:#1a202c; }
 .main-input:focus { border-color:#0D6E6E; } .main-input::placeholder { color:#94a3b8; }
@@ -3007,6 +3060,10 @@ export default defineContentScript({
 .outputs { padding:0 14px; overflow-y:auto; flex:0 0 auto; }
 .outputs:not(:empty) { padding:8px 14px; flex:1 1 auto; min-height:0; }
 .out-card { background:#fff; border:1px solid #E5E7EB; border-radius:12px; padding:10px 12px; margin-bottom:8px; }
+/* Tabbed-outputs refactor (2026-04-19): stamped typed cards hide unless the
+   matching chip is .tab-active. Untyped cards (Error / OUTPUT / REPLY) have
+   no data-output-type and fall through — they always render. */
+.out-card[data-output-type]:not(.tab-visible) { display:none; }
 .out-label { font-size:9px; font-weight:700; color:#0D6E6E; letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
 .out-textarea { width:100%; min-height:80px; max-height:200px; padding:10px; border:1px solid #E5E7EB; border-radius:8px; font-size:12px; line-height:1.6; font-family:inherit; color:#1a202c; background:#fff; resize:vertical; outline:none; } .out-textarea:focus { border-color:#0D6E6E; }
 .out-actions { display:flex; gap:6px; margin-top:8px; }
