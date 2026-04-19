@@ -3,3 +3,11 @@ node_modules/
 .wxt/
 *.zip
 .DS_Store
+
+# Secrets — never commit env files or credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets.json
