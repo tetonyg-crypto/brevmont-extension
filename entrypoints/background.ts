@@ -664,12 +664,28 @@ async function handleGenerate(payload: {
 }) {
   // Phase T7: block generation outright if license is revoked
   await assertNotRevoked();
-  const settings = await browser.storage.sync.get(['dealer_token']);
+  const settings = await browser.storage.sync.get(['dealer_token', 'rep_auth_token']);
   const { repName, dealership, contextBlock } = await buildRepContext();
 
   const finalRepName = payload.repName || repName;
   const finalDealership = payload.dealership || dealership;
   const dealerToken = settings.dealer_token || '';
+  // Rep token (per-rep attribution). When present the background attaches
+  // X-Rep-Token to every /v1/generate call so the proxy can resolve rep_id
+  // deterministically instead of string-matching on rep_name. Legacy rep_name
+  // fallback is preserved below for pre-rep-token installs.
+  let repAuthToken: string = (settings.rep_auth_token as string | undefined) || '';
+  if (!repAuthToken) {
+    try {
+      const local = await browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token']);
+      repAuthToken = (local.rep_auth_token as string | undefined)
+        || (local.brevmont_rep_auth_token as string | undefined)
+        || '';
+    } catch {}
+  }
+  // Local debug marker so we can tell which attribution path fired when
+  // inspecting the service worker console during QA. Intentionally terse.
+  console.log('[Brevmont] attribution:', repAuthToken ? 'rep_token' : 'legacy_rep_name');
   const detectedPlatform = payload.platform || 'chrome_extension';
   let userMessage = buildUserMessage(payload, finalRepName, finalDealership, contextBlock);
 
@@ -718,7 +734,7 @@ async function handleGenerate(payload: {
     vehicle: payload.metadata?.vehicle || payload.leadContext?.vehicle || null
   };
 
-  const result = await generateViaProxy(dealerToken, userMessage, detectedPlatform, metadata);
+  const result = await generateViaProxy(dealerToken, userMessage, detectedPlatform, metadata, repAuthToken);
   text = result.text;
   usage = result.usage;
 
@@ -729,7 +745,7 @@ async function handleGenerate(payload: {
 
 // --- Generate via Proxy ---
 // Does NOT send system prompt — proxy resolves it from dealer's vertical_config
-async function generateViaProxy(dealerToken: string, userMessage: string, platform: string = 'chrome_extension', metadata?: any) {
+async function generateViaProxy(dealerToken: string, userMessage: string, platform: string = 'chrome_extension', metadata?: any, repAuthToken?: string) {
   const body = {
     dealer_token: dealerToken,
     messages: [{ role: 'user', content: userMessage }],
@@ -743,8 +759,16 @@ async function generateViaProxy(dealerToken: string, userMessage: string, platfo
     vehicle: metadata?.vehicle || null
   };
 
+  // X-Rep-Token is additive: sent ALONGSIDE the existing dealer_token +
+  // signed-HMAC headers, never as a replacement. Proxy reads this header
+  // first for rep resolution and falls back to rep_name string match when
+  // absent (legacy compat).
+  const extraHeaders: Record<string, string> | undefined = repAuthToken
+    ? { 'X-Rep-Token': repAuthToken }
+    : undefined;
+
   // Use signedFetch for HMAC-signed requests (falls back to unsigned if no secret yet)
-  const resp = await signedFetch(`${PROXY_URL}/v1/generate`, body);
+  const resp = await signedFetch(`${PROXY_URL}/v1/generate`, body, extraHeaders);
 
   // Phase T7: detect revocation responses
   await handleRevocationResponse(resp);
@@ -845,9 +869,24 @@ async function handleCommand(payload: { command: string; currentUrl?: string; ve
 
 // ===== CONTEXT REPLY (screenshot vision) =====
 async function handleContextReply(payload: { image: string; direction: string }) {
-  const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
+  const settings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'rep_auth_token']);
   const dealerToken = settings.dealer_token || '';
   if (!dealerToken) throw new Error('No license key found.');
+
+  // Rep-token resolution — mirrors handleGenerate. Attached to both the
+  // dedicated context-reply endpoint and the /v1/generate vision fallback.
+  let repAuthToken: string = (settings.rep_auth_token as string | undefined) || '';
+  if (!repAuthToken) {
+    try {
+      const local = await browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token']);
+      repAuthToken = (local.rep_auth_token as string | undefined)
+        || (local.brevmont_rep_auth_token as string | undefined)
+        || '';
+    } catch {}
+  }
+  const repTokenHeader: Record<string, string> | undefined = repAuthToken
+    ? { 'X-Rep-Token': repAuthToken }
+    : undefined;
 
   // Try dedicated endpoint first
   try {
@@ -856,7 +895,7 @@ async function handleContextReply(payload: { image: string; direction: string })
       image: payload.image,
       direction: payload.direction,
       rep_name: settings.rep_name || 'Unknown'
-    });
+    }, repTokenHeader);
 
     await handleRevocationResponse(resp);
     if (resp.status === 401) throw new Error('License invalid or expired.');
@@ -888,7 +927,7 @@ async function handleContextReply(payload: { image: string; direction: string })
       max_tokens: 800,
       model: 'claude-sonnet-4-20250514',
       platform: 'context_reply'
-    });
+    }, repTokenHeader);
   } catch (e: any) {
     telemetry.trackError(e, { flow: 'context_reply_vision' });
     throw e;
@@ -909,10 +948,21 @@ async function handleContextReply(payload: { image: string; direction: string })
 
 // ===== VOICE REPLY (transcription → generate) =====
 async function handleVoiceReply(payload: { transcription: string }) {
-  const settings = await browser.storage.sync.get(['dealer_token']);
+  const settings = await browser.storage.sync.get(['dealer_token', 'rep_auth_token']);
   const { repName, dealership, contextBlock } = await buildRepContext();
   const dealerToken = settings.dealer_token || '';
   if (!dealerToken) throw new Error('No license key found.');
+
+  // Same rep-token resolution as handleGenerate: sync first, then local dual-write.
+  let repAuthToken: string = (settings.rep_auth_token as string | undefined) || '';
+  if (!repAuthToken) {
+    try {
+      const local = await browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token']);
+      repAuthToken = (local.rep_auth_token as string | undefined)
+        || (local.brevmont_rep_auth_token as string | undefined)
+        || '';
+    } catch {}
+  }
 
   const voiceMessage = `[Voice dictation — clean up filler words and extract intent]\nRep said: "${payload.transcription}"\nGenerate a professional text message reply based on their intent. Keep it 2-3 sentences max.`;
 
@@ -923,7 +973,7 @@ async function handleVoiceReply(payload: { transcription: string }) {
     vehicle: null
   };
 
-  const result = await generateViaProxy(dealerToken, `${contextBlock}\nRep: ${repName}\nDealership: ${dealership}\n\n${voiceMessage}`, 'voice', metadata);
+  const result = await generateViaProxy(dealerToken, `${contextBlock}\nRep: ${repName}\nDealership: ${dealership}\n\n${voiceMessage}`, 'voice', metadata, repAuthToken);
   const sections = parseSections(result.text);
   return { text: result.text, sections };
 }
