@@ -146,6 +146,17 @@ export default defineBackground(() => {
       return false;
     }
 
+    if (msg.type === 'OPEN_URL') {
+      // Content scripts route outbound link opens through here so popup
+      // blockers and mixed-content rules on CRM hosts don't swallow the
+      // click. Only allow known Brevmont origins — never open arbitrary URLs.
+      const url = msg.payload?.url || '';
+      if (typeof url === 'string' && /^https:\/\/[a-z0-9.-]+\.brevmont\.com\//.test(url)) {
+        browser.tabs.create({ url }).catch(() => {});
+      }
+      return false;
+    }
+
     if (msg.type === 'MARK_OUTCOME') {
       (async () => {
         try {

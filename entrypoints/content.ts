@@ -1682,6 +1682,47 @@ export default defineContentScript({
 
       const s = shadow;
 
+      // Legacy-attribution banner: reps installed before the rep-token path
+      // shipped are identified by rep_name string only. Offer them a one-click
+      // upgrade link (opens dashboard rep-token install page). Dismissable per
+      // browser — we stash dismissal in local so it survives SW restarts but
+      // not reinstalls. Non-blocking: everything else in the sidebar keeps
+      // working whether the banner renders or not.
+      (async () => {
+        try {
+          const [syncData, localData] = await Promise.all([
+            browser.storage.sync.get(['rep_name', 'rep_auth_token']),
+            browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token', 'brevmont_rep_banner_dismissed']),
+          ]);
+          const hasRepToken = !!(syncData.rep_auth_token || localData.rep_auth_token || localData.brevmont_rep_auth_token);
+          const hasRepName = !!(syncData.rep_name);
+          const dismissed = !!localData.brevmont_rep_banner_dismissed;
+          if (hasRepToken || !hasRepName || dismissed) return;
+          const banner = document.createElement('div');
+          banner.id = 'o8-rep-token-banner';
+          banner.style.cssText = 'margin:8px;padding:10px 12px;border-radius:8px;background:#FEF3C7;border:1px solid #F59E0B;color:#78350F;font-size:12px;line-height:1.4;display:flex;gap:8px;align-items:flex-start;font-family:Inter,system-ui,sans-serif;';
+          banner.innerHTML = '<div style="flex:1"><div style="font-weight:700;margin-bottom:2px">Legacy attribution</div><div>You are being tracked by name only. <a id="o8-rep-token-link" href="#" style="color:#0D6E6E;text-decoration:underline;font-weight:600">Click here for accurate tracking.</a></div></div><button id="o8-rep-token-dismiss" aria-label="Dismiss" style="background:transparent;border:none;color:#78350F;cursor:pointer;font-size:16px;line-height:1;padding:0 2px">&times;</button>';
+          const container = s.getElementById('o8');
+          if (container) container.insertBefore(banner, container.firstChild);
+          const link = s.getElementById('o8-rep-token-link');
+          if (link) link.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            try {
+              browser.runtime.sendMessage({ type: 'OPEN_URL', payload: { url: 'https://app.brevmont.com/rep/install-token' } }).catch(() => {
+                window.open('https://app.brevmont.com/rep/install-token', '_blank');
+              });
+            } catch {
+              window.open('https://app.brevmont.com/rep/install-token', '_blank');
+            }
+          });
+          const dismissBtn = s.getElementById('o8-rep-token-dismiss');
+          if (dismissBtn) dismissBtn.addEventListener('click', () => {
+            banner.remove();
+            try { browser.storage.local.set({ brevmont_rep_banner_dismissed: true }); } catch {}
+          });
+        } catch {}
+      })();
+
       // Close
       s.getElementById('o8-close')!.onclick = closeSidebar;
 
