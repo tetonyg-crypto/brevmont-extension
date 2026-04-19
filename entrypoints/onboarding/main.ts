@@ -8,9 +8,20 @@ import { telemetry } from '../lib/telemetry';
 const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
 
 let currentStep = 1;
+// Which auth path the user is on: 'manager' (license key, one per dealership)
+// or 'rep' (rep token, one per rep). Defaults to manager for back-compat.
+let authRole: 'manager' | 'rep' = 'manager';
+// Populated by /v1/rep/validate-token on successful rep-token validation.
+let repSession: {
+  rep_auth_token: string;
+  rep_id: string;
+  rep_name: string;
+  dealership_id: string;
+  dealership_name: string;
+} | null = null;
 let profileData = {
   identity: { firstName:'', lastName:'', jobTitle:'', customTitle:'', yearsExperience:'' },
-  dealership: { name:'', city:'', state:'', licenseKey:'', crm:'', saltRoads:'no', avgNewPrice:'', avgUsedPrice:'', docFee:'', taxRate:'' },
+  dealership: { name:'', city:'', state:'', licenseKey:'', repToken:'', crm:'', saltRoads:'no', avgNewPrice:'', avgUsedPrice:'', docFee:'', taxRate:'' },
   voice: { tone:'professional', emojis:'sometimes', textSignature:'', emailSignoff:'', languages:['english'], philosophy:'' },
   market: { customerTypes:[] as string[], objections:[] as string[], marketType:'', customerNote:'' }
 };
@@ -48,6 +59,7 @@ function collectCurrentStep() {
     profileData.dealership.city = g('s2-city');
     profileData.dealership.state = g('s2-state');
     profileData.dealership.licenseKey = g('s2-license');
+    profileData.dealership.repToken = g('s2-reptoken');
     profileData.dealership.crm = (document.getElementById('s2-crm') as HTMLSelectElement).value;
     profileData.dealership.docFee = g('s2-docfee');
     profileData.dealership.taxRate = g('s2-tax');
@@ -117,6 +129,14 @@ function next(from: number) {
     if (!profileData.identity.jobTitle) { alert('Select your job title.'); return; }
   } else if (from === 2) {
     if (!profileData.dealership.name || !profileData.dealership.city || !profileData.dealership.state) { alert('Dealership info is required.'); return; }
+    if (authRole === 'rep') {
+      if (!profileData.dealership.repToken) { alert('Rep token is required.'); return; }
+      validateRepToken(profileData.dealership.repToken).then(valid => {
+        if (valid) { saveProgress(); goToStep(3); }
+        else { document.getElementById('s2-reptoken-err')!.style.display = 'block'; document.getElementById('s2-reptoken-ok')!.style.display = 'none'; }
+      });
+      return;
+    }
     if (!profileData.dealership.licenseKey) { alert('License key is required.'); return; }
     validateLicense(profileData.dealership.licenseKey).then(valid => {
       if (valid) { saveProgress(); goToStep(3); }
@@ -226,6 +246,109 @@ async function validateLicense(key: string) {
   }
 }
 
+// Toggle manager <-> rep auth path. Shows/hides the correct input field and
+// updates in-memory state. Called when the user clicks the role toggle cards.
+function setAuthRole(role: 'manager' | 'rep') {
+  authRole = role;
+  document.querySelectorAll('#s2-role .tone-card[data-role]').forEach(c => {
+    (c as HTMLElement).classList.toggle('selected', (c as HTMLElement).dataset.role === role);
+  });
+  const licWrap = document.getElementById('s2-license-wrap');
+  const repWrap = document.getElementById('s2-reptoken-wrap');
+  if (licWrap) licWrap.style.display = role === 'manager' ? '' : 'none';
+  if (repWrap) repWrap.style.display = role === 'rep' ? '' : 'none';
+}
+
+async function validateRepToken(token: string) {
+  const errEl = document.getElementById('s2-reptoken-err');
+  const okEl = document.getElementById('s2-reptoken-ok');
+  function showError(msg: string) {
+    if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+    if (okEl) okEl.style.display = 'none';
+  }
+  // Cheap client-side format gate before burning a proxy call.
+  if (!/^BRVMT-REP-/i.test(token)) {
+    showError('Rep token must start with BRVMT-REP-');
+    return false;
+  }
+  try {
+    const resp = await fetch(`${PROXY_URL}/v1/rep/validate-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rep_token: token }),
+    });
+
+    // TODO(orchestrator): the `/v1/rep/validate-token` proxy endpoint is being
+    // built in the parallel proxy sprint. Until it exists, a 404 here is the
+    // expected "stub" path. Treat 404 as a soft-accept so onboarding can
+    // proceed during the CODE RED sprint — every other status code is treated
+    // as a real validation failure. Remove this branch once the proxy ships.
+    if (resp.status === 404) {
+      console.warn('[Brevmont] /v1/rep/validate-token not yet deployed — accepting token as stub');
+      repSession = {
+        rep_auth_token: token,
+        rep_id: 'stub_rep_id',
+        rep_name: '',
+        dealership_id: 'stub_dealership_id',
+        dealership_name: profileData.dealership.name || '',
+      };
+      if (okEl) okEl.style.display = 'block';
+      if (errEl) errEl.style.display = 'none';
+      return true;
+    }
+
+    if (resp.status === 400 || resp.status === 401 || resp.status === 403) {
+      let body: any = {};
+      try { body = await resp.json(); } catch {}
+      showError(body?.error || 'Rep token is invalid or expired. Check with your manager.');
+      telemetry.trackError(new Error(body?.error || 'rep_token_invalid'), { flow: 'rep_token_validation', status: resp.status });
+      return false;
+    }
+    if (!resp.ok) {
+      showError(`Rep token check failed (${resp.status}). Try again in a moment.`);
+      telemetry.trackError(new Error('rep_token_http_' + resp.status), { flow: 'rep_token_validation', status: resp.status });
+      return false;
+    }
+
+    const data = await resp.json();
+    if (!data?.valid) {
+      showError(data?.error || 'Rep token not recognized.');
+      telemetry.trackError(new Error(data?.error || 'rep_token_invalid'), { flow: 'rep_token_validation' });
+      return false;
+    }
+
+    // Cache validated payload for finish() to persist. Server returns these
+    // fields per the CODE RED proxy spec: rep_id, rep_name, dealership_id,
+    // dealership (display name). Fall back to empty strings so finish() is
+    // never blocked if a field is absent.
+    repSession = {
+      rep_auth_token: token,
+      rep_id: data.rep_id || '',
+      rep_name: data.rep_name || '',
+      dealership_id: data.dealership_id || '',
+      dealership_name: data.dealership || data.dealership_name || profileData.dealership.name || '',
+    };
+
+    // If the server resolved the dealership name, overwrite local copy so
+    // downstream prompts use the canonical name rather than whatever the rep
+    // typed.
+    if (repSession.dealership_name) {
+      profileData.dealership.name = repSession.dealership_name;
+      const nameInput = document.getElementById('s2-dealer') as HTMLInputElement;
+      if (nameInput) nameInput.value = repSession.dealership_name;
+    }
+
+    if (okEl) okEl.style.display = 'block';
+    if (errEl) errEl.style.display = 'none';
+    return true;
+  } catch (e: any) {
+    showError('Network error validating rep token. Check your connection and try again.');
+    telemetry.trackError(e instanceof Error ? e : new Error(String(e)), { flow: 'rep_token_validation' });
+    try { chrome.runtime.sendMessage({ type: 'REPORT_ERROR', payload: { error_type: 'AUTH_ERROR', error_message: e?.message || 'Rep token validation failed', context: 'onboarding_step2_rep' } }); } catch (_) {}
+    return false;
+  }
+}
+
 async function finish() {
   collectCurrentStep();
   const profile = {
@@ -259,13 +382,31 @@ async function finish() {
   // Write to BOTH local (instant, source of truth) and sync (cross-device
   // mirror). sync can lag several seconds replicating through Chrome sync
   // servers; local reads never lag. Options page + popup read local first.
-  const payload = {
+  const payload: Record<string, any> = {
     'profile': JSON.stringify(profile),
     'profile_onboarded': true,
     'rep_name': profileData.identity.firstName + ' ' + profileData.identity.lastName,
     'dealership': profileData.dealership.name,
     'dealer_token': dealerTokenForSync,
   };
+  // If this install used the rep-token path, write the rep session fields to
+  // sync so popup/options can display identity, and dual-write the token to
+  // local under BOTH key names. Matches the license_secret / brevmont_license_secret
+  // dual-write pattern in validateLicense — keeps legacy readers working while
+  // moving to the canonical brevmont_-prefixed key.
+  if (authRole === 'rep' && repSession) {
+    payload.rep_auth_token = repSession.rep_auth_token;
+    if (repSession.rep_id) payload.rep_id = repSession.rep_id;
+    if (repSession.rep_name) payload.rep_name = repSession.rep_name;
+    if (repSession.dealership_id) payload.dealership_id = repSession.dealership_id;
+    if (repSession.dealership_name) payload.dealership = repSession.dealership_name;
+    try {
+      await chrome.storage.local.set({
+        rep_auth_token: repSession.rep_auth_token,
+        brevmont_rep_auth_token: repSession.rep_auth_token,
+      });
+    } catch (_) { /* noop */ }
+  }
   try { await chrome.storage.local.set(payload); } catch (_) { /* noop */ }
   chrome.storage.sync.set(payload, () => {
     chrome.storage.sync.remove('profile_onboarding');
@@ -355,6 +496,9 @@ document.getElementById('btn-prev-4')!.addEventListener('click', () => prev(4));
 document.getElementById('btn-finish')!.addEventListener('click', () => finish());
 document.getElementById('btn-open')!.addEventListener('click', () => openBrevmont());
 
+document.querySelectorAll('#s2-role .tone-card[data-role]').forEach(c =>
+  c.addEventListener('click', () => setAuthRole(((c as HTMLElement).dataset.role as 'manager' | 'rep') || 'manager'))
+);
 document.querySelectorAll('#s2-salt button').forEach(b => b.addEventListener('click', () => setSalt(b.textContent!.toLowerCase())));
 document.querySelectorAll('#s3-emoji button').forEach(b => b.addEventListener('click', () => setEmoji(b.textContent!.toLowerCase())));
 document.querySelectorAll('.tone-card[data-tone]').forEach(c => c.addEventListener('click', () => setTone(c as HTMLElement)));
