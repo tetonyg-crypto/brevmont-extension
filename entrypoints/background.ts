@@ -11,7 +11,7 @@
 
 const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
 
-import { signedFetch } from '../lib/authSigning';
+import { signedFetch, signedGet } from '../lib/authSigning';
 import { queueOffline, replayQueue, getQueueSize } from '../lib/resilience';
 import { telemetry } from './lib/telemetry';
 
@@ -772,7 +772,10 @@ async function pollForResult(jobId: string, maxWait = 30000): Promise<any> {
   while (Date.now() - start < maxWait) {
     await new Promise(r => setTimeout(r, 1000));
     try {
-      const resp = await fetch(`${PROXY_URL}/v1/generate/status/${jobId}`);
+      // Signed poll — keeps the auth surface consistent with /v1/generate,
+      // so server-side signature enforcement on the status route can be
+      // flipped on later without a coordinated client rev.
+      const resp = await signedGet(`${PROXY_URL}/v1/generate/status/${jobId}`);
       const data = await resp.json();
       if (data.status === 'completed') return data.data;
       if (data.status === 'failed') throw new Error(data.error || 'Generation failed');

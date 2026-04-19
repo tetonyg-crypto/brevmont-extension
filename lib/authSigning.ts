@@ -72,7 +72,7 @@ export async function getLicenseCredentials(): Promise<{ key: string; secret: st
   }
 }
 
-// Signed fetch wrapper — adds HMAC headers to any proxy request
+// Signed fetch wrapper — adds HMAC headers to any proxy POST request
 export async function signedFetch(
   url: string,
   body: unknown,
@@ -104,5 +104,38 @@ export async function signedFetch(
     method: 'POST',
     headers,
     body: bodyString,
+  });
+}
+
+// Signed GET wrapper — adds HMAC headers to proxy GET requests (status polls etc.).
+// Body hash is computed over the empty string so the canonical matches what the
+// server would compute for a no-body GET. Server-side enforcement on GET routes
+// is not yet active, but signing now keeps the auth surface consistent and
+// lets us flip the enforcement flag later without a coordinated client rev.
+export async function signedGet(
+  url: string,
+  extraHeaders?: Record<string, string>
+): Promise<Response> {
+  const creds = await getLicenseCredentials();
+  const urlObj = new URL(url);
+
+  let headers: Record<string, string> = {
+    ...extraHeaders,
+  };
+
+  if (creds) {
+    const signedHeaders = await buildSignedHeaders(
+      creds.key,
+      creds.secret,
+      'GET',
+      urlObj.pathname,
+      ''
+    );
+    headers = { ...headers, ...signedHeaders };
+  }
+
+  return fetch(url, {
+    method: 'GET',
+    headers,
   });
 }
