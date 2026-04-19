@@ -422,6 +422,33 @@ export default defineBackground(() => {
   // Fire initial heartbeat after 10 seconds
   setTimeout(sendHeartbeat, 10000);
 
+  // ===== AUTH HARDENING: Self-heal sync.dealer_token for pre-fix installs =====
+  // Context: prior versions of entrypoints/onboarding/main.ts wrote the raw
+  // human license_key (e.g. TEST-B34BD25E-6CF7EF7E) into sync.dealer_token at
+  // finish(). authSigning.getLicenseCredentials reads that value as the
+  // X-Brevmont-License-Key header. On a Phase 2 dealership the proxy's
+  // lookupLicenseKey resolves it to dealerships.license_secret, while the
+  // extension signs with dealer_tokens.license_secret — HMAC mismatch, every
+  // signed request 401s. The onboarding flow now writes the dtk_ UUID
+  // instead, but existing installs still carry the bad value. This heal runs
+  // once on startup and swaps the value if local holds the correct one.
+  async function healDealerTokenSync() {
+    try {
+      const sync = await browser.storage.sync.get(['dealer_token']);
+      const local = await browser.storage.local.get(['dealer_token']);
+      const syncVal = sync?.dealer_token as string | undefined;
+      const localVal = local?.dealer_token as string | undefined;
+      // Heal only when local holds a dtk_-prefixed session token and sync
+      // still has the human license_key. Never overwrite a valid dtk_ sync.
+      if (localVal && localVal.startsWith('dtk_') && syncVal && !syncVal.startsWith('dtk_')) {
+        await browser.storage.sync.set({ dealer_token: localVal });
+        console.log('[Brevmont] healed sync.dealer_token from license_key -> session token');
+      }
+    } catch (err) {
+      console.warn('[Brevmont] dealer_token heal error:', (err as Error).message);
+    }
+  }
+
   // ===== AUTH HARDENING: Bootstrap license secret =====
   async function bootstrapLicenseSecret() {
     try {
@@ -453,6 +480,11 @@ export default defineBackground(() => {
       console.warn('[Brevmont] License secret bootstrap error:', (err as Error).message);
     }
   }
+
+  // Heal sync.dealer_token on startup (runs immediately; idempotent + safe).
+  // Must run before the first signed request so authSigning reads the right
+  // key. The heal is a no-op when the sync value is already a dtk_ UUID.
+  healDealerTokenSync().catch(() => { /* heal failures are non-fatal */ });
 
   // Bootstrap secret on startup (after heartbeat settles)
   setTimeout(bootstrapLicenseSecret, 15000);

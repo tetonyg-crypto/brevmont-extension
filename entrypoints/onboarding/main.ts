@@ -236,6 +236,26 @@ async function finish() {
     onboarded: true,
     onboarded_at: new Date().toISOString()
   };
+  // The dealer_token written here must be the server-issued dtk_xxx UUID
+  // returned by /v1/license/validate (stored into chrome.storage.local by
+  // validateLicense at line ~202), NOT the human license key the rep typed
+  // into the form. If we write the raw license_key into sync.dealer_token,
+  // lib/authSigning.getLicenseCredentials reads that for every signed
+  // request. The server's lookupLicenseKey then resolves it to
+  // dealerships.license_secret, but the extension is signing with
+  // dealer_tokens.license_secret — the two don't match on Phase 2
+  // dealerships and every /v1/generate returns 401 signature_invalid.
+  //
+  // This bug was confirmed live against prod on 2026-04-19 and was the
+  // reason the Saturday dry-run was going to die at the first pill click.
+  let dealerTokenForSync: string;
+  try {
+    const stored = await chrome.storage.local.get(['dealer_token']);
+    dealerTokenForSync = (stored?.dealer_token as string | undefined) || profileData.dealership.licenseKey;
+  } catch {
+    dealerTokenForSync = profileData.dealership.licenseKey;
+  }
+
   // Write to BOTH local (instant, source of truth) and sync (cross-device
   // mirror). sync can lag several seconds replicating through Chrome sync
   // servers; local reads never lag. Options page + popup read local first.
@@ -244,7 +264,7 @@ async function finish() {
     'profile_onboarded': true,
     'rep_name': profileData.identity.firstName + ' ' + profileData.identity.lastName,
     'dealership': profileData.dealership.name,
-    'dealer_token': profileData.dealership.licenseKey,
+    'dealer_token': dealerTokenForSync,
   };
   try { await chrome.storage.local.set(payload); } catch (_) { /* noop */ }
   chrome.storage.sync.set(payload, () => {
