@@ -1723,6 +1723,32 @@ export default defineContentScript({
         } catch {}
       })();
 
+      // Pin-the-extension prompt: first time the panel opens after
+      // install + activation, nudge the rep to pin Brevmont so the
+      // puzzle-piece icon doesn't hide it. One-shot per install —
+      // dismissal persists via chrome.storage.local. Non-blocking,
+      // lives in the shadow DOM alongside the legacy-attribution
+      // banner above so both follow the same dismiss pattern.
+      (async () => {
+        try {
+          const localData = await browser.storage.local.get(['brevmont_pin_prompt_seen']);
+          if (localData.brevmont_pin_prompt_seen) return;
+          const prompt = document.createElement('div');
+          prompt.id = 'o8-pin-prompt';
+          prompt.style.cssText = 'margin:8px;padding:12px 14px;border-radius:10px;background:#F5F1E8;border:1px solid #0D6E6E;color:#0D2E2E;font-size:12px;line-height:1.45;display:flex;gap:10px;align-items:flex-start;font-family:Inter,system-ui,sans-serif;box-shadow:0 2px 6px rgba(13,110,110,0.08);';
+          prompt.innerHTML = '<div style="flex-shrink:0;margin-top:1px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0D6E6E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg></div><div style="flex:1"><div style="font-weight:700;margin-bottom:3px">One last step</div><div style="margin-bottom:8px">Pin Brevmont to your toolbar so it is always one click away. Click the puzzle-piece icon at the top of Chrome, find Brevmont, then hit the pin.</div><button id="o8-pin-prompt-ok" style="padding:5px 12px;background:#0D6E6E;color:#F5F1E8;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">Got it</button></div><button id="o8-pin-prompt-close" aria-label="Dismiss pin reminder" style="background:transparent;border:none;color:#0D6E6E;cursor:pointer;font-size:18px;line-height:1;padding:0 2px;margin-top:-2px">&times;</button>';
+          const container = s.getElementById('o8');
+          if (container) container.insertBefore(prompt, container.firstChild);
+          const persistDismiss = () => {
+            try { browser.storage.local.set({ brevmont_pin_prompt_seen: true }); } catch {}
+          };
+          const okBtn = s.getElementById('o8-pin-prompt-ok');
+          if (okBtn) okBtn.addEventListener('click', () => { prompt.remove(); persistDismiss(); });
+          const closeBtn = s.getElementById('o8-pin-prompt-close');
+          if (closeBtn) closeBtn.addEventListener('click', () => { prompt.remove(); persistDismiss(); });
+        } catch {}
+      })();
+
       // Close
       s.getElementById('o8-close')!.onclick = closeSidebar;
 
@@ -2887,7 +2913,7 @@ export default defineContentScript({
 
       return `
 <div class="header">
-  <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0D6E6E"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">BM</text></svg>
+  <svg class="header-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="5" fill="#0D6E6E"/><text x="12" y="17" text-anchor="middle" font-size="16" font-weight="700" fill="#F5F1E8" font-family="'Segoe UI','Inter',system-ui,sans-serif">B</text></svg>
   <span class="logo">BREVMONT</span>
   <span style="flex:1"></span>
   <button id="o8-lead-btn" class="lead-btn">+ Lead</button>
@@ -2969,7 +2995,7 @@ export default defineContentScript({
 #o8 { width:${width}; height:auto; max-height:100%; background:#FFFFFF; border:1px solid #E5E7EB; border-radius:12px; box-shadow:0 0 0 1px rgba(0,0,0,0.05), 0 8px 24px -4px rgba(0,0,0,0.1); overflow:hidden; overscroll-behavior:contain; display:flex; flex-direction:column; padding-bottom:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
 .header { padding:0 14px; height:48px; border-bottom:1px solid #E5E7EB; display:flex; align-items:center; gap:8px; flex-shrink:0; background:#fff; border-radius:12px 12px 0 0; }
 .header-icon { flex-shrink:0; }
-.logo { font-size:13px; font-weight:500; color:#1a202c; letter-spacing:0.5px; }
+.logo { font-size:13px; font-weight:600; color:#0D6E6E; letter-spacing:1px; }
 .close { font-size:20px; color:#94a3b8; cursor:pointer; padding:0 4px; } .close:hover { color:#475569; }
 .quick-mode { display:flex; flex-direction:column; flex:0 0 auto; overflow:hidden; }
 .card { padding:10px 14px; border-bottom:1px solid #e8eaed; flex-shrink:0; }

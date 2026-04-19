@@ -15,8 +15,8 @@ export default defineConfig({
   manifest: {
     name: 'Brevmont — AI Sales Assistant',
     short_name: 'Brevmont',
-    version: '1.9.7',
-    version_name: '1.9.7',
+    version: '1.9.8',
+    version_name: '1.9.8',
     description: 'AI writes the text, email, and CRM note inside your CRM. Every rep performs like your best one.',
     homepage_url: 'https://brevmont.com',
     icons: {
