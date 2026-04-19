@@ -133,6 +133,15 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
   <h1>Tell us about your dealership.</h1>
   <div class="sub">Brevmont uses this to make every message local and accurate.</div>
 
+  <!-- Role toggle — manager (license key) vs rep (rep token) -->
+  <div class="field">
+    <label>Who is installing this?</label>
+    <div class="tone-grid" id="s2-role" style="grid-template-columns:1fr 1fr">
+      <div class="tone-card selected" data-role="manager"><div class="tc-name">I'm the dealership owner/manager</div><div class="tc-ex">I have a license key</div></div>
+      <div class="tone-card" data-role="rep"><div class="tc-name">I'm a sales rep who was invited</div><div class="tc-ex">I have a rep token (BRVMT-REP-...)</div></div>
+    </div>
+  </div>
+
   <div class="field"><label>Dealership Name <span class="req">*</span></label><input id="s2-dealer" placeholder="ABC Motors"></div>
 
   <div class="field-row">
@@ -140,12 +149,22 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
     <div class="field"><label>State <span class="req">*</span></label><input id="s2-state" placeholder="Colorado" maxlength="20"></div>
   </div>
 
-  <div class="field">
+  <!-- Manager path — license key -->
+  <div class="field" id="s2-license-wrap">
     <label>License Key <span class="req">*</span></label>
     <input id="s2-license" placeholder="demo-0000-test">
     <div class="hint">Provided by Brevmont when your dealership is activated</div>
     <div class="valid" id="s2-license-ok">License validated</div>
     <div class="error" id="s2-license-err">Invalid license key</div>
+  </div>
+
+  <!-- Rep path — rep token -->
+  <div class="field" id="s2-reptoken-wrap" style="display:none">
+    <label>Rep Token <span class="req">*</span></label>
+    <input id="s2-reptoken" placeholder="BRVMT-REP-XXXXXXXX">
+    <div class="hint">Sent to you in your invite email. Starts with BRVMT-REP-</div>
+    <div class="valid" id="s2-reptoken-ok">Rep token validated</div>
+    <div class="error" id="s2-reptoken-err">Invalid rep token</div>
   </div>
 
   <div class="field">
