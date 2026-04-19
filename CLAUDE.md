@@ -155,6 +155,44 @@ Brevmont is a Chrome extension (MV3) that acts as an AI sales assistant for auto
 | `vin-dom-discovery.js` | VinSolutions DOM discovery script (standalone, for DevTools testing). |
 | `{entrypoints/` | Stale directory (appears to be leftover from a botched rename — contains no useful files). |
 
+## LOCKED ARCHITECTURAL PATTERNS
+
+These decisions are load-bearing for the workflow. Changing them has a real cost and requires an explicit reason.
+
+### Build/Deploy Workflow (Locked April 19, 2026)
+
+Two build modes. **Default is DEV**, never RELEASE.
+
+**DEV BUILD (default, used for active iteration):**
+- Command: `npx wxt build` (or `npm run build:dev`)
+- No ZIP. No Telegram file upload.
+- Telegram message only: brief text notification that build is ready to reload.
+- Exact message format: `[EXTENSION DEV BUILD] v<X.X.X> complete. Reload extension at chrome://extensions and hard-refresh VinSolutions.`
+- Yancy's Chrome is loaded directly from `C:\inventory_pipeline\oper8er-v2\.output\chrome-mv3\` as an Unpacked extension. Every build overwrites that folder in place.
+- Yancy reloads via chrome://extensions → reload icon (one click) → then hard-refresh VinSolutions (Ctrl+Shift+R).
+
+**RELEASE BUILD (explicit only):**
+- Command: `npx wxt build && npx wxt zip` (or `npm run build:release`)
+- ZIP produced at `.output/brevmont-extension-<X.X.X>-chrome.zip`
+- ZIP uploaded to Telegram with version number and changelog notes in caption.
+- Exact message format: `[EXTENSION RELEASE] v<X.X.X> packaged for distribution. ZIP attached. Notes: <what changed>`
+
+**When to use which:**
+- DEV is the default. Bug fixes, experiments, refactors, tabbed-output changes — all DEV.
+- RELEASE only when Yancy explicitly asks ("ship me a ZIP", "package this", "release build"), for major version bumps that mark milestones (1.10.0, 2.0.0 — NOT patches like 1.10.1), for dealer/external distribution, or for backup snapshots before risky refactors.
+- **If unsure, default to DEV.** Wasted ZIPs can't be unwasted.
+
+**Why this is locked:**
+Yancy's prior workflow had 7 manual steps per extension update (BREZ build → zip → Telegram upload → download → extract → remove old → Load Unpacked → hard refresh). With Chrome pointed at the build output directly, every build updates the extension in place and the cycle drops to 2 manual steps (reload + hard refresh). For 5–15 iterations per dev day, reverting to ZIP-on-every-build costs ~5 minutes per iteration = 25–75 minutes/day of pure overhead.
+
+**Enforcement:**
+- `package.json` scripts: `build` runs wxt build only (no zip). `zip` is separate. Never chain them in `build`.
+- No git hooks auto-zip. `.githooks/post-merge` runs `npx wxt build` only.
+- Helper scripts:
+  - `.scripts/tg.sh` — text-only Telegram ping (use for DEV builds)
+  - `.scripts/tg-doc.sh` — Telegram document upload with caption (use for RELEASE builds ONLY)
+- If an agent finds itself running `npx wxt zip` without Yancy having asked for a ZIP, STOP and ask first.
+
 ## Architecture Decisions and Why
 
 ### Shadow DOM for sidebar
