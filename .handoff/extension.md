@@ -54,5 +54,5 @@ The `/api/extension-download` endpoint on the Railway proxy is serving stale con
 
 Whoever owns the proxy repo (`brevmont-api`) needs to:
 1. Identify the storage mechanism for the served zip
-2. Replace it with `C:/inventory_pipeline/oper8er-v2/.output/brevmont-extension-1.9.4-chrome.zip`
+2. Replace it with `C:/inventory_pipeline/brevmont-extension/.output/brevmont-extension-1.9.4-chrome.zip`
 3. Re-verify `/api/extension-download` returns v1.9.4
