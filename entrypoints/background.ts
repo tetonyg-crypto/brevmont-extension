@@ -498,10 +498,95 @@ export default defineBackground(() => {
     }
   }
 
+  // ===== AUTO-CONFIG: Cookie-share handoff from app.brevmont.com =====
+  // After the rep claims a seat at /join/:id/complete, the page sets the
+  // brevmont_rep_session cookie on .brevmont.com with the per-rep token.
+  // On extension install (or first run with no creds), we read that cookie,
+  // call GET /api/session/to-license, and populate chrome.storage with the
+  // license + rep credentials silently. The legacy 4-step wizard at
+  // entrypoints/onboarding/main.ts is still mounted as a fallback for the
+  // path where the cookie isn't there or auto-config fails.
+  async function tryCookieShareAutoConfig(): Promise<boolean> {
+    try {
+      // Feature flag: founder can flip this off via storage if auto-config
+      // misbehaves in production. Defaults to enabled.
+      const flagState = await browser.storage.local.get(['BREVMONT_AUTO_CONFIG_ENABLED']);
+      if (flagState.BREVMONT_AUTO_CONFIG_ENABLED === false) return false;
+
+      // Existing rep with credentials? Don't disturb them.
+      const existingSync = await browser.storage.sync.get(['dealer_token']);
+      if (existingSync.dealer_token) return false;
+
+      // Read the cookie set by /join/:id/complete on app.brevmont.com.
+      const cookie = await browser.cookies.get({
+        url: 'https://app.brevmont.com',
+        name: 'brevmont_rep_session',
+      });
+      if (!cookie?.value) return false;
+
+      const repAuthToken = cookie.value;
+      const resp = await fetch(`${PROXY_URL}/api/session/to-license`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${repAuthToken}` },
+      });
+      if (!resp.ok) {
+        console.warn('[Brevmont] auto-config bridge returned', resp.status);
+        return false;
+      }
+      const data = await resp.json() as {
+        license_key?: string;
+        license_secret?: string;
+        dealer_token?: string;
+        rep_auth_token?: string;
+        dealership_id?: string;
+        dealership_name?: string;
+        rep_email?: string;
+        rep_name?: string;
+      };
+      if (!data.license_key || !data.license_secret) return false;
+
+      // Sync storage holds the values authSigning + heartbeat read from.
+      await browser.storage.sync.set({
+        dealer_token: data.dealer_token || data.license_key,
+        rep_name: data.rep_name || data.rep_email || 'Rep',
+        dealership: data.dealership_name || '',
+      });
+      // Local storage holds the secret + rep_auth_token used by signedFetch.
+      await browser.storage.local.set({
+        brevmont_license_secret: data.license_secret,
+        license_secret: data.license_secret,
+        rep_auth_token: data.rep_auth_token || repAuthToken,
+        brevmont_rep_auth_token: data.rep_auth_token || repAuthToken,
+        dealership_id: data.dealership_id || '',
+        rep_email: data.rep_email || '',
+      });
+      console.log('[Brevmont] auto-config from cookie share complete:', data.dealership_name);
+      return true;
+    } catch (err) {
+      console.warn('[Brevmont] auto-config error:', (err as Error).message);
+      return false;
+    }
+  }
+
   // Heal sync.dealer_token on startup (runs immediately; idempotent + safe).
   // Must run before the first signed request so authSigning reads the right
   // key. The heal is a no-op when the sync value is already a dtk_ UUID.
   healDealerTokenSync().catch(() => { /* heal failures are non-fatal */ });
+
+  // Auto-config from cookie share. If it succeeds, fire heartbeat right away
+  // so the founder gets the ACTIVATED Telegram alert without the 5-min wait.
+  tryCookieShareAutoConfig().then((configured) => {
+    if (configured) sendHeartbeat().catch(() => {});
+  }).catch(() => {});
+
+  // Re-attempt auto-config on install + browser startup. The first run after
+  // install often has the cookie (the rep just came from /join/.../complete),
+  // and the install handler is the cleanest place to trip the handoff.
+  browser.runtime.onInstalled.addListener(() => {
+    tryCookieShareAutoConfig().then((configured) => {
+      if (configured) sendHeartbeat().catch(() => {});
+    }).catch(() => {});
+  });
 
   // Bootstrap secret on startup (after heartbeat settles)
   setTimeout(bootstrapLicenseSecret, 15000);
