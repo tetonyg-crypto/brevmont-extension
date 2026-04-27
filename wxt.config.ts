@@ -31,7 +31,7 @@ export default defineConfig({
         description: 'Open Brevmont Command Mode'
       }
     },
-    permissions: ['activeTab', 'storage', 'alarms'],
+    permissions: ['activeTab', 'storage', 'alarms', 'cookies'],
     web_accessible_resources: [{
       resources: ['voice.html', 'brevmont-intercept.js'],
       matches: [
@@ -54,6 +54,7 @@ export default defineConfig({
       '*://www.messenger.com/*',
       '*://www.linkedin.com/*',
       '*://web.whatsapp.com/*',
+      '*://*.brevmont.com/*',
       'https://oper8er-proxy-production.up.railway.app/*'
     ],
   },
