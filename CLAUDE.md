@@ -12,7 +12,7 @@ Brevmont is a Chrome extension (MV3) that acts as an AI sales assistant for auto
 - **Extension ID:** odianhkmfpbcnggigamhjbpkkcbkcckh
 - **Proxy:** https://oper8er-proxy-production.up.railway.app
 - **Supabase:** https://mqnmemnogbotgmsmqfie.supabase.co (publishable key: `sb_publishable_-sD_RSqo9SNizbhQ0kqWSA_tJbsWD_m`)
-- **Repo:** https://github.com/tetonyg-crypto/floq-extension.git (branch: main)
+- **Repo:** https://github.com/tetonyg-crypto/brevmont-extension.git (branch: main)
 - **Proxy repo:** https://github.com/tetonyg-crypto/oper8er-proxy.git (branch: master)
 - **Tier system:** `floor` (base generation only), `command` (all tools + multi-platform), `group` (campaigns, multi-location, owner dashboard)
 - **homepage_url:** brevmont.com
