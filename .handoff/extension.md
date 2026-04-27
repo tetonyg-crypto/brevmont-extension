@@ -9,7 +9,7 @@
 | Source | Version |
 |--------|---------|
 | Local build (`/.output/chrome-mv3/manifest.json`) | **1.9.4** |
-| Live served (`https://oper8er-proxy-production.up.railway.app/api/extension-download`) | **1.9.2** |
+| Live served (`https://brevmont-api-production.up.railway.app/api/extension-download`) | **1.9.2** |
 | Match | **NO — drift of 2 patch versions** |
 
 The proxy is serving an older zip (1.9.2). Local repo has 1.9.4 already built.
@@ -36,7 +36,7 @@ Searched:
 
 The `/api/extension-download` endpoint on the Railway proxy is serving stale content. The mechanism by which a zip lands at that endpoint is not visible from this repo. Likely candidates:
 
-1. **Proxy filesystem** — zip is committed/copied into `oper8er-proxy` repo and deployed via Railway. Would need to update there.
+1. **Proxy filesystem** — zip is committed/copied into `brevmont-api` repo and deployed via Railway. Would need to update there.
 2. **Supabase Storage bucket** — proxy reads from a bucket; updating means uploading the new zip via Supabase dashboard or storage API.
 3. **Manual SCP/upload** — historically dropped onto Railway volume by hand.
 
@@ -52,7 +52,7 @@ The `/api/extension-download` endpoint on the Railway proxy is serving stale con
 
 ## Next Worker
 
-Whoever owns the proxy repo (`oper8er-proxy`) needs to:
+Whoever owns the proxy repo (`brevmont-api`) needs to:
 1. Identify the storage mechanism for the served zip
 2. Replace it with `C:/inventory_pipeline/oper8er-v2/.output/brevmont-extension-1.9.4-chrome.zip`
 3. Re-verify `/api/extension-download` returns v1.9.4
