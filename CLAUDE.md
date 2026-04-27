@@ -26,7 +26,7 @@ Brevmont is a Chrome extension (MV3) that acts as an AI sales assistant for auto
 - **AI model:** Claude Sonnet 4 via proxy (`claude-sonnet-4-20250514`), Haiku 4.5 for Coach
 - **Backend:** Supabase (REST API with publishable key for onboarding validation, rep sync). Proxy handles all authenticated operations.
 - **Build:** `npx wxt build` or `npm run build`. Output: `.output/chrome-mv3/`. Dev: `npm run dev`. Zip: `npm run zip`.
-- **Chrome loads from:** `C:\inventory_pipeline\oper8er-v2\.output\chrome-mv3`
+- **Chrome loads from:** `C:\inventory_pipeline\brevmont-extension\.output\chrome-mv3`
 - **Node:** v24.14.0, npm 11.9.0 (Windows 11)
 - **Dependencies:** wxt, react 19.2.4, react-dom 19.2.4, clsx, lucide-react, terser, @types/chrome, tailwindcss, postcss
 
@@ -170,7 +170,7 @@ Two build modes. **Default is DEV**, never RELEASE.
 - No ZIP. No Telegram file upload.
 - Telegram message only: brief text notification that build is ready to reload.
 - Exact message format: `[EXTENSION DEV BUILD] v<X.X.X> complete. Reload extension at chrome://extensions and hard-refresh VinSolutions.`
-- Yancy's Chrome is loaded directly from `C:\inventory_pipeline\oper8er-v2\.output\chrome-mv3\` as an Unpacked extension. Every build overwrites that folder in place.
+- Yancy's Chrome is loaded directly from `C:\inventory_pipeline\brevmont-extension\.output\chrome-mv3\` as an Unpacked extension. Every build overwrites that folder in place.
 - Yancy reloads via chrome://extensions → reload icon (one click) → then hard-refresh VinSolutions (Ctrl+Shift+R).
 
 **RELEASE BUILD (explicit only):**
