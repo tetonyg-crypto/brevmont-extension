@@ -1,36 +1,40 @@
 import { useState, useEffect } from 'react';
+import SupportModal from './SupportModal';
 
 interface Settings {
   rep_name: string;
   dealership: string;
   dealer_token: string;
+  rep_auth_token: string;
 }
 
 function App() {
-  const [settings, setSettings] = useState<Settings>({ rep_name: '', dealership: '', dealer_token: '' });
+  const [settings, setSettings] = useState<Settings>({ rep_name: '', dealership: '', dealer_token: '', rep_auth_token: '' });
   const [queueSize, setQueueSize] = useState(0);
   const [version, setVersion] = useState('');
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState<'online' | 'offline' | 'checking'>('checking');
+  const [supportOpen, setSupportOpen] = useState(false);
 
   useEffect(() => {
     // Load settings — prefer local (no sync-replication lag), fall back to sync
     // for users onboarded on another device. Both buckets are checked so the
     // popup shows rep identity instantly after onboarding.
     const loadSettings = async () => {
-      const local = await browser.storage.local.get(['rep_name', 'dealership', 'dealer_token']) as any;
-      const sync = await browser.storage.sync.get(['rep_name', 'dealership', 'dealer_token']) as any;
+      const local = await browser.storage.local.get(['rep_name', 'dealership', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']) as any;
+      const sync = await browser.storage.sync.get(['rep_name', 'dealership', 'dealer_token', 'rep_auth_token']) as any;
       setSettings({
         rep_name: local.rep_name || sync.rep_name || '',
         dealership: local.dealership || sync.dealership || '',
         dealer_token: local.dealer_token || sync.dealer_token || '',
+        rep_auth_token: local.brevmont_rep_auth_token || local.rep_auth_token || sync.rep_auth_token || '',
       });
     };
     loadSettings();
 
     // Live-update when onboarding finishes (or when a manager rotates tokens).
     const onChange = (changes: any, area: string) => {
-      if ((area === 'local' || area === 'sync') && ('rep_name' in changes || 'dealership' in changes || 'dealer_token' in changes)) {
+      if ((area === 'local' || area === 'sync') && ('rep_name' in changes || 'dealership' in changes || 'dealer_token' in changes || 'rep_auth_token' in changes || 'brevmont_rep_auth_token' in changes)) {
         loadSettings();
       }
     };
@@ -70,6 +74,13 @@ function App() {
   };
 
   const statusColor = status === 'online' ? '#34C759' : status === 'offline' ? '#FF3B30' : '#FF9500';
+
+  // Support modal takes over the popup when open. Reps don't need
+  // dealership-info chrome while they're typing a ticket; surfacing it
+  // would just compete for attention.
+  if (supportOpen) {
+    return <SupportModal onClose={() => setSupportOpen(false)} repAuthToken={settings.rep_auth_token} />;
+  }
 
   return (
     <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -144,11 +155,27 @@ function App() {
         >
           Changelog
         </a>
+        <button
+          onClick={() => setSupportOpen(true)}
+          style={{
+            fontSize: 12,
+            color: '#0D6E6E',
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            textAlign: 'left',
+            fontWeight: 500,
+            fontFamily: 'inherit',
+          }}
+        >
+          Get help &rarr;
+        </button>
         <a
           href="mailto:founder@brevmont.com"
           style={{ fontSize: 12, color: '#636366', textDecoration: 'none' }}
         >
-          Support: founder@brevmont.com
+          Or email: founder@brevmont.com
         </a>
       </div>
 

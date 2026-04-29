@@ -653,14 +653,34 @@ export default defineBackground(() => {
       // Cookie share landed. Fire heartbeat now so the ACTIVATED Telegram
       // alert lands immediately instead of after the 5-min cron tick.
       sendHeartbeat().catch(() => {});
+
+      // Cookie auto-config means the rep is also seeing the install screen
+      // for the first time. Show the "Find Brevmont in Chrome" walkthrough
+      // so they can pin the icon — without it, they'll lose the toolbar
+      // affordance and assume the extension isn't installed.
+      if (details.reason === 'install') {
+        try {
+          await browser.tabs.create({ url: browser.runtime.getURL('install-screen.html') });
+        } catch {
+          // ignore; the wizard fallback below would not run anyway because
+          // autoConfigured = true
+        }
+      }
     } else if (details.reason === 'install') {
-      // Auto-config didn't land (no cookie, or bridge call failed). Fall back
-      // to the legacy onboarding wizard so the rep/manager can enter creds
-      // manually. Only on install — updates shouldn't reopen the wizard.
-      if (browser.runtime.openOptionsPage) {
-        browser.runtime.openOptionsPage();
-      } else {
-        browser.tabs.create({ url: browser.runtime.getURL('options.html') });
+      // Auto-config didn't land (no cookie, or bridge call failed). Show
+      // the "Find Brevmont in Chrome" walkthrough first — same screen the
+      // cookie path shows — so the rep pins the icon. After that walkthrough
+      // they can click "I pinned it" which routes them to the legacy
+      // onboarding wizard (fallback bootstrap path).
+      try {
+        await browser.tabs.create({ url: browser.runtime.getURL('install-screen.html') });
+      } catch {
+        // Final fallback — legacy options page direct.
+        if (browser.runtime.openOptionsPage) {
+          browser.runtime.openOptionsPage();
+        } else {
+          browser.tabs.create({ url: browser.runtime.getURL('options.html') });
+        }
       }
     }
 
