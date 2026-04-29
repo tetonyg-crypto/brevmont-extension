@@ -1,0 +1,14 @@
+extends: existence
+message: "'%s' implies social proof Brevmont does not advertise (no testimonials, no named-dealer logos, no quotes). Remove or rewrite."
+level: error
+ignorecase: true
+nonword: false
+tokens:
+  - 'real reviews coming soon'
+  - 'testimonials? coming soon'
+  - 'as seen on'
+  - 'trusted by [0-9]+'
+  - 'loved by [0-9]+'
+  - '[0-9]+ happy customers'
+  - 'rated 5 stars'
+  - 'five[- ]star'

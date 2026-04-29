@@ -1,0 +1,53 @@
+extends: existence
+message: "'%s' is a SaaS-buzzword adjective banned by Atlas-Approved Copy V1. Find a quieter word."
+level: error
+ignorecase: true
+nonword: false
+tokens:
+  - amazing
+  - awesome
+  - delightful
+  - delight
+  - magical
+  - effortless
+  - seamlessly
+  - powerful
+  - robust
+  - cutting[- ]edge
+  - bleeding[- ]edge
+  - revolutionary
+  - game[- ]chang(?:er|ing)
+  - next[- ]gen
+  - state[- ]of[- ]the[- ]art
+  - synergy
+  - synergies
+  - leverage
+  - leveraging
+  - holistic
+  - turnkey
+  - paradigm
+  - frictionless
+  - blazing[- ]fast
+  - lightning[- ]fast
+  - super[- ]powered
+  - supercharge
+  - supercharged
+  - reimagine
+  - reimagining
+  - elevate
+  - elevated
+  - empower
+  - empowered
+  - unleash
+  - unlock
+  - transform
+  - transformative
+  - mission[- ]critical
+  - best[- ]in[- ]class
+  - world[- ]class
+  - rockstar
+  - ninja
+  - guru
+  - dive deep
+  - move the needle
+  - low[- ]hanging fruit
