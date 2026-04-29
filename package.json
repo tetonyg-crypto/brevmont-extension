@@ -10,6 +10,7 @@
     "dev": "wxt dev",
     "zip": "wxt zip",
     "test": "echo \"No tests yet\"",
+    "lint:css": "stylelint \"entrypoints/**/*.css\" \"assets/**/*.css\"",
     "clean": "rm -rf node_modules .wxt .output",
     "fresh": "npm run clean && npm ci && npm run build",
     "setup": "bash setup.sh",
@@ -34,6 +35,8 @@
   "devDependencies": {
     "@thedutchcoder/postcss-rem-to-px": "^0.0.2",
     "@types/chrome": "^0.1.38",
+    "stylelint": "^16.10.0",
+    "stylelint-config-standard": "^36.0.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@wxt-dev/module-react": "^1.2.2",

@@ -1,0 +1,101 @@
+{
+  "extends": "stylelint-config-standard",
+  "plugins": [],
+  "rules": {
+    "color-no-hex": null,
+    "selector-class-pattern": null,
+    "alpha-value-notation": null,
+    "color-function-notation": null,
+    "value-keyword-case": null,
+    "comment-empty-line-before": null,
+    "comment-whitespace-inside": null,
+    "no-empty-source": null,
+    "import-notation": null,
+    "media-feature-range-notation": null,
+    "custom-property-empty-line-before": null,
+    "rule-empty-line-before": null,
+    "shorthand-property-no-redundant-values": null,
+    "declaration-empty-line-before": null,
+    "font-family-name-quotes": null,
+    "font-family-no-missing-generic-family-keyword": null,
+    "no-descending-specificity": null,
+    "selector-id-pattern": null,
+    "keyframes-name-pattern": null,
+    "property-no-vendor-prefix": null,
+    "value-no-vendor-prefix": null,
+    "selector-no-vendor-prefix": null,
+    "at-rule-no-vendor-prefix": null,
+    "media-feature-name-no-vendor-prefix": null,
+    "at-rule-no-unknown": [
+      true,
+      {
+        "ignoreAtRules": [
+          "tailwind",
+          "apply",
+          "layer",
+          "config",
+          "theme",
+          "screen",
+          "variants",
+          "responsive",
+          "custom-variant",
+          "import",
+          "plugin"
+        ]
+      }
+    ],
+    "declaration-property-value-disallowed-list": {
+      "/^(color|background|background-color|border|border-color|border-top-color|border-right-color|border-bottom-color|border-left-color|outline-color|fill|stroke|caret-color|column-rule-color|text-decoration-color)$/": [
+        "/^#?[Aa]78[Bb][Ff][Aa]$/",
+        "/^#?8[Bb]5[Cc][Ff]6$/",
+        "/^#?7[Cc]3[Aa][Ee][Dd]$/",
+        "/^#?6[Dd]28[Dd]9$/",
+        "/^#?5[Bb]21[Bb]6$/",
+        "/^#?[Cc]4[Bb]5[Ff][Dd]$/",
+        "/^#?[Dd][Dd][Dd]6[Ff][Ee]$/",
+        "/^#?[Ee][Dd][Ee]9[Ff][Ee]$/",
+        "/^#?[Ff]5[Ff]3[Ff][Ff]$/",
+        "/^#?00[Dd]4[Cc]8$/",
+        "/^#?00[Cc][Cc][Cc]0$/",
+        "/^#?22[Dd]3[Ee][Ee]$/",
+        "/^#?06[Bb]6[Dd]4$/",
+        "/^#?0[Ee][Aa]5[Ee]9$/",
+        "/^#?[Ff]472[Bb]6$/",
+        "/^#?[Ee][Cc]4899$/",
+        "/^#?[Dd][Bb]2777$/",
+        "/^#?[Ff][Aa][Ee]8[Ff][Ff]$/",
+        "/^#?[Ff][Cc][Ee]7[Ff]3$/",
+        "/^purple$/i",
+        "/^violet$/i",
+        "/^magenta$/i",
+        "/^fuchsia$/i",
+        "/^cyan$/i",
+        "/^aqua$/i"
+      ]
+    },
+    "declaration-block-no-duplicate-properties": [
+      true,
+      { "ignore": ["consecutive-duplicates-with-different-values"] }
+    ]
+  },
+  "ignoreFiles": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/.next/**",
+    "**/.output/**",
+    "**/.vercel/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/*.min.css"
+  ],
+  "_meta": {
+    "purpose": "Brand-color enforcement for Brevmont CSS. Bans the SaaS-purple bleed (Tailwind purple-300/400/500/600/700/800/900, Lovable-default violet) and the legacy SaaS teal #00D4C8 from earlier brand era. Also bans named colors that historically slip in (purple, violet, cyan, aqua, fuchsia, magenta).",
+    "approved_brand_colors": {
+      "marketing": ["#F8F6F1 Bone", "#0F1419 Charcoal", "#0D6E6E Deep Teal", "#E8E5DF Ash", "#3A3A3A Graphite"],
+      "operator": ["#FFFFFF White", "#1F2937 ink-body", "#6B7280 ink-muted", "#9CA3AF ink-faint", "#E5E7EB border"],
+      "status": ["#22C55E ok", "#F59E0B warn", "#EF4444 crit", "#FEF3C7 warn-bg"]
+    },
+    "owner": "BREVMONT_VAULT/brand/",
+    "last_updated": "2026-04-29"
+  }
+}
