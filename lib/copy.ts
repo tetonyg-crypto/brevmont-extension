@@ -10,6 +10,9 @@
  * Last Updated: 2026-04-29
  * Changelog:
  *   - 2026-04-29: Initial creation. Mirrors brevmont-admin/src/lib/copy.ts.
+ *   - 2026-04-29: Added `support` section with Atlas-Approved Copy V1
+ *     strings (third-person plural, no founder name in voice). Source of
+ *     truth: brevmont-vault/copy/atlas-approved-copy-v1.md §1.
  *
  * BRAND VOICE RULES:
  *   * Direct. Founder talking, not marketing.
@@ -140,6 +143,30 @@ export const copy = {
   },
 
   // ---------------------------------------------------------------------------
+  // Support modal (Atlas-Approved Copy V1, §1)
+  // Mirrored verbatim in brevmont-admin/src/lib/copy.ts.
+  // ---------------------------------------------------------------------------
+  support: {
+    headline: 'Send us a message.',
+    subhead:
+      'We will attach your current screen, version, and recent activity automatically. You only need to describe the issue.',
+    bodyPlaceholder: 'Describe what is happening or what you expected.',
+    subjectPlaceholder: 'Short summary (optional)',
+
+    sendIdle: 'Send message',
+    sendSending: 'Sending',
+    sendSent: 'Message received',
+
+    successFull:
+      'Your message has been received. We respond to every inquiry directly. Urgent issues are addressed within hours. Other requests within one business day.',
+
+    errorSubmit:
+      'The message did not send. Please try again. If the problem continues, contact us at founder@brevmont.com or 307-690-0291.',
+    errorScreenshot:
+      'The screenshot could not be attached. Your message was sent successfully.',
+  },
+
+  // ---------------------------------------------------------------------------
   // Generic
   // ---------------------------------------------------------------------------
   generic: {
@@ -147,6 +174,7 @@ export const copy = {
     saving: 'Saving...',
     saved: 'Saved.',
     retry: 'Try again',
+    close: 'Close',
   },
 } as const;
 
