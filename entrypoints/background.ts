@@ -14,6 +14,7 @@ const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
 import { signedFetch, signedGet } from '../lib/authSigning';
 import { queueOffline, replayQueue, getQueueSize } from '../lib/resilience';
 import { telemetry } from './lib/telemetry';
+import { dlog } from './lib/dev';
 
 export default defineBackground(() => {
   // One-time migration: brevmont_ → brevmont_ storage keys
@@ -39,7 +40,7 @@ export default defineBackground(() => {
       await browser.storage.sync.remove(['brevmont_tone', 'brevmont_goal']);
     }
 
-    console.log('[Brevmont] Storage migration complete');
+    dlog('[Brevmont] Storage migration complete');
   })().catch(() => {});
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -391,7 +392,7 @@ export default defineBackground(() => {
         if (qSize > 0) {
           const result = await replayQueue(async (p) => handleGenerate(p));
           if (result.success > 0) {
-            console.log(`[Brevmont] Replayed ${result.success} queued generations`);
+            dlog(`[Brevmont] Replayed ${result.success} queued generations`);
           }
         }
       }
@@ -459,7 +460,7 @@ export default defineBackground(() => {
         // against. Clear it so bootstrapLicenseSecret re-fetches with the
         // dtk_ value + post-fix server returns the unified secret.
         await browser.storage.local.remove(['brevmont_license_secret']);
-        console.log('[Brevmont] healed sync.dealer_token and cleared stale license_secret');
+        dlog('[Brevmont] healed sync.dealer_token and cleared stale license_secret');
       }
     } catch (err) {
       console.warn('[Brevmont] dealer_token heal error:', (err as Error).message);
@@ -491,7 +492,7 @@ export default defineBackground(() => {
       const { license_secret } = await response.json();
       if (license_secret) {
         await browser.storage.local.set({ brevmont_license_secret: license_secret });
-        console.log('[Brevmont] License secret bootstrapped successfully');
+        dlog('[Brevmont] License secret bootstrapped successfully');
       }
     } catch (err) {
       console.warn('[Brevmont] License secret bootstrap error:', (err as Error).message);
@@ -560,7 +561,7 @@ export default defineBackground(() => {
         dealership_id: data.dealership_id || '',
         rep_email: data.rep_email || '',
       });
-      console.log('[Brevmont] auto-config from cookie share complete:', data.dealership_name);
+      dlog('[Brevmont] auto-config from cookie share complete:', data.dealership_name);
       return true;
     } catch (err) {
       console.warn('[Brevmont] auto-config error:', (err as Error).message);
@@ -575,18 +576,11 @@ export default defineBackground(() => {
 
   // Auto-config from cookie share. If it succeeds, fire heartbeat right away
   // so the founder gets the ACTIVATED Telegram alert without the 5-min wait.
+  // (Browser-startup path; the on-install path is handled below in the
+  // merged onInstalled listener.)
   tryCookieShareAutoConfig().then((configured) => {
     if (configured) sendHeartbeat().catch(() => {});
   }).catch(() => {});
-
-  // Re-attempt auto-config on install + browser startup. The first run after
-  // install often has the cookie (the rep just came from /join/.../complete),
-  // and the install handler is the cleanest place to trip the handoff.
-  browser.runtime.onInstalled.addListener(() => {
-    tryCookieShareAutoConfig().then((configured) => {
-      if (configured) sendHeartbeat().catch(() => {});
-    }).catch(() => {});
-  });
 
   // Bootstrap secret on startup (after heartbeat settles)
   setTimeout(bootstrapLicenseSecret, 15000);
@@ -635,15 +629,42 @@ export default defineBackground(() => {
   setTimeout(checkVersionStatus, 20000);
   setInterval(checkVersionStatus, 60 * 60 * 1000);
 
-  browser.runtime.onInstalled.addListener((details) => {
-    if (details.reason === 'install') {
+  // Single source of truth for onInstalled. Previously two separate listeners
+  // raced: one tried cookie auto-config (silent path), the other unconditionally
+  // opened the options/onboarding wizard. The wizard would pop up even when
+  // the rep had just completed /join and the cookie handoff was about to
+  // configure the extension automatically — confusing UX, makes us look amateur.
+  //
+  // New flow:
+  //   1. Run tryCookieShareAutoConfig() and AWAIT the result.
+  //   2. If it returned true → handoff worked, fire a heartbeat, skip wizard.
+  //   3. If it returned false → no cookie / handoff failed, open wizard as the
+  //      fallback bootstrap path (legacy 4-step wizard).
+  //   4. Bootstrap license secret + version check fire regardless.
+  browser.runtime.onInstalled.addListener(async (details) => {
+    let autoConfigured = false;
+    try {
+      autoConfigured = await tryCookieShareAutoConfig();
+    } catch {
+      autoConfigured = false;
+    }
+
+    if (autoConfigured) {
+      // Cookie share landed. Fire heartbeat now so the ACTIVATED Telegram
+      // alert lands immediately instead of after the 5-min cron tick.
+      sendHeartbeat().catch(() => {});
+    } else if (details.reason === 'install') {
+      // Auto-config didn't land (no cookie, or bridge call failed). Fall back
+      // to the legacy onboarding wizard so the rep/manager can enter creds
+      // manually. Only on install — updates shouldn't reopen the wizard.
       if (browser.runtime.openOptionsPage) {
         browser.runtime.openOptionsPage();
       } else {
         browser.tabs.create({ url: browser.runtime.getURL('options.html') });
       }
     }
-    // Bootstrap secret + version check on install/update
+
+    // Bootstrap secret + version check on install/update regardless of path.
     setTimeout(bootstrapLicenseSecret, 5000);
     setTimeout(checkVersionStatus, 8000);
   });
@@ -781,7 +802,7 @@ async function handleGenerate(payload: {
   }
   // Local debug marker so we can tell which attribution path fired when
   // inspecting the service worker console during QA. Intentionally terse.
-  console.log('[Brevmont] attribution:', repAuthToken ? 'rep_token' : 'legacy_rep_name');
+  dlog('[Brevmont] attribution:', repAuthToken ? 'rep_token' : 'legacy_rep_name');
   const detectedPlatform = payload.platform || 'chrome_extension';
   let userMessage = buildUserMessage(payload, finalRepName, finalDealership, contextBlock);
 

@@ -8,6 +8,7 @@
 import './content/styles.css';
 import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { telemetry } from './lib/telemetry';
+import { dlog } from './lib/dev';
 
 type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
 
@@ -40,7 +41,7 @@ export default defineContentScript({
       : _url.includes('instagram.com') ? 'unknown'
       : _url.includes('web.whatsapp.com') ? 'whatsapp'
       : 'unknown';
-    console.log('[Brevmont] Content script loaded on', PLATFORM, _url);
+    dlog('[Brevmont] Content script loaded on', PLATFORM, _url);
     if (PLATFORM === 'unknown') return;
 
     // ===== Version-gated force update =====
@@ -420,7 +421,7 @@ export default defineContentScript({
         ];
         for (const sel of selectors) {
           const el = document.querySelector(sel) as HTMLIFrameElement;
-          if (el) { console.log('[Brevmont] Found editor iframe via:', sel); return el; }
+          if (el) { dlog('[Brevmont] Found editor iframe via:', sel); return el; }
         }
         // Last resort: find any iframe whose src is blank/about:blank (CKEditor pattern)
         const allIframes = document.querySelectorAll('iframe');
@@ -431,7 +432,7 @@ export default defineContentScript({
             try {
               const doc = (iframe as HTMLIFrameElement).contentDocument;
               if (doc?.body?.contentEditable === 'true' || doc?.designMode === 'on') {
-                console.log('[Brevmont] Found editor iframe via contentEditable check');
+                dlog('[Brevmont] Found editor iframe via contentEditable check');
                 return iframe as HTMLIFrameElement;
               }
             } catch(e) {}
@@ -474,7 +475,7 @@ export default defineContentScript({
           const toField = qSel(vinSelectors, 'email_to_input', 'input[id*="to"], input[id*="To"], input[name*="to"], input[type="email"]') as HTMLInputElement;
           const toEmail = toField?.value || '';
 
-          console.log('[Brevmont] Email popup: customer=' + customerName + ', to=' + toEmail);
+          dlog('[Brevmont] Email popup: customer=' + customerName + ', to=' + toEmail);
 
           // Route through the background script so the request goes out with
           // the correct { messages: [{role, content}] } shape AND the HMAC
@@ -495,7 +496,7 @@ export default defineContentScript({
           const raw = response?.sections?.email || response?.text || '';
           if (!raw) throw new Error('Empty response from proxy');
 
-          console.log('[Brevmont] Email generated, length=' + raw.length);
+          dlog('[Brevmont] Email generated, length=' + raw.length);
 
           // Parse subject and body from response
           const subjectMatch = raw.match(/Subject:\s*(.+?)(?:\n|$)/i);
@@ -504,7 +505,7 @@ export default defineContentScript({
           // Auto-populate subject
           if (subjectInput && subjectMatch?.[1]) {
             safeInjectText(subjectInput, subjectMatch[1].trim());
-            console.log('[Brevmont] Subject injected');
+            dlog('[Brevmont] Subject injected');
           }
 
           // Auto-populate body — SAFELY into the CKEditor iframe
@@ -546,7 +547,7 @@ export default defineContentScript({
                     innerDoc.body.innerHTML = marker + htmlBody + endMarker + existingHTML;
                   }
                 }
-                console.log('[Brevmont] Email body injected, preserved existing signature');
+                dlog('[Brevmont] Email body injected, preserved existing signature');
               }
             } catch(frameErr: any) {
               console.error('[Brevmont] Iframe write failed:', frameErr.message);
@@ -558,7 +559,7 @@ export default defineContentScript({
                 if (innerDoc) {
                   innerDoc.execCommand('selectAll', false);
                   innerDoc.execCommand('insertHTML', false, emailBody.split('\n').filter((l: string) => l.trim()).map((p: string) => `<p>${p}</p>`).join(''));
-                  console.log('[Brevmont] Email body injected via execCommand');
+                  dlog('[Brevmont] Email body injected via execCommand');
                 }
               } catch(cmdErr: any) {
                 console.error('[Brevmont] execCommand fallback failed:', cmdErr.message);
@@ -569,7 +570,7 @@ export default defineContentScript({
             const bodyTextarea = document.querySelector('textarea[id*="body"], textarea[id*="Body"], textarea[id*="content"], textarea[name*="body"]') as HTMLTextAreaElement;
             if (bodyTextarea) {
               safeInjectText(bodyTextarea, emailBody);
-              console.log('[Brevmont] Email body injected via textarea fallback');
+              dlog('[Brevmont] Email body injected via textarea fallback');
             } else {
               console.error('[Brevmont] No editor iframe or textarea found');
               // Copy to clipboard as last resort
@@ -619,11 +620,11 @@ export default defineContentScript({
         ];
         for (const sel of selectors) {
           const el = document.querySelector(sel) as HTMLTextAreaElement;
-          if (el) { console.log('[Brevmont] Found call notes textarea via:', sel); return el; }
+          if (el) { dlog('[Brevmont] Found call notes textarea via:', sel); return el; }
         }
         // Last resort: find the largest textarea on the page
         const allTextareas = document.querySelectorAll('textarea');
-        console.log('[Brevmont] Call log: found ' + allTextareas.length + ' textareas total');
+        dlog('[Brevmont] Call log: found ' + allTextareas.length + ' textareas total');
         if (allTextareas.length === 1) return allTextareas[0] as HTMLTextAreaElement;
         // If multiple, pick the biggest one (most likely the notes field)
         let biggest: HTMLTextAreaElement | null = null;
@@ -633,7 +634,7 @@ export default defineContentScript({
           const area = rect.width * rect.height;
           if (area > maxArea) { maxArea = area; biggest = ta as HTMLTextAreaElement; }
         });
-        if (biggest) console.log('[Brevmont] Using largest textarea as call notes field');
+        if (biggest) dlog('[Brevmont] Using largest textarea as call notes field');
         return biggest;
       }
 
@@ -667,7 +668,7 @@ export default defineContentScript({
         try {
           const customerEl = document.querySelector('[id*="customer"], [id*="CustomerName"], [id*="name"], .customer-name, h1, h2');
           const customerName = customerEl?.textContent?.trim() || '';
-          console.log('[Brevmont] Call log: generating for customer=' + customerName);
+          dlog('[Brevmont] Call log: generating for customer=' + customerName);
 
           // Route through background script so the request has the correct
           // { messages:[{role,content}] } shape and signed headers. The old
@@ -690,7 +691,7 @@ export default defineContentScript({
           // Strip any "CRM NOTE" label prefix
           note = note.replace(/^CRM\s*NOTE\s*\n?/i, '').trim();
 
-          console.log('[Brevmont] Call note generated, length=' + note.length);
+          dlog('[Brevmont] Call note generated, length=' + note.length);
 
           // Write to textarea using native setter + fire events for ASP.NET form state
           safeInjectText(notesField, note);
@@ -698,7 +699,7 @@ export default defineContentScript({
           notesField.dispatchEvent(new Event('input', { bubbles: true }));
           notesField.dispatchEvent(new Event('change', { bubbles: true }));
           notesField.dispatchEvent(new Event('blur', { bubbles: true }));
-          console.log('[Brevmont] Call note injected + events dispatched');
+          dlog('[Brevmont] Call note injected + events dispatched');
 
           const toast = document.createElement('div');
           toast.textContent = 'Call note generated.';
@@ -812,12 +813,12 @@ export default defineContentScript({
     if (isVinSolutions) {
       const popupUrl = window.location.href.toLowerCase();
       if (popupUrl.includes('sendemail.aspx') || popupUrl.includes('communication') && popupUrl.includes('email')) {
-        console.log('[Brevmont] Email compose popup detected');
+        dlog('[Brevmont] Email compose popup detected');
         injectEmailComposeButton();
         return; // Don't inject pill/sidebar in popup
       }
       if (popupUrl.includes('logcallv2') || popupUrl.includes('logcall')) {
-        console.log('[Brevmont] Call log popup detected');
+        dlog('[Brevmont] Call log popup detected');
         injectCallLogButton();
         return; // Don't inject pill/sidebar in popup
       }
@@ -826,7 +827,7 @@ export default defineContentScript({
       // with its own message textarea. Inject a button so the rep gets one-click
       // "generate + drop into the text box" without leaving the popup.
       if (popupUrl.includes('rims2') && (popupUrl.includes('texting') || popupUrl.includes('vinwfetexting') || popupUrl.includes('textmessage'))) {
-        console.log('[Brevmont] Text message popup detected');
+        dlog('[Brevmont] Text message popup detected');
         injectTextMessageButton();
         return; // Don't inject pill/sidebar in popup
       }
@@ -865,7 +866,7 @@ export default defineContentScript({
     if (document.getElementById('brevmont-sidebar')) return;
     if (document.getElementById('brevmont-host')) return;
 
-    console.log(`[Brevmont] Injection proceeding — platform: ${PLATFORM}, isTop: ${window === window.top}`);
+    dlog(`[Brevmont] Injection proceeding — platform: ${PLATFORM}, isTop: ${window === window.top}`);
 
     // ===== VINSOLUTIONS SCANNING (top frame only, anchored to Customer Dashboard) =====
     if (isVinSolutions) {
@@ -948,7 +949,7 @@ export default defineContentScript({
         const curName = nm ? nm[1].trim() : '';
         if (curName && curName !== lastScannedName) {
           // Customer changed — clear old data, scan fresh
-          console.log(`[Brevmont] Customer changed: "${lastScannedName}" → "${curName}"`);
+          dlog(`[Brevmont] Customer changed: "${lastScannedName}" → "${curName}"`);
           lastScannedName = curName;
           leadData = null;
           browser.storage.local.remove(['brevmont_lead', 'brevmont_lead_time', 'brevmont_vehicle_info', 'brevmont_vehicle_info_time']);
@@ -980,7 +981,7 @@ export default defineContentScript({
           const nm = dashText.match(/Customer Dashboard\s*\n([A-Z][a-zA-Z'-]+ [A-Z][a-zA-Z'-]+)/) || dashText.match(/([A-Z][a-zA-Z'-]+ [A-Z][a-zA-Z'-]+(?:\s[A-Z][a-zA-Z'-]+)?)\s*\n\s*\((?:Individual|Business)\)/);
           const curName = nm ? nm[1].trim() : '';
           if (curName && curName !== lastScannedName) {
-            console.log(`[Brevmont] MutationObserver detected: "${lastScannedName}" → "${curName}"`);
+            dlog(`[Brevmont] MutationObserver detected: "${lastScannedName}" → "${curName}"`);
             lastScannedName = curName;
             leadData = null;
             browser.storage.local.remove(['brevmont_lead', 'brevmont_lead_time', 'brevmont_vehicle_info', 'brevmont_vehicle_info_time']);
@@ -1003,7 +1004,7 @@ export default defineContentScript({
 
     // ===== PILL (one only — guard against duplicates) =====
     if (document.getElementById('brevmont-pill')) {
-      console.log('[Brevmont] Pill already exists, skipping creation');
+      dlog('[Brevmont] Pill already exists, skipping creation');
     }
     let pill: HTMLElement | null = document.getElementById('brevmont-pill') as HTMLElement || document.createElement('div');
     if (!pill.id) {
@@ -1276,7 +1277,7 @@ export default defineContentScript({
               if (emailAddr) leadData.email = emailAddr;
             }
           }
-          console.log('[Brevmont] Auto-captured contact:', name);
+          dlog('[Brevmont] Auto-captured contact:', name);
         }
         // If the name changed (user switched conversations), update leadData
         if (name && leadData && leadData.customerName && leadData.customerName !== name) {
@@ -1285,7 +1286,7 @@ export default defineContentScript({
             const emailEl = qSel(gmailSelectors, 'sender_email_badge', '.gD');
             if (emailEl) leadData.email = emailEl.getAttribute('email') || leadData.email;
           }
-          console.log('[Brevmont] Contact name updated to:', name);
+          dlog('[Brevmont] Contact name updated to:', name);
         }
       }, 3000);
     }
@@ -1298,7 +1299,7 @@ export default defineContentScript({
         if (!document.getElementById('brevmont-pill') && !document.getElementById('brevmont-host')) {
           const container = document.querySelector('[role="main"], [data-testid="conversation"], [class*="messages"], [class*="messenger"], [class*="direct"]');
           if (container) {
-            console.log('[Brevmont] SPA re-injection: pill was removed, re-creating');
+            dlog('[Brevmont] SPA re-injection: pill was removed, re-creating');
             pill = document.createElement('div');
             pill.id = 'brevmont-pill';
             pill.textContent = 'BM';
@@ -1507,25 +1508,25 @@ export default defineContentScript({
           try { recognition.abort(); } catch(e) {}
           recognition = null;
         }
-        console.log('[Brevmont] Mic stopped and cleaned up');
+        dlog('[Brevmont] Mic stopped and cleaned up');
       }
 
       micBtn.onclick = () => {
         if (isListening) {
           // STOP — finalize transcript, tear down completely
-          console.log('[Brevmont] Mic stopping (user click)');
+          dlog('[Brevmont] Mic stopping (user click)');
           cleanupRecognition();
           return;
         }
 
         // STOP any previous zombie recognition before starting fresh
         if (recognition) {
-          console.log('[Brevmont] Tearing down previous mic session before starting new one');
+          dlog('[Brevmont] Tearing down previous mic session before starting new one');
           cleanupRecognition();
         }
 
         // START
-        console.log('[Brevmont] Mic starting...');
+        dlog('[Brevmont] Mic starting...');
         try {
           recognition = new SR();
           recognition.continuous = true;
@@ -1552,7 +1553,7 @@ export default defineContentScript({
 
           recognition.onerror = (e: any) => {
             if (e.error === 'aborted') return; // normal stop, ignore
-            console.log('[Brevmont] Mic error:', e.error);
+            dlog('[Brevmont] Mic error:', e.error);
             logError('VOICE_ERROR', `Speech recognition: ${e.error}`, `platform=${PLATFORM}`);
             if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
               showToast(shadow, 'Mic permission denied — enable in Chrome site settings');
@@ -1567,9 +1568,9 @@ export default defineContentScript({
           // Auto-restart on silence instead of stopping
           recognition.onend = () => {
             if (isListening) {
-              console.log('[Brevmont] Mic auto-restarting after silence');
+              dlog('[Brevmont] Mic auto-restarting after silence');
               try { recognition.start(); } catch(e) {
-                console.log('[Brevmont] Mic auto-restart failed, cleaning up');
+                dlog('[Brevmont] Mic auto-restart failed, cleaning up');
                 cleanupRecognition();
               }
             }
@@ -1578,9 +1579,9 @@ export default defineContentScript({
           recognition.start();
           isListening = true;
           micBtn.classList.add('mic-active');
-          console.log('[Brevmont] Mic started successfully');
+          dlog('[Brevmont] Mic started successfully');
         } catch(e: any) {
-          console.log('[Brevmont] Mic start failed:', e.message);
+          dlog('[Brevmont] Mic start failed:', e.message);
           cleanupRecognition();
           if (e.message?.includes('not-allowed') || e.name === 'NotAllowedError') {
             showToast(shadow, 'Mic permission denied — enable in Chrome site settings');
@@ -1610,7 +1611,7 @@ export default defineContentScript({
             q -= 0.1;
             result = canvas.toDataURL('image/jpeg', q);
           }
-          console.log(`[Brevmont] Image compressed: ${img.width}x${img.height} → ${canvas.width}x${canvas.height}, quality=${q.toFixed(1)}, size=${(result.length / 1024).toFixed(0)}KB`);
+          dlog(`[Brevmont] Image compressed: ${img.width}x${img.height} → ${canvas.width}x${canvas.height}, quality=${q.toFixed(1)}, size=${(result.length / 1024).toFixed(0)}KB`);
           resolve(result);
         };
         img.onerror = () => resolve(base64);
@@ -2468,7 +2469,7 @@ export default defineContentScript({
                 updateGmailPillBadge(remaining);
               });
             });
-          } catch(e: any) { console.log('[Brevmont] Pending emails fetch error:', e); logError('API_ERROR', e?.message || 'Pending emails fetch failed', 'gmail_pending_emails'); }
+          } catch(e: any) { dlog('[Brevmont] Pending emails fetch error:', e); logError('API_ERROR', e?.message || 'Pending emails fetch failed', 'gmail_pending_emails'); }
         }
         loadPendingEmails();
       }

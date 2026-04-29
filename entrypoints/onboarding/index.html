@@ -91,8 +91,8 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
   <div class="sub">This takes 2 minutes and makes every output sound exactly like you.</div>
 
   <div class="field-row">
-    <div class="field"><label>First Name <span class="req">*</span></label><input id="s1-first" placeholder="Jane"></div>
-    <div class="field"><label>Last Name <span class="req">*</span></label><input id="s1-last" placeholder="Smith"></div>
+    <div class="field"><label>First Name <span class="req">*</span></label><input id="s1-first" placeholder="Your first name"></div>
+    <div class="field"><label>Last Name <span class="req">*</span></label><input id="s1-last" placeholder="Your last name"></div>
   </div>
 
   <div class="field">
@@ -142,11 +142,11 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
     </div>
   </div>
 
-  <div class="field"><label>Dealership Name <span class="req">*</span></label><input id="s2-dealer" placeholder="ABC Motors"></div>
+  <div class="field"><label>Dealership Name <span class="req">*</span></label><input id="s2-dealer" placeholder="Your dealership name"></div>
 
   <div class="field-row">
-    <div class="field"><label>City <span class="req">*</span></label><input id="s2-city" placeholder="Denver"></div>
-    <div class="field"><label>State <span class="req">*</span></label><input id="s2-state" placeholder="Colorado" maxlength="20"></div>
+    <div class="field"><label>City <span class="req">*</span></label><input id="s2-city" placeholder="Your city"></div>
+    <div class="field"><label>State <span class="req">*</span></label><input id="s2-state" placeholder="Your state" maxlength="20"></div>
   </div>
 
   <!-- Manager path — license key -->
@@ -219,9 +219,9 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
     <label>Communication Tone</label>
     <div class="tone-grid" id="s3-tone">
       <div class="tone-card" data-tone="casual" ><div class="tc-name">Casual & friendly</div><div class="tc-ex">"Hey! Just wanted to check in..."</div></div>
-      <div class="tone-card selected" data-tone="professional" ><div class="tc-name">Professional & warm</div><div class="tc-ex">"Hi Sarah, I wanted to follow up..."</div></div>
+      <div class="tone-card selected" data-tone="professional" ><div class="tc-name">Professional & warm</div><div class="tc-ex">"Hi there, wanted to follow up..."</div></div>
       <div class="tone-card" data-tone="direct" ><div class="tc-name">Direct & confident</div><div class="tc-ex">"Here's what I recommend..."</div></div>
-      <div class="tone-card" data-tone="formal" ><div class="tc-name">Formal & polished</div><div class="tc-ex">"Dear Mr. Johnson, I am writing..."</div></div>
+      <div class="tone-card" data-tone="formal" ><div class="tc-name">Formal & polished</div><div class="tc-ex">"Hello, I am writing to follow up..."</div></div>
     </div>
   </div>
 
@@ -236,12 +236,12 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
 
   <div class="field">
     <label>Text Message Signature</label>
-    <input id="s3-textsig" placeholder="- Jane @ ABC Motors">
+    <input id="s3-textsig" placeholder="- [first name] @ [dealership]">
   </div>
 
   <div class="field">
     <label>Email Sign-Off</label>
-    <input id="s3-emailsig" placeholder="Best, Jane Smith | ABC Motors | 555-123-4567">
+    <input id="s3-emailsig" placeholder="Best, [your name] | [dealership] | [phone]">
   </div>
 
   <div class="field">
