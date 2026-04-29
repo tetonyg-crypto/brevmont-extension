@@ -1,9 +1,28 @@
 /**
  * Brevmont Onboarding — Main Script
  * Bundled by WXT as a module, CSP-compliant for extension pages.
+ *
+ * Three entry paths into onboarding (in priority order):
+ *   1. install_token — extension page is opened with ?install_token=… in the
+ *      URL (deep-link from Day 3 email or admin Install.tsx). Validate
+ *      server-side, populate credentials silently, skip to completion.
+ *   2. brevmont_rep_session cookie — rep already authed via /join OAuth on
+ *      app.brevmont.com. Background.ts already auto-configures via
+ *      /api/session/to-license; this onboarding page is rarely hit on this
+ *      path but if it IS hit (manual open from chrome://extensions), restore
+ *      from chrome.storage.local saved progress.
+ *   3. Manual — typed license key OR rep token. Legacy 4-step wizard.
+ *
+ * Sticky persistence: every keystroke in steps 1-4 debounces into
+ * chrome.storage.local via lib/storage.debouncedPatch. The profile_onboarding
+ * key now holds shape { step, data, last_saved_at } so the wizard can resume
+ * exactly where the user left off, even after Chrome crashes / extension
+ * reloads. (Previous code used chrome.storage.sync which had a 5-30s replication
+ * lag, so the resume was lossy.)
  */
 
 import { telemetry } from '../lib/telemetry';
+import * as storage from '../../lib/storage';
 
 const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
 
@@ -26,25 +45,117 @@ let profileData = {
   market: { customerTypes:[] as string[], objections:[] as string[], marketType:'', customerNote:'' }
 };
 
-// Check if already onboarded — if so, close this tab immediately
-chrome.storage.sync.get(['profile_onboarded', 'profile_onboarding'], (d: any) => {
-  if (d.profile_onboarded) {
+// Boot path: storage init → URL token check → onboarded check → resume.
+// Each step is short-circuited by an earlier success.
+(async function boot() {
+  try {
+    await storage.init();
+  } catch (_) {
+    // storage migration failure is non-fatal — we fall through to legacy reads.
+  }
+
+  // Path 1 — install_token in URL. Highest priority.
+  const url = new URL(window.location.href);
+  const installToken = url.searchParams.get('install_token');
+  if (installToken) {
+    const ok = await tryAutoConfigFromInstallToken(installToken);
+    if (ok) {
+      // Strip the token from the URL so a refresh / share doesn't try to
+      // burn it again (it's already been consumed server-side).
+      url.searchParams.delete('install_token');
+      window.history.replaceState({}, document.title, url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : ''));
+      // Hand control to completion screen — credentials are already in storage.
+      try {
+        const stored = await storage.getMany(['dealership', 'rep_name']);
+        document.getElementById('comp-name')!.textContent = stored.rep_name || 'You';
+        document.getElementById('comp-dealer')!.textContent = stored.dealership || '';
+        document.getElementById('comp-tone')!.textContent = 'Default';
+      } catch (_) { /* noop */ }
+      goToStep(5);
+      return;
+    }
+    // Validate failed — show inline error on step 2 and let the user fall
+    // back to manual entry.
+    const err = document.getElementById('s2-license-err');
+    if (err) {
+      err.textContent = 'This install link expired or was already used. Ask whoever sent it to send a fresh one, or paste your license key below.';
+      err.style.display = 'block';
+    }
+  }
+
+  // Path 2/3 — onboarded check + resume from local-storage progress.
+  let stored: { profile_onboarded?: boolean; profile_onboarding?: string | null } = {};
+  try {
+    stored = await new Promise((resolve) => {
+      chrome.storage.local.get(['profile_onboarded', 'profile_onboarding'], (d) => resolve(d as any));
+    });
+  } catch (_) { /* noop */ }
+
+  if (stored.profile_onboarded) {
     window.close();
     return;
   }
-  // Resume from saved progress
-  if (d.profile_onboarding) {
+  if (stored.profile_onboarding) {
     try {
-      const saved = JSON.parse(d.profile_onboarding);
+      const saved = JSON.parse(stored.profile_onboarding);
       profileData = { ...profileData, ...saved.data };
       if (saved.step && saved.step <= 4) { goToStep(saved.step); restoreFields(); }
-    } catch(e) {}
+    } catch (_) { /* noop */ }
   }
-});
+})();
+
+/**
+ * Validate the URL-supplied install_token against the proxy. On success,
+ * persists license_key + license_secret + dealer_token + identity to
+ * chrome.storage.local atomically.
+ */
+async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
+  try {
+    const resp = await fetch(`${PROXY_URL}/v1/install-tokens/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    if (!resp.ok) {
+      telemetry.trackError(new Error('install_token_validate_' + resp.status), { flow: 'install_token_validate', status: resp.status });
+      return false;
+    }
+    const data = await resp.json();
+    if (!data?.license_key || !data?.license_secret) {
+      return false;
+    }
+    await storage.setCredentialsFromInstallToken({
+      license_key: data.license_key,
+      license_secret: data.license_secret,
+      dealer_token: data.dealer_token || data.license_key,
+      dealership_id: data.dealership_id,
+      dealership_name: data.dealership_name,
+      rep_id: data.rep_id || null,
+      rep_email: data.rep_email || null,
+      rep_name: data.rep_name || null,
+    });
+    // Mark onboarded so the popup/options pages don't re-prompt.
+    await storage.patch({
+      profile_onboarded: true,
+      profile_onboarding: null,
+    });
+    return true;
+  } catch (e: any) {
+    telemetry.trackError(e instanceof Error ? e : new Error(String(e)), { flow: 'install_token_validate' });
+    return false;
+  }
+}
 
 function saveProgress() {
   collectCurrentStep();
-  chrome.storage.sync.set({ profile_onboarding: JSON.stringify({ step: currentStep, data: profileData }) });
+  // Sticky persistence: debounced write to chrome.storage.local. 250ms debounce
+  // is enough that 8 keystrokes in a row coalesce into one IPC, and short
+  // enough that a tab close 300ms later still saves.
+  storage.debouncedPatch(
+    { profile_onboarding: JSON.stringify({ step: currentStep, data: profileData, last_saved_at: Date.now() }) },
+    250,
+    'profile_onboarding'
+  );
 }
 
 function collectCurrentStep() {
@@ -504,3 +615,35 @@ document.querySelectorAll('#s3-emoji button').forEach(b => b.addEventListener('c
 document.querySelectorAll('.tone-card[data-tone]').forEach(c => c.addEventListener('click', () => setTone(c as HTMLElement)));
 document.querySelectorAll('[data-market]').forEach(c => c.addEventListener('click', () => setMarket(c as HTMLElement)));
 document.querySelectorAll('.chip-toggle').forEach(c => c.addEventListener('click', () => toggleChip(c as HTMLElement)));
+
+// Sticky inputs — every keystroke debounces a save into chrome.storage.local
+// so a tab close, browser crash, or extension reload restores exactly what
+// the rep typed. Without this, reps had to retype dealership name + city +
+// state every time they re-opened the wizard (Lab Note 2026-04-29).
+const STICKY_INPUT_IDS = [
+  's1-first', 's1-last', 's1-title-other', 's1-years',
+  's2-dealer', 's2-city', 's2-state', 's2-license', 's2-reptoken',
+  's2-docfee', 's2-tax',
+  's3-textsig', 's3-emailsig', 's3-philosophy',
+  's4-custnote',
+];
+for (const id of STICKY_INPUT_IDS) {
+  const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+  if (!el) continue;
+  el.addEventListener('input', () => saveProgress());
+  el.addEventListener('change', () => saveProgress());
+  el.addEventListener('blur', () => saveProgress());
+}
+const STICKY_SELECT_IDS = ['s1-title', 's2-crm', 's2-avg-new', 's2-avg-used'];
+for (const id of STICKY_SELECT_IDS) {
+  const el = document.getElementById(id) as HTMLSelectElement | null;
+  if (!el) continue;
+  el.addEventListener('change', () => saveProgress());
+}
+// Click-driven controls (chips, tone cards, salt/emoji buttons) all already
+// mutate profileData inline; saveProgress is also called via next() but a
+// final-defense flush on click keeps unsaved chip selections from being lost
+// when the rep closes the tab mid-screen.
+document.querySelectorAll('#screen-3 .chip-toggle, #s4-customers .chip-toggle, #s4-objections .chip-toggle, #s2-salt button, #s3-emoji button, .tone-card[data-tone], [data-market]').forEach((el) => {
+  el.addEventListener('click', () => saveProgress());
+});
