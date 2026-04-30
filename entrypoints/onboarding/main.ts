@@ -24,7 +24,7 @@
 import { telemetry } from '../lib/telemetry';
 import * as storage from '../../lib/storage';
 
-const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
+const PROXY_URL = 'https://api.brevmont.com';
 
 let currentStep = 1;
 // Which auth path the user is on: 'manager' (license key, one per dealership)

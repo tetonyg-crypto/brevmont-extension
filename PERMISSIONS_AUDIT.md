@@ -74,7 +74,7 @@ Each entry below explains why the host is in the list and what Brevmont does on 
 **Purpose:** read the `brevmont_rep_session` cookie from `app.brevmont.com` once at install (see `cookies` above) and call the install-handoff endpoint.
 **Does not touch:** any other Brevmont domain content. The rep does not need to be signed in to any Brevmont property other than the cookie that was already set at /join.
 
-### `https://oper8er-proxy-production.up.railway.app/*`
+### `https://api.brevmont.com/*`
 **Purpose:** the only outbound endpoint Brevmont talks to. All AI generation, telemetry, heartbeat, and license validation route through this proxy. The Anthropic API key and system prompt live on this proxy, not in the extension.
 **What goes outbound:** generated message metadata (workflow type, platform, success boolean, timestamp), error events with PII-scrubbed messages, and heartbeat pings carrying license key + extension version + Chrome version.
 **What does NOT go outbound:** customer names, customer emails, customer phone numbers, VINs, dealership financial data, or any free-text the rep typed. PII is scrubbed at the boundary by `entrypoints/lib/pii.ts` before any telemetry payload is queued.
@@ -94,7 +94,7 @@ Each entry below explains why the host is in the list and what Brevmont does on 
 
 ## Data handling at the proxy
 
-Every payload that leaves the extension hits `oper8er-proxy-production.up.railway.app`. That proxy:
+Every payload that leaves the extension hits `api.brevmont.com`. That proxy:
 
 1. Verifies the dealer token signature using HMAC-SHA256.
 2. Applies per-dealership rate limits.

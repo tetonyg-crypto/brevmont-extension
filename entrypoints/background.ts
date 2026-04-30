@@ -9,7 +9,7 @@
 // No SYSTEM_PROMPT in extension — proxy resolves from vertical_config.
 // No API keys in extension — all calls routed through PROXY_URL.
 
-const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
+const PROXY_URL = 'https://api.brevmont.com';
 
 import { signedFetch, signedGet } from '../lib/authSigning';
 import { queueOffline, replayQueue, getQueueSize } from '../lib/resilience';

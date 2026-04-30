@@ -73,7 +73,7 @@
 
 | Service | Status | Details |
 |---------|--------|---------|
-| Railway proxy | ✅ 200 | https://oper8er-proxy-production.up.railway.app/health |
+| Railway proxy | ✅ 200 | https://api.brevmont.com/health |
 | brevmontlabs.vercel.app | ✅ 200 | Next.js site live |
 | brevmontlabs.com (custom domain) | ✅ 200 | DNS propagated, SSL active |
 | FORGE (PM2) | ✅ online | PID 29188, uptime 78m, 0 restarts |

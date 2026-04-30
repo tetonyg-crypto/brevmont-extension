@@ -25,7 +25,7 @@
 **Host Permissions:**
 - `*://*.vinsolutions.com/*`
 - `*://vinsolutions.app.coxautoinc.com/*`
-- `https://oper8er-proxy-production.up.railway.app/*`
+- `https://api.brevmont.com/*`
 - `https://mqnmemnogbotgmsmqfie.supabase.co/*`
 
 **Content Script Matches (from built manifest.json):**
@@ -208,7 +208,7 @@ Content script sends these messages that could result in logging:
 
 ### API Architecture
 
-- **No direct Claude API calls.** All generation goes through `PROXY_URL` (Railway): `https://oper8er-proxy-production.up.railway.app`
+- **No direct Claude API calls.** All generation goes through `PROXY_URL` (Railway): `https://api.brevmont.com`
 - **No API key stored in extension.** The proxy owns the Anthropic key and system prompt.
 - **Dealer token** stored in `chrome.storage.sync` as `dealer_token` — used as authentication to the proxy.
 
