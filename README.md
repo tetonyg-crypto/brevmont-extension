@@ -33,7 +33,7 @@ Charcoal `#0F1419`, Deep Teal `#0D6E6E`, Bone `#F8F6F1`. Inter for body, Instrum
 
 ## Distribution
 
-Sideloaded via the served zip at `https://oper8er-proxy-production.up.railway.app/api/extension-download`. Chrome Web Store submission deferred until customer 5 (Constitution ADR-15).
+Sideloaded via the served zip at `https://api.brevmont.com/api/extension-download`. Chrome Web Store submission deferred until customer 5 (Constitution ADR-15).
 
 ## Versioning
 

@@ -3,7 +3,7 @@
 **Date:** 2026-04-04
 **Extension version:** 1.8.1
 **Framework:** WXT (Manifest V3)
-**Proxy:** https://oper8er-proxy-production.up.railway.app
+**Proxy:** https://api.brevmont.com
 **Supabase:** https://mqnmemnogbotgmsmqfie.supabase.co
 
 ---
@@ -199,7 +199,7 @@ handleGenerate(payload) [lines 362-403]:
   → generateViaProxy(dealerToken, userMessage, platform, metadata) [lines 407-437]
 
 generateViaProxy() [lines 407-437]:
-  → POST to https://oper8er-proxy-production.up.railway.app/v1/generate
+  → POST to https://api.brevmont.com/v1/generate
   → Body: { dealer_token, messages: [{role:'user', content: userMessage}], max_tokens:800, model:'claude-sonnet-4-20250514', platform, rep_name, workflow_type, customer_name, vehicle }
   → Handles 401 (license), 429 (rate limit), other errors
   → Returns { text, usage }

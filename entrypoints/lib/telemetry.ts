@@ -14,7 +14,7 @@
 
 import { scrubPII, scrubPIIDeep } from './pii';
 
-const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
+const PROXY_URL = 'https://api.brevmont.com';
 
 export type TelemetrySeverity = 'info' | 'warn' | 'error' | 'critical';
 

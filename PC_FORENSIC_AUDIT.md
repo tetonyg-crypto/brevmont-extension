@@ -76,7 +76,7 @@ ae3f1b9 v1.8.1: Version bump
 - Calls `generateViaProxy()` with dealer token, message, platform, metadata (line 392)
 
 **Step 6: generateViaProxy() (background.ts, line 403)**
-- POST to `https://oper8er-proxy-production.up.railway.app/v1/generate`
+- POST to `https://api.brevmont.com/v1/generate`
 - Body: dealer_token, messages array, max_tokens (800), model (claude-sonnet-4-20250514), platform, metadata
 - Handles 401 (license), 429 (rate limit), other errors
 - Returns `{ text, usage }` from proxy response
@@ -202,7 +202,7 @@ HEADER: .logo "FLOQ" | .badge (platform) | #o8-close X button
 - `*://www.facebook.com/*`
 - `*://www.instagram.com/*`
 - `*://www.messenger.com/*`
-- `https://oper8er-proxy-production.up.railway.app/*`
+- `https://api.brevmont.com/*`
 - `https://mqnmemnogbotgmsmqfie.supabase.co/*`
 
 ### Web Accessible Resources

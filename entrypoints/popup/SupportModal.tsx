@@ -36,7 +36,7 @@ import { redactObject, redactText } from '../../lib/redact';
 import { captureScreenshot } from '../../lib/screenshot';
 import { copy } from '../../lib/copy';
 
-const PROXY_URL = 'https://oper8er-proxy-production.up.railway.app';
+const PROXY_URL = 'https://api.brevmont.com';
 
 interface SupportModalProps {
   onClose: () => void;

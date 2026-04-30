@@ -10,7 +10,7 @@ Brevmont is a Chrome extension (MV3) that acts as an AI sales assistant for auto
 - **Brand color:** #0D6E6E (deep teal)
 - **Version:** 1.10.0
 - **Extension ID:** odianhkmfpbcnggigamhjbpkkcbkcckh
-- **Proxy:** https://oper8er-proxy-production.up.railway.app
+- **Proxy:** https://api.brevmont.com
 - **Supabase:** https://mqnmemnogbotgmsmqfie.supabase.co (publishable key: `sb_publishable_-sD_RSqo9SNizbhQ0kqWSA_tJbsWD_m`)
 - **Repo:** https://github.com/tetonyg-crypto/brevmont-extension.git (branch: main)
 - **Proxy repo:** https://github.com/tetonyg-crypto/brevmont-api.git (branch: master)

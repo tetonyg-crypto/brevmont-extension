@@ -1886,7 +1886,7 @@ export default defineContentScript({
             if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Set your rep name in Settings first.</div>';
             return;
           }
-          const resp = await fetch(`https://oper8er-proxy-production.up.railway.app/v1/rep/stats?rep_name=${encodeURIComponent(settings.rep_name)}`, {
+          const resp = await fetch(`https://api.brevmont.com/v1/rep/stats?rep_name=${encodeURIComponent(settings.rep_name)}`, {
             headers: { 'Authorization': `Bearer ${settings.dealer_token}` }
           });
           if (!resp.ok) throw new Error('Failed to load');
