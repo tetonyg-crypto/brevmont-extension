@@ -1,10 +1,10 @@
 extends: existence
-message: "First-person singular '%s' breaks Atlas-Approved Copy V1 voice (third-person plural). Rewrite without 'I' or 'my'."
+message: "First-person singular `%s` breaks Atlas-Approved Copy V1 voice (third-person plural). Rewrite without I or my."
 level: warning
 ignorecase: false
 tokens:
   - '\bI\b'
-  - '\bI\'m\b'
+  - "\\bI'm\\b"
   - "\\bI'd\\b"
   - "\\bI've\\b"
   - "\\bI'll\\b"
