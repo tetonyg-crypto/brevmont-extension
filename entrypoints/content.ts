@@ -576,7 +576,7 @@ export default defineContentScript({
               // Copy to clipboard as last resort
               navigator.clipboard.writeText(emailBody);
               const toast = document.createElement('div');
-              toast.textContent = 'Email copied to clipboard — paste into body field.';
+              toast.textContent = 'Email copied to clipboard. Paste into body field.';
               Object.assign(toast.style, { position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background:'#C4841D', color:'#fff', padding:'8px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:'500', zIndex:'99999' });
               document.body.appendChild(toast);
               setTimeout(() => toast.remove(), 4000);
@@ -594,7 +594,7 @@ export default defineContentScript({
         } catch(e: any) {
           console.error('[Brevmont] Email popup error:', e.message);
           logError('API_ERROR', e.message || 'Email popup generation failed', 'vinsolutions_email_popup');
-          btn.textContent = 'Error — try again'; btn.disabled = false;
+          btn.textContent = 'Error. Try again.'; btn.disabled = false;
           setTimeout(() => { btn.textContent = 'Generate with Brevmont'; }, 2000);
         }
       });
@@ -709,7 +709,7 @@ export default defineContentScript({
 
           btn.textContent = 'Generate Call Note'; btn.disabled = false;
         } catch(e: any) {
-          btn.textContent = 'Error — try again'; btn.disabled = false;
+          btn.textContent = 'Error. Try again.'; btn.disabled = false;
           console.error('[Brevmont] Call log generate error:', e);
           logError('API_ERROR', e?.message || 'Call log generation failed', 'vinsolutions_call_log');
           setTimeout(() => { btn.textContent = 'Generate Call Note'; }, 2000);
@@ -792,14 +792,14 @@ export default defineContentScript({
           field.dispatchEvent(new Event('change', { bubbles: true }));
 
           const toast = document.createElement('div');
-          toast.textContent = 'Text generated — review before sending.';
+          toast.textContent = 'Text generated. Review before sending.';
           Object.assign(toast.style, { position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background:'#0F1419', color:'#fff', padding:'8px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:'500', zIndex:'2147483647' });
           document.body.appendChild(toast);
           setTimeout(() => toast.remove(), 3000);
 
           btn.textContent = 'Generate with Brevmont'; btn.disabled = false;
         } catch (err: any) {
-          btn.textContent = 'Error — try again'; btn.disabled = false;
+          btn.textContent = 'Error. Try again.'; btn.disabled = false;
           console.error('[Brevmont] Text popup generate error:', err);
           logError('API_ERROR', err?.message || 'Text popup generation failed', 'vinsolutions_text_popup');
           setTimeout(() => { btn.textContent = 'Generate with Brevmont'; }, 2000);
@@ -1404,7 +1404,7 @@ export default defineContentScript({
             pendingBadge.onclick = () => togglePendingPanel();
             document.body.appendChild(pendingBadge);
           }
-          pendingBadge.textContent = `📋 ${pendingNotes.length} note${pendingNotes.length > 1 ? 's' : ''} to log`;
+          pendingBadge.textContent = `${pendingNotes.length} note${pendingNotes.length > 1 ? 's' : ''} to log`;
           pendingBadge.style.display = 'block';
         } else if (pendingBadge) {
           pendingBadge.style.display = 'none';
@@ -1556,11 +1556,11 @@ export default defineContentScript({
             dlog('[Brevmont] Mic error:', e.error);
             logError('VOICE_ERROR', `Speech recognition: ${e.error}`, `platform=${PLATFORM}`);
             if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-              showToast(shadow, 'Mic permission denied — enable in Chrome site settings');
+              showToast(shadow, 'Mic permission denied. Enable in Chrome site settings.');
             } else if (e.error === 'audio-capture') {
               showToast(shadow, 'Mic in use by another tab. Close other tabs and try again.');
             } else {
-              showToast(shadow, 'Mic error — type your message');
+              showToast(shadow, 'Mic error. Type your message.');
             }
             cleanupRecognition();
           };
@@ -1584,9 +1584,9 @@ export default defineContentScript({
           dlog('[Brevmont] Mic start failed:', e.message);
           cleanupRecognition();
           if (e.message?.includes('not-allowed') || e.name === 'NotAllowedError') {
-            showToast(shadow, 'Mic permission denied — enable in Chrome site settings');
+            showToast(shadow, 'Mic permission denied. Enable in Chrome site settings.');
           } else {
-            showToast(shadow, 'Voice not available — type your message');
+            showToast(shadow, 'Voice not available. Type your message.');
           }
         }
       };
@@ -2144,7 +2144,7 @@ export default defineContentScript({
               // Save pending lead for later
               await browser.storage.local.set({ brevmont_pending_lead: data, brevmont_pending_lead_time: Date.now() });
               navigator.clipboard.writeText(`${data.first_name || ''} ${data.last_name || ''}\nPhone: ${data.phone || ''}\nEmail: ${data.email || ''}\nVehicle: ${data.vehicle_interest || ''}\nNotes: ${data.notes || ''}`);
-              showToast(s, 'Lead saved — open your CRM to inject');
+              showToast(s, 'Lead saved. Open your CRM to inject.');
               closeLead();
               return;
             }
@@ -2184,7 +2184,7 @@ export default defineContentScript({
           // Fallback — copy to clipboard
           const clipText = `${data.first_name || ''} ${data.last_name || ''}\nPhone: ${data.phone || ''}\nEmail: ${data.email || ''}\nVehicle: ${data.vehicle_interest || ''}\nNotes: ${data.notes || ''}`;
           navigator.clipboard.writeText(clipText);
-          showToast(s, "Couldn't find Add Customer — lead data copied to clipboard");
+          showToast(s, "Couldn't find Add Customer. Lead data copied to clipboard.");
           // Log anyway
           try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'LEAD_CAPTURED', platform: PLATFORM, customer: `${data.first_name || ''} ${data.last_name || ''}`.trim(), input_method: inputMethod, fields_populated: Object.values(data).filter(Boolean).length, tier: currentTier } }); } catch(e) {}
           closeLead();
@@ -2211,7 +2211,7 @@ export default defineContentScript({
               if (lastNameField && data.last_name) { lastNameField.focus(); safeInjectText(lastNameField, data.last_name); }
               if (phoneField && data.phone) { phoneField.focus(); safeInjectText(phoneField, data.phone); }
               if (emailField && data.email) { emailField.focus(); safeInjectText(emailField, data.email); }
-              showToast(s, 'Form filled — review and click Save in your CRM');
+              showToast(s, 'Form filled. Review and click Save in your CRM.');
 
               // Log capture event
               try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'LEAD_CAPTURED', platform: PLATFORM, customer: `${data.first_name || ''} ${data.last_name || ''}`.trim(), input_method: inputMethod, fields_populated: Object.values(data).filter(Boolean).length, tier: currentTier } }); } catch(e) {}
@@ -2223,7 +2223,7 @@ export default defineContentScript({
           // Form fields not found — fallback to clipboard
           const clipText = `${data.first_name || ''} ${data.last_name || ''}\nPhone: ${data.phone || ''}\nEmail: ${data.email || ''}\nVehicle: ${data.vehicle_interest || ''}\nNotes: ${data.notes || ''}`;
           navigator.clipboard.writeText(clipText);
-          showToast(s, "Form opened but fields not found — lead data copied to clipboard");
+          showToast(s, "Form opened but fields not found. Lead data copied to clipboard.");
           try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'LEAD_CAPTURED', platform: PLATFORM, customer: `${data.first_name || ''} ${data.last_name || ''}`.trim(), input_method: inputMethod, fields_populated: Object.values(data).filter(Boolean).length, tier: currentTier } }); } catch(e) {}
           closeLead();
         }, 1500);
@@ -2255,7 +2255,7 @@ export default defineContentScript({
             if (quickMode) {
               const banner = document.createElement('div');
               banner.className = 'lead-banner';
-              banner.innerHTML = '📋 You have an uninjected lead — tap to complete';
+              banner.innerHTML = 'You have an uninjected lead. Tap to complete.';
               banner.onclick = () => {
                 banner.remove();
                 openLead();
@@ -2621,7 +2621,7 @@ export default defineContentScript({
             metadata: { workflow_type: type === 'all' ? 'all' : type, customer_name: leadData?.customerName || extractContactName() || null, vehicle: leadData?.vehicle || null, email: leadData?.email || null } }
         });
         if (response.error) addOutput(s, 'Error', response.error);
-        else { const sec = response.sections; if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) { if (sec.crm.trim() === 'NO_NEW_NOTE') { showToast(s, 'Nothing new to log — last note covers this.'); } else { addOutput(s, outputLabels.crm, sec.crm); } } if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.'); }
+        else { const sec = response.sections; if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) { if (sec.crm.trim() === 'NO_NEW_NOTE') { showToast(s, 'Nothing new to log. Last note covers this.'); } else { addOutput(s, outputLabels.crm, sec.crm); } } if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.'); }
         // Tabbed outputs refactor (2026-04-19): auto-activate the first
         // generated output so the panel shows exactly one card post-gen.
         // Preference order: text → email → crm (matches the marketing demo
@@ -2727,7 +2727,7 @@ export default defineContentScript({
         // Fallback: copy to clipboard + stage for auto-paste
         navigator.clipboard.writeText(emailContent);
         await browser.storage.local.set({ brevmont_paste_email_subject: subject, brevmont_paste_email_body: body, brevmont_paste_email_time: Date.now() });
-        statusEl.textContent = 'Copied — paste into email manually'; statusEl.style.color = '#2563eb';
+        statusEl.textContent = 'Copied. Paste into email manually.'; statusEl.style.color = '#2563eb';
       }
     }
 
@@ -2819,19 +2819,19 @@ export default defineContentScript({
             const custName = leadData?.customerName || document.title.split(' - ')[0] || 'Unknown Customer';
             try { browser.runtime.sendMessage({ type: 'SAVE_PENDING_EMAIL', payload: { customer_name: custName, subject, body } }); } catch(e) {}
             this.textContent = 'Queued'; this.style.background = '#16a34a'; this.style.color = '#fff';
-            st.textContent = 'Email queued — open Gmail to send'; st.style.color = '#16a34a';
+            st.textContent = 'Email queued. Open Gmail to send.'; st.style.color = '#16a34a';
             try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'EMAIL_QUEUED', platform: PLATFORM, customer: custName } }); } catch(e) {}
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
           } else if (isText && isFacebook) {
             const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement;
             if (box) { box.focus(); safeInjectText(box, curContent); this.textContent = 'Sent'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Sent to Messenger'; st.style.color = '#16a34a'; }
-            else { this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Copied — open a conversation first'; st.style.color = '#f59e0b'; }
+            else { this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Copied. Open a conversation first.'; st.style.color = '#f59e0b'; }
             try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
           } else if (isText && isLinkedIn) {
             const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement;
             if (box) { box.focus(); safeInjectText(box, curContent); this.textContent = 'Sent'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Sent to LinkedIn'; st.style.color = '#16a34a'; }
-            else { this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Copied — open a conversation first'; st.style.color = '#f59e0b'; }
+            else { this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Copied. Open a conversation first.'; st.style.color = '#f59e0b'; }
             try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
           } else if (isEmail && isGmail) {
@@ -2845,7 +2845,7 @@ export default defineContentScript({
               this.textContent = 'Applied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Applied to compose'; st.style.color = '#16a34a';
               try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'EMAIL_APPLIED', platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
             } else {
-              this.textContent = 'Copied'; this.style.background = '#f59e0b'; this.style.color = '#fff'; st.textContent = 'Copied — open a compose window first'; st.style.color = '#f59e0b';
+              this.textContent = 'Copied'; this.style.background = '#f59e0b'; this.style.color = '#fff'; st.textContent = 'Copied. Open a compose window first.'; st.style.color = '#f59e0b';
             }
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
           } else {
@@ -2882,7 +2882,7 @@ export default defineContentScript({
     // ===== LISTENERS =====
     browser.runtime.onMessage.addListener((msg: any) => {
       if (msg.type === 'OPEN_COMMAND_TAB' && sidebarRoot) { if (!sidebarOpen) openSidebar(); const s = sidebarRoot.shadowRoot!; s.getElementById('o8-quick')!.style.display = 'none'; const tp = s.getElementById('o8-tools-panel'); if (tp) tp.style.display = 'flex'; s.querySelectorAll('.tool-tab-btn').forEach(b => b.classList.remove('active')); s.querySelector('.tool-tab-btn[data-tool="command"]')?.classList.add('active'); s.querySelectorAll('.tool-content').forEach(c => (c as HTMLElement).style.display = 'none'); s.getElementById('tool-command')!.style.display = 'block'; }
-      if (msg.type === 'SHOW_ALERT_BANNER') { const existing = document.getElementById('brevmont-alert-banner'); if (existing) existing.remove(); const banner = document.createElement('div'); banner.id = 'brevmont-alert-banner'; Object.assign(banner.style, { position:'fixed', top:'0', left:'0', right:'0', zIndex:'999999', background:'#FF3B30', color:'#fff', padding:'12px 20px', fontFamily:'system-ui,sans-serif', fontSize:'14px', fontWeight:'600', display:'flex', alignItems:'center', gap:'10px', boxShadow:'0 2px 8px rgba(0,0,0,0.2)' }); banner.innerHTML = `<span>🔔</span><span style="flex:1">${esc(msg.payload.task)}</span><button style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Dismiss</button>`; banner.querySelector('button')!.addEventListener('click', () => { banner.remove(); browser.runtime.sendMessage({ type: 'DISMISS_ALERT', payload: { id: msg.payload.id } }); }); document.body.appendChild(banner); }
+      if (msg.type === 'SHOW_ALERT_BANNER') { const existing = document.getElementById('brevmont-alert-banner'); if (existing) existing.remove(); const banner = document.createElement('div'); banner.id = 'brevmont-alert-banner'; Object.assign(banner.style, { position:'fixed', top:'0', left:'0', right:'0', zIndex:'999999', background:'#0F1419', color:'#F8F6F1', padding:'12px 20px', fontFamily:'Inter, sans-serif', fontSize:'14px', fontWeight:'600', display:'flex', alignItems:'center', gap:'10px', boxShadow:'0 2px 8px rgba(0,0,0,0.2)' }); banner.innerHTML = `<span style="flex:1">${esc(msg.payload.task)}</span><button style="background:#0D6E6E;border:none;color:#F8F6F1;padding:6px 16px;border-radius:6px;font-family:Inter,sans-serif;font-size:12px;font-weight:600;cursor:pointer">Dismiss</button>`; banner.querySelector('button')!.addEventListener('click', () => { banner.remove(); browser.runtime.sendMessage({ type: 'DISMISS_ALERT', payload: { id: msg.payload.id } }); }); document.body.appendChild(banner); }
     });
 
     function parseAlertTime(text: string): number {
