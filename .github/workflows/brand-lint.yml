@@ -1,0 +1,33 @@
+name: brand-lint
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+jobs:
+  stylelint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - name: Stylelint (brand color enforcement)
+        run: npm run lint:css
+
+  vale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vale (prose style enforcement)
+        uses: errata-ai/vale-action@reviewdog
+        with:
+          version: 3.7.1
+          reporter: github-check
+          fail_on_error: true
+          filter_mode: nofilter
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
