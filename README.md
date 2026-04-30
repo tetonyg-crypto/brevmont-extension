@@ -1,11 +1,11 @@
 # Brevmont Chrome Extension
 
-The rep-execution layer for relationship sales. Injects into VinSolutions and other dealership CRMs to draft text messages, emails, and CRM notes in three seconds — keyed to the rep's voice and the lead's history.
+The rep-execution layer for relationship sales. Injects into VinSolutions and other dealership CRMs to draft text messages, emails, and CRM notes in three seconds, keyed to the rep's voice and the lead's history.
 
 ## Repos
 
 - **Extension** (this repo): `tetonyg-crypto/brevmont-extension`. WXT framework, Manifest V3, built to `.output/chrome-mv3/`.
-- **Backend**: `tetonyg-crypto/brevmont-api` — Express on Railway. Generation jobs, webhook saga, license + token issuance.
+- **Backend**: `tetonyg-crypto/brevmont-api` (Express on Railway). Generation jobs, webhook saga, license + token issuance.
 - **Admin app**: `tetonyg-crypto/brevmont-app` (deployed at `app.brevmont.com`). Founder dashboard, /join, /install, /welcome, /support.
 - **Marketing**: `tetonyg-crypto/brevmont-landing` (deployed at `brevmont.com`).
 
