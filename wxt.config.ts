@@ -13,6 +13,12 @@ export default defineConfig({
     }
   }),
   manifest: {
+    // Wave 2.8: stable extension ID for developer (sideloaded) installs.
+    // Without this field every `Load unpacked` gets a new random CRX ID,
+    // breaking any code that hard-codes the extension ID.
+    // Private key stored in brevmont-vault/secrets/extension-keypair.pem
+    // (never commit private key to source; this public key is safe to publish).
+    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkMsS75L94HSdLb6I5gYOWkaP7JwtWdeRtVTmBRjkVR8tbvnsvYBE54CPY4jrHGKR8+CUO8NSd62MRCabJZMaJ5N1QpwgttOY2XCD78wCggmRGbKlGsZOtZjwkvX93NHAgcNFc/1RKu1mq0ireFqtidDLp8tM6WKPD/maWZ83xPPeYWD5Ahmwx0qjLMyAsj4e3uBIegtyT05IrPBtpYOT30GRuoi2+kTDU/McaY6yS9VtVZXomsLH5kUlA8+RD7vzxToGitogc6g0pJdEluXtdIkSN+ulcPzOfWzmBBdbViiJlmOUr/m/OFF482E0eSy6Ek4V/Z1KAJGheOAKh0wOvwIDAQAB',
     name: 'Brevmont — AI Sales Assistant',
     short_name: 'Brevmont',
     version: '1.10.4',
