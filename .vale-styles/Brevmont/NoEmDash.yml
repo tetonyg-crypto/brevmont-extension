@@ -1,0 +1,7 @@
+extends: existence
+message: "Em-dash detected. Atlas-Approved Copy V1 forbids em-dashes — use commas, periods, or parentheses. (Editorial essays may override locally with `<!-- vale Brevmont.NoEmDash = NO -->`.)"
+level: error
+nonword: true
+tokens:
+  - '—'
+  - '–'
