@@ -6,7 +6,8 @@
   "scripts": {
     "build": "wxt build",
     "build:dev": "wxt build && bash .scripts/tg.sh \"[EXTENSION DEV BUILD] v$npm_package_version complete. Reload extension at chrome://extensions and hard-refresh VinSolutions.\"",
-    "build:release": "wxt build && wxt zip",
+    "build:release": "node scripts/verify-registry-sync.js && wxt build && wxt zip",
+    "verify:registry": "node scripts/verify-registry-sync.js",
     "dev": "wxt dev",
     "zip": "wxt zip",
     "test": "echo \"No tests yet\"",
