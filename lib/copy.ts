@@ -82,7 +82,7 @@ export const copy = {
       toneLabel: 'Pick the closest match',
       emojiLabel: 'Emojis in texts?',
       textSigLabel: 'Your text signature',
-      textSigPlaceholder: 'e.g. — Mike at Stone\'s',
+      textSigPlaceholder: 'e.g. Mike at Main Street Auto',
       emailSignoffLabel: 'Email sign-off',
       emailSignoffPlaceholder: "e.g. Talk soon,",
       languagesLabel: 'Languages you sell in',
