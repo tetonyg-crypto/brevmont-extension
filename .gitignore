@@ -11,3 +11,13 @@ node_modules/
 *.key
 *.pem
 secrets.json
+
+# Cursor
+.cursor/cache/
+.cursor/logs/
+.cursor/index/
+*.cursor-tmp
+
+# Cursor rules ARE committed - do not gitignore these:
+# .cursor/rules/  (intentionally tracked)
+# .cursorrules    (intentionally tracked)
