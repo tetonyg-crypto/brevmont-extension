@@ -1,0 +1,62 @@
+---
+description: Chrome extension MV3 + WXT specific rules. CRM injection safety, telemetry, license validation.
+globs: ["entrypoints/**/*.ts", "components/**/*.tsx", "wxt.config.ts", "manifest*.json"]
+alwaysApply: true
+---
+
+# Chrome Extension Rules
+
+## Manifest
+
+- Manifest V3 only. No MV2 patterns.
+- Version must be bumped in BOTH `package.json` AND `wxt.config.ts` for every release. Mismatched versions ship the wrong manifest.
+- `host_permissions` must be explicit. Do not request `<all_urls>`.
+- `permissions` should be the minimum required.
+
+## CRM injection safety
+
+- Content scripts must not break the host CRM page. Wrap injection in try/catch.
+- All UI injection uses Shadow DOM to isolate styles.
+- Selectors targeting CRM DOM must have a fallback path. CRMs change DOM frequently.
+
+## License validation
+
+- Extension calls `/v1/license/validate` on activation.
+- License key format: `BREV-XXXX-XXXX`.
+- Use HMAC `signedFetch` for sensitive calls (carries license_secret).
+- Rep identity uses `X-Rep-Token` header (different from license).
+
+## Telemetry
+
+- Extension writes events to `event_log` via `/api/events` (not the legacy `generation_events` table).
+- Events use the `crm.*` taxonomy: `crm.generation`, `crm.paste`, `crm.send`, `crm.confirm`.
+- Include `idempotency_key` on every event POST.
+- Failures must be logged via `/v1/telemetry/extension` with stack trace.
+
+## Storage
+
+- `chrome.storage.local` for per-rep state (license_key, rep_id, dealer_token).
+- Reads must handle missing keys (storage cleared by user, fresh install, etc.).
+- Writes must include all required keys atomically when possible.
+
+## Cookie-share auto-config
+
+- On first install, attempt cookie-share auto-config from `app.brevmont.com` session.
+- Manual 4-step license-key wizard exists as fallback only. Display deprecation banner.
+
+## Reference
+
+- `brevmont-vault/audits/2026-05-01-distribution-readiness-scan.md` — extension flow audit
+
+## Enforcement
+
+REJECT outright:
+- MV2 patterns
+- `<all_urls>` in host_permissions
+- License key writes to anywhere outside chrome.storage
+- Direct fetch to `/api/events` without idempotency_key
+
+FLAG:
+- Selector changes targeting CRM DOM (require canary update)
+- New permission additions to manifest
+- Version bump in only one of (package.json, wxt.config.ts)

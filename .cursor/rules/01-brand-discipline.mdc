@@ -1,0 +1,57 @@
+---
+description: Brevmont brand voice, copy discipline, and visual identity rules. Apply to all customer-facing surfaces.
+globs: **/*
+alwaysApply: true
+---
+
+# Brand Discipline
+
+## Visual identity (locked)
+
+Use these colors only:
+- Charcoal: `#0F1419`
+- Deep Teal: `#0D6E6E`
+- Bone: `#F5F3EE`
+
+Do not introduce other hex codes for these color concepts. If a designer-style request asks for "primary" use Deep Teal. If "background" use Bone. If "text" use Charcoal.
+
+## Typography
+
+- Body text: Inter
+- Editorial headings: Instrument Serif
+
+Do not introduce other typefaces for these roles.
+
+## Voice (warm institutional)
+
+- Third-person plural ("we", "our team", "Brevmont")
+- No founder first-name leak. Do not use "Yancy" in customer-facing copy.
+- Direct, factual, professional. Trust through specificity.
+
+## Banned phrases (NEVER write these in customer-facing copy)
+
+- revolutionary
+- unleash
+- supercharge
+- game-changing
+- delight (as a verb describing the product)
+- leverage (as a verb)
+- synergy
+- "hey there"
+- "we're excited to announce"
+- "hope you're well"
+- "Friday" as a deadline placeholder
+
+## Banned punctuation in customer-facing copy
+
+- No emojis
+- No em-dashes (use period, comma, or parentheses)
+- No exclamation points
+
+## Brand reference
+
+Canonical voice and copy guide lives at `brevmont-vault/copy/atlas-approved-copy-v2.md`. When generating customer-facing copy, match the patterns there.
+
+## Enforcement
+
+If a request would require violating any of these rules, flag the conflict and propose a compliant alternative. Do not silently override.

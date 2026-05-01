@@ -1,0 +1,51 @@
+---
+description: Git operation safety. Prevent destructive actions without explicit founder approval.
+globs: **/*
+alwaysApply: true
+---
+
+# Git Safety Rules
+
+## Forbidden operations (require explicit founder approval before running)
+
+- `git push --force` or `git push -f` (force push to any branch)
+- `git reset --hard` on a branch with uncommitted work
+- `rm -rf` on any directory inside a repo
+- `git clean -fd` without first checking `git status`
+- Deleting branches via `git branch -D` (capital D forces delete)
+- Modifying or deleting any file in `.git/`
+
+## Required operations (always do these)
+
+- Run `git status` before any destructive operation
+- Confirm branch name before pushing
+- Verify staged changes match intent before committing
+
+## Branch conventions
+
+- `brevmont-api` default branch: `master`
+- `brevmont-app` default branch: `main`
+- `brevmont-extension` default branch: `main`
+- `brevmont-content-engine` default branch: `main`
+
+## Commit messages
+
+- Use conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`
+- Imperative mood, lowercase first letter after the type prefix
+- Reference the audit ticket or PR if applicable
+
+## Pull request workflow
+
+- Always create feature branch off latest default branch
+- Run stale-branch preflight before opening PR: `git fetch && git log HEAD..origin/<default> --oneline | wc -l` should return 0
+- After Cursor work, run Codex CLI review before merge (see Codex review workflow)
+
+## Enforcement
+
+When user asks for a destructive git operation:
+1. Read `git status` first
+2. Show what would be lost
+3. Ask for explicit confirmation
+4. Only then run
+
+For ANY `--force`, `--hard`, or `rm -rf` request: pause, summarize the blast radius, wait for founder confirmation containing the word "yes" or "confirmed".
