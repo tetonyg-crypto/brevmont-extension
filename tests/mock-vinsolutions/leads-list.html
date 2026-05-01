@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VinSolutions CRM — Leads (Mock)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Top nav matches VinSolutions structure -->
+<nav class="vs-nav">
+  <span class="brand">VinSolutions</span>
+  <a href="#">Dashboard</a>
+  <a href="#">Leads</a>
+  <a href="#">Customers</a>
+  <a href="#">Inventory</a>
+  <a href="#">Reports</a>
+  <a href="#">Settings</a>
+</nav>
+
+<div class="vs-subnav">
+  <a href="#">My Leads</a>
+  <a href="leads-list.html" class="active">All Leads</a>
+  <a href="#">BDC Queue</a>
+  <a href="#">Showroom</a>
+</div>
+
+<div class="vs-layout">
+  <div class="vs-sidebar">
+    <div class="vs-sidebar-section">Views</div>
+    <div class="vs-sidebar-item active">All Leads</div>
+    <div class="vs-sidebar-item">Hot Leads</div>
+    <div class="vs-sidebar-item">My Leads</div>
+    <div class="vs-sidebar-item">Unworked 24h+</div>
+    <div class="vs-sidebar-section">Filters</div>
+    <div class="vs-sidebar-item">New This Week</div>
+    <div class="vs-sidebar-item">Internet Leads</div>
+    <div class="vs-sidebar-item">Phone Leads</div>
+    <div class="vs-sidebar-item">Walk-ins</div>
+  </div>
+
+  <div class="vs-main">
+    <div class="vs-panel">
+      <div class="vs-panel-header">
+        <span>All Leads (3)</span>
+        <div style="display:flex;gap:8px;">
+          <button class="vs-btn vs-btn-secondary" type="button">Export</button>
+          <button class="vs-btn" type="button">+ Add Lead</button>
+        </div>
+      </div>
+      <table class="vs-table" id="leads-table">
+        <thead>
+          <tr>
+            <th><input type="checkbox"></th>
+            <th>Name</th>
+            <th>Phone</th>
+            <th>Vehicle of Interest</th>
+            <th>Status</th>
+            <th>Last Contact</th>
+            <th>Salesperson</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody id="leads-tbody">
+          <!-- Rows injected by data.js -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+(function() {
+  const tbody = document.getElementById('leads-tbody');
+  const statusClass = { Hot: 'badge-hot', Working: 'badge-working', Cold: 'badge-cold' };
+
+  MOCK_DATA.leads.forEach(function(lead) {
+    const tr = document.createElement('tr');
+    tr.setAttribute('data-lead-id', lead.id);
+    tr.setAttribute('data-customer-name', lead.name);
+    tr.setAttribute('data-vehicle', lead.vehicle);
+    tr.innerHTML = [
+      '<td><input type="checkbox"></td>',
+      `<td><a href="customer-detail.html" style="color:#1a5fa5;text-decoration:none;">${lead.name}</a></td>`,
+      `<td>${lead.phone}</td>`,
+      `<td>${lead.vehicle}</td>`,
+      `<td><span class="badge ${statusClass[lead.status] || ''}">${lead.status}</span></td>`,
+      `<td>${lead.lastContact}</td>`,
+      `<td>${lead.salesperson}</td>`,
+      `<td>${lead.source}</td>`,
+    ].join('');
+    tbody.appendChild(tr);
+
+    tr.addEventListener('click', function() {
+      document.querySelectorAll('#leads-tbody tr').forEach(function(r) { r.classList.remove('selected'); });
+      tr.classList.add('selected');
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

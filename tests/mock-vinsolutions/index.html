@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VinSolutions CRM — Mock (Brevmont Test Harness)</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .mock-banner {
+      background: #fff3cd;
+      border-bottom: 2px solid #ffc107;
+      padding: 6px 16px;
+      font-size: 11px;
+      color: #664d03;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .mock-banner strong { color: #523a02; }
+    .mock-links { display: flex; gap: 16px; margin-top: 40px; }
+    .mock-card {
+      background: #fff;
+      border: 1px solid #d0d0d0;
+      border-radius: 4px;
+      padding: 20px 24px;
+      min-width: 220px;
+      cursor: pointer;
+      text-decoration: none;
+      color: #333;
+      display: block;
+      transition: box-shadow 0.15s;
+    }
+    .mock-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.12); border-color: #2d6da4; }
+    .mock-card-title { font-weight: bold; font-size: 14px; color: #1a3a5c; margin-bottom: 6px; }
+    .mock-card-desc { font-size: 12px; color: #666; }
+    .mock-card-badge { font-size: 10px; background: #ddeafa; color: #1a5fa5; border-radius: 8px; padding: 2px 7px; display: inline-block; margin-top: 8px; font-weight: bold; }
+    .vs-main-content { padding: 24px; }
+    .vs-page-title { font-size: 20px; font-weight: bold; color: #1a3a5c; margin-bottom: 6px; }
+    .vs-page-sub { font-size: 12px; color: #666; margin-bottom: 24px; }
+    table.selector-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+    table.selector-table th { text-align: left; background: #e8eef4; padding: 6px 10px; border: 1px solid #d0d0d0; color: #555; font-weight: bold; }
+    table.selector-table td { padding: 6px 10px; border: 1px solid #e0e0e0; vertical-align: top; }
+    table.selector-table td code { background: #f5f5f5; padding: 1px 4px; border-radius: 2px; font-family: monospace; font-size: 11px; }
+    .section-title { font-size: 13px; font-weight: bold; color: #333; margin: 20px 0 8px; }
+  </style>
+</head>
+<body>
+
+<div class="mock-banner">
+  <strong>TEST HARNESS</strong> — This is a mock VinSolutions CRM environment for Brevmont extension testing. No real data.
+  <span style="margin-left:auto;color:#856404;">Brevmont Extension E2E Test Suite v1.0</span>
+</div>
+
+<nav class="vs-nav">
+  <span class="brand">VinSolutions</span>
+  <a href="#">Dashboard</a>
+  <a href="leads-list.html">Leads</a>
+  <a href="#">Customers</a>
+  <a href="#">Inventory</a>
+  <a href="#">Reports</a>
+  <a href="#">Settings</a>
+</nav>
+
+<div class="vs-subnav">
+  <a href="index.html" class="active">Test Harness</a>
+  <a href="leads-list.html">Leads List</a>
+  <a href="customer-detail.html">Customer Detail</a>
+</div>
+
+<div class="vs-layout">
+  <div class="vs-sidebar">
+    <div class="vs-sidebar-section">Test Pages</div>
+    <div class="vs-sidebar-item active">Home / Index</div>
+    <div class="vs-sidebar-item" onclick="location.href='leads-list.html'">Leads List</div>
+    <div class="vs-sidebar-item" onclick="location.href='customer-detail.html'">Customer Detail</div>
+    <div class="vs-sidebar-section">Extension Targets</div>
+    <div class="vs-sidebar-item">#crm-note-input</div>
+    <div class="vs-sidebar-item">#email-body</div>
+    <div class="vs-sidebar-item">#sms-body</div>
+    <div class="vs-sidebar-item">#brevmont-inject-point</div>
+  </div>
+
+  <div class="vs-main">
+    <div class="vs-main-content">
+      <div class="vs-page-title">Mock VinSolutions — Brevmont Test Harness</div>
+      <div class="vs-page-sub">
+        Static HTML mock of the VinSolutions CRM DOM structure. Used by Playwright E2E tests to verify the Brevmont extension correctly reads customer/vehicle data and injects generated text.
+      </div>
+
+      <div class="mock-links">
+        <a href="leads-list.html" class="mock-card">
+          <div class="mock-card-title">Leads List</div>
+          <div class="mock-card-desc">Table of 3 mock leads. Tests row selection and navigation to customer detail.</div>
+          <div class="mock-card-badge">leads-list.html</div>
+        </a>
+        <a href="customer-detail.html" class="mock-card">
+          <div class="mock-card-title">Customer Detail</div>
+          <div class="mock-card-desc">Full customer + vehicle detail. Primary injection target for the extension.</div>
+          <div class="mock-card-badge">customer-detail.html</div>
+        </a>
+      </div>
+
+      <div class="section-title">DOM Selectors — Extension Extraction Targets</div>
+      <table class="selector-table">
+        <thead>
+          <tr>
+            <th>Selector</th>
+            <th>Page</th>
+            <th>Role</th>
+            <th>Expected Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>#customer-name</code></td>
+            <td>customer-detail.html</td>
+            <td>Customer name read</td>
+            <td>Test Customer Alpha</td>
+          </tr>
+          <tr>
+            <td><code>#customer-phone</code></td>
+            <td>customer-detail.html</td>
+            <td>Phone read</td>
+            <td>(307) 555-0100</td>
+          </tr>
+          <tr>
+            <td><code>#customer-email</code></td>
+            <td>customer-detail.html</td>
+            <td>Email read</td>
+            <td>alpha@testcustomer.internal</td>
+          </tr>
+          <tr>
+            <td><code>#vehicle-title</code></td>
+            <td>customer-detail.html</td>
+            <td>Vehicle title read</td>
+            <td>2024 Ford F-150 XLT 4WD</td>
+          </tr>
+          <tr>
+            <td><code>#vin-number</code></td>
+            <td>customer-detail.html</td>
+            <td>VIN read</td>
+            <td>1FTFW1E87RFA00001</td>
+          </tr>
+          <tr>
+            <td><code>#vehicle-price</code></td>
+            <td>customer-detail.html</td>
+            <td>Price read</td>
+            <td>$52,850</td>
+          </tr>
+          <tr>
+            <td><code>#stock-number</code></td>
+            <td>customer-detail.html</td>
+            <td>Stock # read</td>
+            <td>ST-2024-001</td>
+          </tr>
+          <tr>
+            <td><code>#crm-note-input</code></td>
+            <td>customer-detail.html</td>
+            <td><strong>PRIMARY:</strong> Note injection target</td>
+            <td>Extension writes generated text here</td>
+          </tr>
+          <tr>
+            <td><code>#email-body</code></td>
+            <td>customer-detail.html (Emails tab)</td>
+            <td>Email compose injection</td>
+            <td>Extension writes email draft here</td>
+          </tr>
+          <tr>
+            <td><code>#sms-body</code></td>
+            <td>customer-detail.html (Texts tab)</td>
+            <td>SMS compose injection</td>
+            <td>Extension writes SMS draft here</td>
+          </tr>
+          <tr>
+            <td><code>#brevmont-inject-point</code></td>
+            <td>customer-detail.html</td>
+            <td>Test assertion anchor</td>
+            <td>Replaced by extension UI panel</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="section-title">Events — Extension Test Signals</div>
+      <table class="selector-table">
+        <thead>
+          <tr><th>Event</th><th>Fired by</th><th>Detail payload</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>mock:note-saved</code></td>
+            <td>Save Note button click (customer-detail.html)</td>
+            <td><code>{ text: string }</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="section-title">window.BREVMONT_TEST_SELECTORS</div>
+      <div style="background:#f5f5f5;border:1px solid #ddd;border-radius:3px;padding:10px 12px;font-family:monospace;font-size:11px;line-height:1.7;">
+        window.BREVMONT_TEST_SELECTORS = {<br>
+        &nbsp;&nbsp;crmNoteTextarea: '#crm-note-input',<br>
+        &nbsp;&nbsp;emailBodyTextarea: '#email-body',<br>
+        &nbsp;&nbsp;smsBodyTextarea: '#sms-body',<br>
+        &nbsp;&nbsp;customerName: '#customer-name',<br>
+        &nbsp;&nbsp;vehicleTitle: '#vehicle-title',<br>
+        &nbsp;&nbsp;vinNumber: '#vin-number',<br>
+        &nbsp;&nbsp;vehiclePrice: '#vehicle-price',<br>
+        &nbsp;&nbsp;injectPoint: '#brevmont-inject-point',<br>
+        }
+      </div>
+
+      <div class="section-title">Mock Data</div>
+      <div style="font-size:12px;color:#666;margin-top:4px;">
+        All mock data is in <code>data.js</code> (<code>window.MOCK_DATA</code>). Three leads: Test Customer Alpha (Hot, F-150), Test Customer Beta (Working, Tacoma), Test Customer Gamma (Cold, Silverado). Customer detail page is hardcoded to Alpha's record.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+</body>
+</html>

@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VinSolutions CRM — Customer Detail (Mock)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="vs-nav">
+  <span class="brand">VinSolutions</span>
+  <a href="#">Dashboard</a>
+  <a href="leads-list.html">Leads</a>
+  <a href="#">Customers</a>
+  <a href="#">Inventory</a>
+  <a href="#">Reports</a>
+  <a href="#">Settings</a>
+</nav>
+
+<div class="vs-subnav">
+  <a href="leads-list.html">&larr; Back to Leads</a>
+  <a href="#" class="active">Customer Detail</a>
+</div>
+
+<div class="vs-layout">
+  <div class="vs-sidebar">
+    <div class="vs-sidebar-section">Customer Actions</div>
+    <div class="vs-sidebar-item active">Overview</div>
+    <div class="vs-sidebar-item">Activity Log</div>
+    <div class="vs-sidebar-item">Notes</div>
+    <div class="vs-sidebar-item">Emails</div>
+    <div class="vs-sidebar-item">Texts</div>
+    <div class="vs-sidebar-item">Deals</div>
+    <div class="vs-sidebar-section">Tools</div>
+    <div class="vs-sidebar-item">Credit App</div>
+    <div class="vs-sidebar-item">Trade-In</div>
+    <div class="vs-sidebar-item">F&amp;I Desk</div>
+  </div>
+
+  <div class="vs-main">
+
+    <!-- Customer header — the extension reads name + vehicle from this area -->
+    <div class="vs-customer-header" id="customer-header">
+      <div style="flex:1">
+        <div class="vs-customer-name" id="customer-name">Test Customer Alpha</div>
+        <div class="vs-customer-sub" id="customer-phone">(307) 555-0100</div>
+        <div class="vs-customer-sub" id="customer-email">alpha@testcustomer.internal</div>
+        <div class="vs-customer-tags">
+          <span class="badge badge-hot">Hot</span>
+          <span class="badge" style="background:#e0f0e0;color:#276;"> Active</span>
+        </div>
+      </div>
+      <div>
+        <button class="vs-btn" type="button">Send Text</button>
+        <button class="vs-btn vs-btn-secondary" style="margin-left:6px;" type="button">Send Email</button>
+      </div>
+    </div>
+
+    <!-- Vehicle card — extension extracts year/make/model/VIN/price from this -->
+    <div class="vs-vehicle-card" id="vehicle-of-interest">
+      <div class="vs-vehicle-title" id="vehicle-title">2024 Ford F-150 XLT 4WD</div>
+      <div class="vs-vehicle-detail">Vehicle of Interest</div>
+      <div class="vs-field-row">
+        <div class="vs-field">
+          <label>VIN</label>
+          <span id="vin-number">1FTFW1E87RFA00001</span>
+        </div>
+        <div class="vs-field">
+          <label>Stock #</label>
+          <span id="stock-number">ST-2024-001</span>
+        </div>
+        <div class="vs-field">
+          <label>Price</label>
+          <span id="vehicle-price">$52,850</span>
+        </div>
+        <div class="vs-field">
+          <label>Mileage</label>
+          <span id="vehicle-mileage">0</span>
+        </div>
+        <div class="vs-field">
+          <label>Color</label>
+          <span id="vehicle-color">Velocity Blue</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="vs-tabs">
+      <div class="vs-tab active" data-tab="notes">Notes &amp; Activity</div>
+      <div class="vs-tab" data-tab="emails">Emails</div>
+      <div class="vs-tab" data-tab="texts">Texts</div>
+      <div class="vs-tab" data-tab="calls">Calls</div>
+    </div>
+
+    <!-- Notes tab content -->
+    <div id="tab-notes">
+
+      <!-- Brevmont inject point (marker for Playwright tests) -->
+      <div id="brevmont-inject-point">
+        Brevmont will inject generated text here
+      </div>
+
+      <!-- CRM Note compose area — PRIMARY target for the extension -->
+      <div class="vs-note-compose" id="note-compose-area">
+        <label for="crm-note-input">Add Note / Activity</label>
+        <!-- This is the primary selector the extension targets for CRM notes -->
+        <textarea
+          id="crm-note-input"
+          class="vs-note-textarea"
+          name="activity_note"
+          data-role="crm-note"
+          placeholder="Type a note about this customer interaction..."
+        ></textarea>
+        <div class="vs-note-actions">
+          <button class="vs-btn vs-btn-secondary" type="button" id="clear-note-btn">Clear</button>
+          <button class="vs-btn" type="button" id="save-note-btn">Save Note</button>
+        </div>
+      </div>
+
+      <!-- Activity log (past notes) -->
+      <div id="activity-log">
+        <div class="vs-activity-item">
+          <div class="vs-activity-meta">Note — Test Rep One — Apr 29, 2026, 3:14 PM</div>
+          <div class="vs-activity-body">Called customer. Left voicemail about the F-150 they inquired about. Will try again tomorrow morning.</div>
+        </div>
+        <div class="vs-activity-item">
+          <div class="vs-activity-meta">Note — Test Rep One — Apr 28, 2026, 10:02 AM</div>
+          <div class="vs-activity-body">First contact. Customer came in on Saturday and test drove the F-150 XLT. Very interested. Said they need to talk to their spouse before committing.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Emails tab (hidden by default) -->
+    <div id="tab-emails" style="display:none;">
+      <div class="vs-note-compose">
+        <label for="email-subject">Subject</label>
+        <input
+          id="email-subject"
+          type="text"
+          class="vs-note-textarea"
+          style="min-height:auto;height:34px;"
+          placeholder="Email subject..."
+        >
+        <label for="email-body" style="margin-top:10px;">Body</label>
+        <!-- Email body — secondary target for the extension (email composition) -->
+        <textarea
+          id="email-body"
+          class="vs-email-body"
+          name="email_body"
+          data-role="email-compose"
+          placeholder="Compose email to customer..."
+        ></textarea>
+        <div class="vs-note-actions">
+          <button class="vs-btn vs-btn-secondary" type="button">Save Draft</button>
+          <button class="vs-btn" type="button">Send Email</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Texts tab (hidden by default) -->
+    <div id="tab-texts" style="display:none;">
+      <div class="vs-note-compose">
+        <label for="sms-body">Text Message</label>
+        <textarea
+          id="sms-body"
+          class="vs-note-textarea"
+          name="sms_body"
+          data-role="sms-compose"
+          placeholder="Type a text message..."
+          style="min-height:60px;"
+        ></textarea>
+        <div class="vs-note-actions">
+          <button class="vs-btn" type="button">Send Text</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+// Tab switching
+document.querySelectorAll('.vs-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.vs-tab').forEach(function(t) { t.classList.remove('active'); });
+    tab.classList.add('active');
+    var target = tab.getAttribute('data-tab');
+    ['notes', 'emails', 'texts', 'calls'].forEach(function(name) {
+      var el = document.getElementById('tab-' + name);
+      if (el) el.style.display = name === target ? '' : 'none';
+    });
+  });
+});
+
+// Save note (mock — appends to activity log)
+document.getElementById('save-note-btn').addEventListener('click', function() {
+  var textarea = document.getElementById('crm-note-input');
+  var text = textarea.value.trim();
+  if (!text) return;
+
+  var now = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  var item = document.createElement('div');
+  item.className = 'vs-activity-item';
+  item.innerHTML = '<div class="vs-activity-meta">Note — Test Rep One — ' + now + '</div>' +
+                   '<div class="vs-activity-body">' + text.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
+
+  var log = document.getElementById('activity-log');
+  log.insertBefore(item, log.firstChild);
+  textarea.value = '';
+
+  // Signal to tests that note was saved
+  document.dispatchEvent(new CustomEvent('mock:note-saved', { detail: { text: text } }));
+});
+
+document.getElementById('clear-note-btn').addEventListener('click', function() {
+  document.getElementById('crm-note-input').value = '';
+});
+
+// Expose mock DOM structure for extension selectors
+window.BREVMONT_TEST_SELECTORS = {
+  crmNoteTextarea: '#crm-note-input',
+  emailBodyTextarea: '#email-body',
+  smsBodyTextarea: '#sms-body',
+  customerName: '#customer-name',
+  vehicleTitle: '#vehicle-title',
+  vinNumber: '#vin-number',
+  vehiclePrice: '#vehicle-price',
+  injectPoint: '#brevmont-inject-point',
+};
+</script>
+
+</body>
+</html>
