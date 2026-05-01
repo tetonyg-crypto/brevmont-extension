@@ -99,17 +99,28 @@ export default defineBackground(() => {
 
     if (msg.type === 'LOG_ACTION') {
       const p = msg.payload;
-      browser.storage.sync.get(['dealer_token', 'rep_name']).then(async (settings) => {
+      browser.storage.local.get(['dealer_token', 'rep_id']).then(async (local) => {
+        let dealerToken = (local.dealer_token as string) || '';
+        if (!dealerToken) {
+          const sync = await browser.storage.sync.get(['dealer_token']);
+          dealerToken = (sync.dealer_token as string) || '';
+        }
+        if (!dealerToken) return;
+        const ACTION_MAP: Record<string, string> = {
+          GENERATE: 'crm.generation', PASTE: 'crm.paste',
+          SEND: 'crm.send', CONFIRM: 'crm.confirm',
+        };
+        const event_type = ACTION_MAP[(p.action_type || '').toUpperCase()] || 'crm.generation';
         try {
-          await signedFetch(`${PROXY_URL}/api/log-action`, {
-            dealer_token: settings.dealer_token || '',
-            action: p.action_type || 'unknown',
-            customer_name: p.customer || null,
-            vehicle: p.vehicle || null,
-            platform: p.platform || 'unknown',
-            rep_name: settings.rep_name || '',
-            success: p.success ?? true,
-            timestamp: new Date().toISOString()
+          await fetch(`${PROXY_URL}/api/events`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dealerToken}` },
+            body: JSON.stringify({
+              event_type,
+              rep_id: (local.rep_id as string) || null,
+              payload: { customer: p.customer || null, vehicle: p.vehicle || null, platform: p.platform || 'unknown' },
+              idempotency_key: crypto.randomUUID(),
+            }),
           });
         } catch(e: any) {
           console.error('[Brevmont] Log action failed:', e);
@@ -122,17 +133,29 @@ export default defineBackground(() => {
 
     if (msg.type === 'LOG_COPY') {
       const p = msg.payload;
-      browser.storage.sync.get(['dealer_token', 'rep_name']).then(async (settings) => {
+      browser.storage.local.get(['dealer_token', 'rep_id']).then(async (local) => {
+        let dealerToken = (local.dealer_token as string) || '';
+        if (!dealerToken) {
+          const sync = await browser.storage.sync.get(['dealer_token']);
+          dealerToken = (sync.dealer_token as string) || '';
+        }
+        if (!dealerToken) return;
+        const label = (p.label || 'COPY').toUpperCase();
+        const LABEL_MAP: Record<string, string> = {
+          LEAD_CAPTURED: 'crm.generation', EMAIL_QUEUED: 'crm.send',
+          EMAIL_APPLIED: 'crm.paste', CRM_NOTE_QUEUED: 'crm.paste',
+        };
+        const event_type = LABEL_MAP[label] || 'crm.paste';
         try {
-          await signedFetch(`${PROXY_URL}/api/log-action`, {
-            dealer_token: settings.dealer_token || '',
-            action: p.label || 'COPY',
-            customer_name: p.customer || null,
-            vehicle: p.vehicle || null,
-            platform: p.platform || 'unknown',
-            rep_name: settings.rep_name || '',
-            success: true,
-            timestamp: new Date().toISOString()
+          await fetch(`${PROXY_URL}/api/events`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dealerToken}` },
+            body: JSON.stringify({
+              event_type,
+              rep_id: (local.rep_id as string) || null,
+              payload: { customer: p.customer || null, vehicle: p.vehicle || null, platform: p.platform || 'unknown', label: p.label || 'COPY' },
+              idempotency_key: crypto.randomUUID(),
+            }),
           });
         } catch(e: any) {
           console.error('[Brevmont] Log copy failed:', e);
