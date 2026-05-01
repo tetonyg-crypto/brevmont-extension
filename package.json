@@ -10,7 +10,9 @@
     "verify:registry": "node scripts/verify-registry-sync.js",
     "dev": "wxt dev",
     "zip": "wxt zip",
-    "test": "echo \"No tests yet\"",
+    "test": "playwright test",
+    "test:mock-dom": "playwright test tests/mock-vinsolutions.spec.ts",
+    "test:install": "playwright install chromium",
     "lint:css": "stylelint \"entrypoints/**/*.css\" \"assets/**/*.css\"",
     "clean": "rm -rf node_modules .wxt .output",
     "fresh": "npm run clean && npm ci && npm run build",
@@ -45,6 +47,7 @@
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.2",
     "terser": "^5.46.1",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "@playwright/test": "^1.44.0"
   }
 }

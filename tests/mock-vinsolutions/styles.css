@@ -1,0 +1,257 @@
+/* Mock VinSolutions styling — mirrors VinSolutions visual structure for extension DOM tests */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Arial', 'Helvetica', sans-serif;
+  font-size: 13px;
+  color: #333;
+  background: #f0f0f0;
+}
+
+/* ── Top Nav ── */
+.vs-nav {
+  background: #1a3a5c;
+  color: #fff;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 20px;
+}
+
+.vs-nav .brand { font-weight: bold; font-size: 15px; color: #7ab3e0; }
+.vs-nav a { color: #ccc; text-decoration: none; font-size: 12px; }
+.vs-nav a:hover { color: #fff; }
+
+/* ── Sub Nav ── */
+.vs-subnav {
+  background: #2d6da4;
+  color: #fff;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 16px;
+}
+
+.vs-subnav a {
+  color: #d8e8f5;
+  text-decoration: none;
+  font-size: 12px;
+  padding: 0 6px;
+}
+
+.vs-subnav a.active { color: #fff; border-bottom: 2px solid #fff; }
+
+/* ── Layout ── */
+.vs-layout { display: flex; height: calc(100vh - 74px); }
+
+.vs-sidebar {
+  width: 220px;
+  background: #fff;
+  border-right: 1px solid #ddd;
+  padding: 12px 0;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+.vs-sidebar-section { padding: 8px 12px 4px; font-size: 11px; font-weight: bold; color: #888; text-transform: uppercase; }
+
+.vs-sidebar-item {
+  padding: 7px 16px;
+  cursor: pointer;
+  color: #333;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vs-sidebar-item:hover { background: #e8f0f8; }
+.vs-sidebar-item.active { background: #ddeafa; color: #1a5fa5; font-weight: bold; }
+
+.vs-main { flex: 1; overflow-y: auto; padding: 16px; }
+
+/* ── Leads Table ── */
+.vs-panel { background: #fff; border: 1px solid #d0d0d0; border-radius: 3px; }
+
+.vs-panel-header {
+  background: #e8eef4;
+  border-bottom: 1px solid #d0d0d0;
+  padding: 8px 12px;
+  font-weight: bold;
+  font-size: 12px;
+  color: #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.vs-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+
+.vs-table th {
+  background: #e8eef4;
+  border: 1px solid #d0d0d0;
+  padding: 6px 10px;
+  text-align: left;
+  font-weight: bold;
+  color: #555;
+  white-space: nowrap;
+}
+
+.vs-table td {
+  border: 1px solid #e0e0e0;
+  padding: 6px 10px;
+  vertical-align: middle;
+}
+
+.vs-table tr:hover { background: #f5f9ff; cursor: pointer; }
+
+.vs-table tr.selected { background: #ddeafa; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.badge-hot { background: #ffe0e0; color: #c0392b; }
+.badge-working { background: #fff3cd; color: #856404; }
+.badge-cold { background: #e0e0e0; color: #666; }
+
+.vs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border: 1px solid #2d6da4;
+  background: #2d6da4;
+  color: #fff;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.vs-btn:hover { background: #1a5fa5; }
+.vs-btn-secondary { background: #fff; color: #2d6da4; }
+.vs-btn-secondary:hover { background: #e8f0f8; }
+
+/* ── Customer Detail ── */
+.vs-customer-header {
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 3px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.vs-customer-name { font-size: 18px; font-weight: bold; color: #1a3a5c; }
+.vs-customer-sub { font-size: 12px; color: #666; margin-top: 2px; }
+
+.vs-customer-tags { display: flex; gap: 6px; margin-top: 6px; }
+
+.vs-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #2d6da4;
+  margin-bottom: 12px;
+}
+
+.vs-tab {
+  padding: 8px 16px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #666;
+  border: 1px solid #d0d0d0;
+  border-bottom: none;
+  background: #f0f0f0;
+  margin-right: 2px;
+  border-radius: 3px 3px 0 0;
+}
+
+.vs-tab.active { background: #fff; color: #1a3a5c; font-weight: bold; border-color: #2d6da4; }
+
+/* ── Notes / Activity ── */
+.vs-note-compose {
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 3px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.vs-note-compose label { font-size: 12px; font-weight: bold; color: #333; display: block; margin-bottom: 6px; }
+
+/* KEY: This is the primary selector the extension targets */
+.vs-note-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: Arial, sans-serif;
+  resize: vertical;
+  outline: none;
+}
+
+.vs-note-textarea:focus { border-color: #2d6da4; box-shadow: 0 0 0 2px rgba(45,109,164,0.2); }
+
+/* Email compose textarea */
+.vs-email-body {
+  width: 100%;
+  min-height: 120px;
+  padding: 8px;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: Arial, sans-serif;
+  resize: vertical;
+}
+
+.vs-note-actions { display: flex; gap: 8px; margin-top: 8px; justify-content: flex-end; }
+
+.vs-activity-item {
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 3px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.vs-activity-meta { font-size: 11px; color: #888; }
+.vs-activity-body { font-size: 12px; margin-top: 4px; }
+
+/* ── Vehicle Info ── */
+.vs-vehicle-card {
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 3px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.vs-vehicle-title { font-size: 14px; font-weight: bold; color: #1a3a5c; }
+.vs-vehicle-detail { font-size: 12px; color: #555; margin-top: 4px; }
+.vs-field-row { display: flex; gap: 16px; margin-top: 8px; }
+.vs-field { flex: 1; }
+.vs-field label { font-size: 11px; color: #888; display: block; }
+.vs-field span { font-size: 12px; font-weight: bold; }
+
+/* ── Brevmont injection target ── */
+#brevmont-inject-point {
+  background: #f9f9ff;
+  border: 2px dashed #aac;
+  border-radius: 3px;
+  padding: 10px;
+  text-align: center;
+  color: #888;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
