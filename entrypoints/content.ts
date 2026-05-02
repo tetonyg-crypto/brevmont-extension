@@ -9,6 +9,7 @@ import './content/styles.css';
 import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { telemetry } from './lib/telemetry';
 import { dlog } from './lib/dev';
+import { addBreadcrumb } from '../lib/breadcrumbs';
 
 type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
 
@@ -42,7 +43,29 @@ export default defineContentScript({
       : _url.includes('web.whatsapp.com') ? 'whatsapp'
       : 'unknown';
     dlog('[Brevmont] Content script loaded on', PLATFORM, _url);
+    addBreadcrumb({ category: 'state', message: 'content_script_loaded', data: { platform: PLATFORM } }).catch(() => {});
     if (PLATFORM === 'unknown') return;
+
+    // Remote kill switch — quiet mode, no pill or sidebar
+    try {
+      const ks = await browser.storage.local.get(['brevmont_killed', 'kill_message']);
+      if (ks.brevmont_killed) {
+        const msg =
+          String(ks.kill_message || '').trim() ||
+          'Brevmont is temporarily offline for maintenance. Your data is safe.';
+        if (document.body && !document.getElementById('brevmont-kill-banner')) {
+          const b = document.createElement('div');
+          b.id = 'brevmont-kill-banner';
+          b.style.cssText =
+            'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:2147483646;max-width:480px;background:#0F1419;color:#F8F6F1;padding:14px 20px;border-radius:12px;font:13px Inter,system-ui,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.35);text-align:center;line-height:1.45';
+          b.textContent = msg;
+          document.body.appendChild(b);
+        }
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
 
     // ===== Version-gated force update =====
     // Background writes brevmont_version_status = {locked, latest, message} when
@@ -1025,6 +1048,7 @@ export default defineContentScript({
       pill.onmouseleave = () => { if(pill) { pill.style.opacity = '0.85'; pill.textContent = 'BM'; } };
       pill.onclick = () => { sidebarOpen ? closeSidebar() : openSidebar(); };
       document.documentElement.appendChild(pill);
+      addBreadcrumb({ category: 'state', message: 'pill_mounted', data: { platform: PLATFORM } }).catch(() => {});
     }
 
     function findPanelSeamX(): { seamX: number; panelTop: number; panelHeight: number } | null {
@@ -2620,7 +2644,9 @@ export default defineContentScript({
           payload: { type, leadContext: leadData || {}, repInput: input + (leadData?.vehicle ? '' : '\n[SYSTEM: No vehicle of interest detected. Do not mention or invent a vehicle in the response.]'), repName: '', dealership: '', platform: PLATFORM, tone, goal,
             metadata: { workflow_type: type === 'all' ? 'all' : type, customer_name: leadData?.customerName || extractContactName() || null, vehicle: leadData?.vehicle || null, email: leadData?.email || null } }
         });
-        if (response.error) addOutput(s, 'Error', response.error);
+        if ((response as any).queued) {
+          showToast(s, (response as any).message || 'Saved. Will sync when online.');
+        } else if (response.error) addOutput(s, 'Error', response.error);
         else { const sec = response.sections; if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) { if (sec.crm.trim() === 'NO_NEW_NOTE') { showToast(s, 'Nothing new to log. Last note covers this.'); } else { addOutput(s, outputLabels.crm, sec.crm); } } if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.'); }
         // Tabbed outputs refactor (2026-04-19): auto-activate the first
         // generated output so the panel shows exactly one card post-gen.
@@ -2880,7 +2906,24 @@ export default defineContentScript({
     }
 
     // ===== LISTENERS =====
-    browser.runtime.onMessage.addListener((msg: any) => {
+    browser.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
+      if (msg.type === 'GET_CRM_PAGE_CONTEXT') {
+        try {
+          const path = window.location.pathname || '';
+          let ctx = 'unknown';
+          if (PLATFORM === 'vinsolutions') {
+            if (/AddNote/i.test(path) || (document.body?.innerText || '').includes('Add Note')) ctx = 'VinSolutions_AddNote';
+            else if (/Contact/i.test(path)) ctx = 'VinSolutions_ContactRecord';
+            else ctx = 'VinSolutions_' + (path.replace(/\//g, '_').replace(/^_|_$/g, '').slice(0, 80) || 'home');
+          } else {
+            ctx = `${PLATFORM}_${path.split('/').filter(Boolean).slice(-2).join('_') || 'page'}`;
+          }
+          sendResponse({ context: ctx });
+        } catch {
+          sendResponse({ context: 'unknown' });
+        }
+        return false;
+      }
       if (msg.type === 'OPEN_COMMAND_TAB' && sidebarRoot) { if (!sidebarOpen) openSidebar(); const s = sidebarRoot.shadowRoot!; s.getElementById('o8-quick')!.style.display = 'none'; const tp = s.getElementById('o8-tools-panel'); if (tp) tp.style.display = 'flex'; s.querySelectorAll('.tool-tab-btn').forEach(b => b.classList.remove('active')); s.querySelector('.tool-tab-btn[data-tool="command"]')?.classList.add('active'); s.querySelectorAll('.tool-content').forEach(c => (c as HTMLElement).style.display = 'none'); s.getElementById('tool-command')!.style.display = 'block'; }
       if (msg.type === 'SHOW_ALERT_BANNER') { const existing = document.getElementById('brevmont-alert-banner'); if (existing) existing.remove(); const banner = document.createElement('div'); banner.id = 'brevmont-alert-banner'; Object.assign(banner.style, { position:'fixed', top:'0', left:'0', right:'0', zIndex:'999999', background:'#0F1419', color:'#F8F6F1', padding:'12px 20px', fontFamily:'Inter, sans-serif', fontSize:'14px', fontWeight:'600', display:'flex', alignItems:'center', gap:'10px', boxShadow:'0 2px 8px rgba(0,0,0,0.2)' }); banner.innerHTML = `<span style="flex:1">${esc(msg.payload.task)}</span><button style="background:#0D6E6E;border:none;color:#F8F6F1;padding:6px 16px;border-radius:6px;font-family:Inter,sans-serif;font-size:12px;font-weight:600;cursor:pointer">Dismiss</button>`; banner.querySelector('button')!.addEventListener('click', () => { banner.remove(); browser.runtime.sendMessage({ type: 'DISMISS_ALERT', payload: { id: msg.payload.id } }); }); document.body.appendChild(banner); }
     });

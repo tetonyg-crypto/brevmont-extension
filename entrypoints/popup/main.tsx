@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import SupportModal from './SupportModal';
 
 interface Settings {
@@ -15,6 +15,64 @@ function App() {
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [supportOpen, setSupportOpen] = useState(false);
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportHint, setReportHint] = useState('');
+  const versionTapRef = useRef({ n: 0, t: 0 });
+
+  async function loadQueueSize() {
+    try {
+      const r = await browser.runtime.sendMessage({ type: 'GET_SYNC_QUEUE_COUNT' }) as { count?: number };
+      setQueueSize(typeof r?.count === 'number' ? r.count : 0);
+    } catch {
+      setQueueSize(0);
+    }
+  }
+
+  function onVersionClick() {
+    const now = Date.now();
+    if (now - versionTapRef.current.t > 3000) versionTapRef.current.n = 0;
+    versionTapRef.current.t = now;
+    versionTapRef.current.n += 1;
+    if (versionTapRef.current.n >= 5) {
+      versionTapRef.current.n = 0;
+      void (async () => {
+        await browser.storage.local.clear();
+        await browser.storage.session.clear();
+        await browser.storage.sync.clear();
+        const { retryDB } = await import('../../lib/retryQueue');
+        await retryDB.delete();
+        browser.runtime.reload();
+      })();
+    }
+  }
+
+  async function sendQuickReport() {
+    setReportBusy(true);
+    setReportHint('');
+    let tabDomain: string | null = null;
+    try {
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      if (tab?.url) {
+        try {
+          tabDomain = new URL(tab.url).hostname;
+        } catch {
+          tabDomain = null;
+        }
+      }
+    } catch {
+      tabDomain = null;
+    }
+    try {
+      const r = await browser.runtime.sendMessage({
+        type: 'SUPPORT_REPORT',
+        payload: { note: '', tab_domain: tabDomain },
+      }) as { ok?: boolean };
+      setReportHint(r?.ok ? 'Report sent. We are on it.' : 'Could not send. Try again later.');
+    } catch {
+      setReportHint('Could not send. Try again later.');
+    }
+    setReportBusy(false);
+  }
 
   useEffect(() => {
     // Load settings — prefer local (no sync-replication lag), fall back to sync
@@ -31,20 +89,20 @@ function App() {
       });
     };
     loadSettings();
+    void loadQueueSize();
 
     // Live-update when onboarding finishes (or when a manager rotates tokens).
     const onChange = (changes: any, area: string) => {
       if ((area === 'local' || area === 'sync') && ('rep_name' in changes || 'dealership' in changes || 'dealer_token' in changes || 'rep_auth_token' in changes || 'brevmont_rep_auth_token' in changes)) {
         loadSettings();
       }
+      if (area === 'local') {
+        void loadQueueSize();
+      }
     };
     browser.storage.onChanged.addListener(onChange);
 
-    // Load offline queue size
-    browser.storage.local.get('brevmont_offline_queue').then((data: any) => {
-      const queue = data.brevmont_offline_queue || [];
-      setQueueSize(queue.length);
-    });
+    const qTimer = window.setInterval(() => void loadQueueSize(), 15000);
 
     // Get version
     const manifest = browser.runtime.getManifest();
@@ -57,6 +115,7 @@ function App() {
 
     return () => {
       try { browser.storage.onChanged.removeListener(onChange); } catch (_) { /* noop */ }
+      window.clearInterval(qTimer);
     };
   }, []);
 
@@ -113,7 +172,13 @@ function App() {
         </div>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15, color: PALETTE.charcoal, letterSpacing: '-0.02em' }}>brevmont</div>
-          <div style={{ fontSize: 11, color: PALETTE.textFaint }}>v{version}</div>
+          <div
+            role="presentation"
+            onClick={onVersionClick}
+            style={{ fontSize: 11, color: PALETTE.textFaint, cursor: 'default', userSelect: 'none' }}
+          >
+            v{version}
+          </div>
         </div>
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -153,10 +218,14 @@ function App() {
         <div style={{ background: PALETTE.statusWarnBg, border: `1px solid ${PALETTE.statusWarnBorder}`, borderRadius: 8, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: PALETTE.statusWarn, flexShrink: 0 }} />
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: PALETTE.charcoal }}>{queueSize} queued generation{queueSize > 1 ? 's' : ''}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: PALETTE.charcoal }}>Syncing {queueSize} item{queueSize > 1 ? 's' : ''}...</div>
             <div style={{ fontSize: 11, color: PALETTE.textBody }}>Will send when connection returns.</div>
           </div>
         </div>
+      )}
+
+      {reportHint && (
+        <div style={{ fontSize: 11, color: PALETTE.textBody, textAlign: 'center' }}>{reportHint}</div>
       )}
 
       {/* Links */}
@@ -192,6 +261,25 @@ function App() {
           }}
         >
           Get help
+        </button>
+        <button
+          type="button"
+          disabled={reportBusy}
+          onClick={() => void sendQuickReport()}
+          style={{
+            fontSize: 12,
+            color: PALETTE.deepTeal,
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: reportBusy ? 'wait' : 'pointer',
+            textAlign: 'left',
+            fontWeight: 500,
+            fontFamily: 'inherit',
+            opacity: reportBusy ? 0.6 : 1,
+          }}
+        >
+          Report issue
         </button>
         <a
           href="mailto:founder@brevmont.com"

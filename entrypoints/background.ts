@@ -12,9 +12,13 @@
 const PROXY_URL = 'https://api.brevmont.com';
 
 import { signedFetch, signedGet } from '../lib/authSigning';
-import { queueOffline, replayQueue, getQueueSize } from '../lib/resilience';
+import { enqueue, processQueue, getQueueCount as getDexieQueueCount } from '../lib/retryQueue';
 import { telemetry } from './lib/telemetry';
 import { dlog } from './lib/dev';
+import { initSentry, setSentryContext, captureError, addBreadcrumb } from '../lib/sentry';
+import { fetchRemoteConfig, getResolvedApiUrl, applyConfig } from '../lib/remoteConfig';
+
+initSentry();
 
 export default defineBackground(() => {
   // One-time migration: brevmont_ → brevmont_ storage keys
@@ -47,6 +51,57 @@ export default defineBackground(() => {
     // Health check — content script pings to verify service worker is alive
     if (msg.type === 'PING') { sendResponse({ pong: true }); return false; }
 
+    if (msg.type === 'GET_SYNC_QUEUE_COUNT') {
+      getDexieQueueCount().then((count) => sendResponse({ count })).catch(() => sendResponse({ count: 0 }));
+      return true;
+    }
+
+    if (msg.type === 'SUPPORT_REPORT') {
+      (async () => {
+        try {
+          const sync = await browser.storage.sync.get(['dealer_token', 'rep_name']);
+          if (!sync.dealer_token) {
+            sendResponse({ ok: false, error: 'not_configured' });
+            return;
+          }
+          const local = await browser.storage.local.get([
+            'brevmont_recent_errors',
+            'brevmont_last_heartbeat',
+            'brevmont_last_error',
+            'brevmont_last_error_at',
+          ]);
+          const apiUrl = (await getResolvedApiUrl()).replace(/\/$/, '');
+          const manifest = browser.runtime.getManifest();
+          const cm = typeof navigator !== 'undefined' ? navigator.userAgent?.match(/Chrome\/([\d.]+)/) : null;
+          const diagnostics = {
+            extension_version: manifest.version || '',
+            chrome_version: cm ? cm[1] : 'unknown',
+            last_errors: (local.brevmont_recent_errors as string[]) || [],
+            last_error: local.brevmont_last_error || null,
+            last_error_at: local.brevmont_last_error_at || null,
+            queue_count: await getDexieQueueCount(),
+            network_online: typeof navigator !== 'undefined' ? navigator.onLine : true,
+            last_heartbeat_ms: local.brevmont_last_heartbeat || null,
+            tab_domain: (msg.payload as any)?.tab_domain || null,
+          };
+          const r = await fetch(`${apiUrl}/api/support-report`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              dealer_token: sync.dealer_token,
+              rep_name: sync.rep_name || '',
+              user_description: (msg.payload as any)?.note || '',
+              diagnostics,
+            }),
+          });
+          sendResponse({ ok: r.ok });
+        } catch {
+          sendResponse({ ok: false });
+        }
+      })();
+      return true;
+    }
+
     if (msg.type === 'REPORT_ERROR') {
       const { error_type, error_message, context } = msg.payload || {};
       reportError(error_type || 'UNKNOWN', `[content] ${(error_message || 'unknown error').slice(0, 400)}${context ? ` | ctx: ${context}` : ''}`).catch(() => {});
@@ -57,26 +112,28 @@ export default defineBackground(() => {
     if (msg.type === 'GENERATE_OUTPUT') {
       (async () => {
         try {
+          addBreadcrumb('generation', 'User requested generation', { scenario: msg.payload?.type });
           const result = await handleGenerate(msg.payload);
-          // Success — also try to replay any queued items in background
-          const qSize = await getQueueSize();
-          if (qSize > 0) {
-            replayQueue(async (p) => handleGenerate(p)).catch(() => {});
-          }
-          sendResponse(result);
-        } catch (err: any) {
-          if (err.message?.includes('fetch') || err.message?.includes('network') || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
-            // Network error — queue offline
-            const id = await queueOffline(msg.payload);
-            const qSize = await getQueueSize();
-            sendResponse({ error: `Saved offline (${qSize} queued). Will send when connection returns.`, queued: true, queue_id: id });
+          addBreadcrumb('generation', 'API response received', { queued: !!(result as any)?.queued });
+          const apiUrl = await getResolvedApiUrl();
+          await processQueue(apiUrl).catch(() => {});
+          if ((result as any)?.queued) {
+            sendResponse({
+              queued: true,
+              message: (result as any).message,
+              error: (result as any).message,
+              queue_id: (result as any).queue_id,
+            });
           } else {
-            const errType = err.message?.includes('License') ? 'AUTH_ERROR'
-              : err.message?.includes('429') ? 'API_ERROR'
-              : 'UNKNOWN';
-            reportError(errType, err.message).catch(() => {});
-            sendResponse({ error: err.message });
+            sendResponse(result);
           }
+        } catch (err: any) {
+          const errType = err.message?.includes('License') ? 'AUTH_ERROR'
+            : err.message?.includes('429') ? 'API_ERROR'
+            : 'UNKNOWN';
+          captureError(err instanceof Error ? err : new Error(String(err?.message || err)), { flow: 'GENERATE_OUTPUT', errType });
+          reportError(errType, err.message).catch(() => {});
+          sendResponse({ error: err.message });
         }
       })();
       return true;
@@ -387,6 +444,93 @@ export default defineBackground(() => {
   });
 
   // ===== HEARTBEAT + ALERTS via chrome.alarms (MV3 compliant) =====
+  async function queryCrmPageContextForHeartbeat(): Promise<string> {
+    try {
+      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+      const tab = tabs[0];
+      if (!tab?.id) return 'unknown';
+      return await new Promise<string>((resolve) => {
+        const timer = setTimeout(() => resolve('unknown'), 2000);
+        browser.tabs
+          .sendMessage(tab.id!, { type: 'GET_CRM_PAGE_CONTEXT' })
+          .then((r: any) => {
+            clearTimeout(timer);
+            resolve(typeof r?.context === 'string' ? r.context : 'unknown');
+          })
+          .catch(() => {
+            clearTimeout(timer);
+            resolve('unknown');
+          });
+      });
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  async function sendHeartbeatV2(apiUrl: string): Promise<void> {
+    const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
+    if (!settings.dealer_token) return;
+    const local = await browser.storage.local.get([
+      'brevmont_last_error',
+      'brevmont_last_error_at',
+      'dealership_id',
+      'pending_heartbeats',
+    ]);
+    const manifest = browser.runtime.getManifest();
+    const chromeMatch = (typeof navigator !== 'undefined' && navigator.userAgent)
+      ? navigator.userAgent.match(/Chrome\/([\d.]+)/)
+      : null;
+    const memMb =
+      typeof performance !== 'undefined' &&
+      (performance as any).memory?.usedJSHeapSize != null
+        ? Math.round(((performance as any).memory.usedJSHeapSize / (1024 * 1024)) * 10) / 10
+        : null;
+    const queueCount = await getDexieQueueCount();
+    const crmCtx = await queryCrmPageContextForHeartbeat();
+    const body = {
+      dealer_token: settings.dealer_token,
+      rep_name: settings.rep_name || 'Unknown',
+      extension_version: manifest.version || '1.8.0',
+      chrome_version: chromeMatch ? chromeMatch[1] : 'unknown',
+      last_error: (local.brevmont_last_error as string) || null,
+      last_error_at: (local.brevmont_last_error_at as string) || null,
+      unsynced_queue_count: queueCount,
+      network_status: typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'online',
+      crm_page_context: crmCtx,
+      memory_usage_mb: memMb,
+    };
+    const base = apiUrl.replace(/\/$/, '');
+    const postOne = async (payload: object) => {
+      const r = await signedFetch(`${base}/api/heartbeat/v2`, payload);
+      return r.ok;
+    };
+    try {
+      const pending = Array.isArray(local.pending_heartbeats)
+        ? [...(local.pending_heartbeats as object[])]
+        : [];
+      let i = 0;
+      for (; i < pending.length; i++) {
+        if (!(await postOne(pending[i]))) {
+          await browser.storage.local.set({
+            pending_heartbeats: [...pending.slice(i), body].slice(-50),
+          });
+          return;
+        }
+      }
+      if (!(await postOne(body))) {
+        await browser.storage.local.set({ pending_heartbeats: [...pending, body].slice(-50) });
+        return;
+      }
+      await browser.storage.local.remove('pending_heartbeats');
+    } catch {
+      const nextPending = [
+        ...(Array.isArray(local.pending_heartbeats) ? (local.pending_heartbeats as object[]) : []),
+        body,
+      ].slice(-50);
+      await browser.storage.local.set({ pending_heartbeats: nextPending });
+    }
+  }
+
   async function sendHeartbeat() {
     try {
       const settings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'dealership']);
@@ -397,7 +541,17 @@ export default defineBackground(() => {
         const tabs = await browser.tabs.query({ active: true, currentWindow: true });
         if (tabs[0]?.url) platform = new URL(tabs[0].url).hostname;
       } catch(e) {}
-      const resp = await signedFetch(`${PROXY_URL}/api/heartbeat`, {
+      const apiUrl = await getResolvedApiUrl();
+      try {
+        const loc = await browser.storage.local.get(['dealership_id']);
+        setSentryContext(
+          String(loc.dealership_id || ''),
+          String(settings.rep_name || 'Unknown')
+        );
+      } catch {
+        /* noop */
+      }
+      const resp = await signedFetch(`${apiUrl}/api/heartbeat`, {
         license_key: settings.dealer_token,
         rep_name: settings.rep_name || 'Unknown',
         dealership: settings.dealership || '',
@@ -407,17 +561,17 @@ export default defineBackground(() => {
       });
       if (resp.ok) {
         const data = await resp.json();
-        // Store tier + features from heartbeat response
         const tier = data.tier || 'floor';
-        await browser.storage.local.set({ brevmont_tier: tier, brevmont_features: data.features || getTierFeatures(tier), brevmont_last_heartbeat: Date.now() });
-        // Replay any offline-queued generations now that we have connectivity
-        const qSize = await getQueueSize();
+        await browser.storage.local.set({
+          brevmont_tier: tier,
+          brevmont_features: data.features || getTierFeatures(tier),
+          brevmont_last_heartbeat: Date.now(),
+        });
+        const qSize = await getDexieQueueCount();
         if (qSize > 0) {
-          const result = await replayQueue(async (p) => handleGenerate(p));
-          if (result.success > 0) {
-            dlog(`[Brevmont] Replayed ${result.success} queued generations`);
-          }
+          await processQueue(apiUrl).catch(() => {});
         }
+        await sendHeartbeatV2(apiUrl).catch(() => {});
       }
     } catch(e) {
       reportError('NETWORK_ERROR', `Heartbeat failed: ${(e as Error).message}`).catch(() => {});
@@ -445,13 +599,54 @@ export default defineBackground(() => {
     if (changed) await browser.storage.local.set({ brevmont_alerts: alerts });
   }
 
-  // Create alarms — survives service worker restarts
+  // Default alarms — survives service worker restarts (intervals overridden by remote config when loaded)
   browser.alarms.create('brevmont-heartbeat', { periodInMinutes: 5 });
   browser.alarms.create('brevmont-check-alerts', { periodInMinutes: 0.5 });
+  browser.alarms.create('brevmont-queue-flush', { periodInMinutes: 1 });
+  browser.alarms.create('brevmont-config-refresh', { periodInMinutes: 60 });
 
   browser.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === 'brevmont-heartbeat') sendHeartbeat();
-    if (alarm.name === 'brevmont-check-alerts') checkAlerts();
+    if (alarm.name === 'brevmont-heartbeat') void sendHeartbeat();
+    else if (alarm.name === 'brevmont-check-alerts') void checkAlerts();
+    else if (alarm.name === 'brevmont-queue-flush') {
+      void getResolvedApiUrl().then((u) => processQueue(u).catch(() => {}));
+    } else if (alarm.name === 'brevmont-config-refresh') {
+      void getResolvedApiUrl().then(async (apiUrl) => {
+        const cfg = await fetchRemoteConfig(apiUrl);
+        if (cfg) {
+          applyConfig(cfg);
+          try {
+            const v = await browser.storage.local.get('brevmont_config_version');
+            addBreadcrumb('config', 'Remote config fetched', { version: v.brevmont_config_version });
+          } catch {
+            addBreadcrumb('config', 'Remote config fetched', {});
+          }
+        }
+      });
+    }
+  });
+
+  try {
+    self.addEventListener('online', () => {
+      void getResolvedApiUrl().then((u) => processQueue(u).catch(() => {}));
+    });
+    self.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+      captureError(new Error(`Unhandled rejection: ${event.reason}`), { type: 'unhandled_rejection' });
+    });
+    self.addEventListener('error', (event: ErrorEvent) => {
+      captureError(event.error || new Error(event.message), {
+        type: 'uncaught_error',
+        filename: event.filename,
+        lineno: event.lineno,
+      });
+    });
+  } catch {
+    /* noop */
+  }
+
+  void getResolvedApiUrl().then(async (apiUrl) => {
+    const cfg = await fetchRemoteConfig(apiUrl);
+    if (cfg) applyConfig(cfg);
   });
 
   // Fire initial heartbeat after 10 seconds
@@ -849,9 +1044,6 @@ async function handleGenerate(payload: {
   const detectedPlatform = payload.platform || 'chrome_extension';
   let userMessage = buildUserMessage(payload, finalRepName, finalDealership, contextBlock);
 
-  let text: string;
-  let usage: any = {};
-
   // All generation goes through Railway proxy — NO direct API calls, NO local keys
   if (!dealerToken) {
     throw new Error('No license key found. Complete onboarding at brevmont.com to activate Brevmont.');
@@ -894,41 +1086,90 @@ async function handleGenerate(payload: {
     vehicle: payload.metadata?.vehicle || payload.leadContext?.vehicle || null
   };
 
-  const result = await generateViaProxy(dealerToken, userMessage, detectedPlatform, metadata, repAuthToken);
-  text = result.text;
-  usage = result.usage;
-
-  const sections = parseSections(text);
-
-  return { text, sections };
+  const apiBase = await getResolvedApiUrl();
+  const idemKey = crypto.randomUUID();
+  try {
+    const result = await generateViaProxy(
+      dealerToken,
+      userMessage,
+      detectedPlatform,
+      metadata,
+      repAuthToken,
+      idemKey,
+      apiBase
+    );
+    const sections = parseSections(result.text);
+    return { text: result.text, sections };
+  } catch (err: any) {
+    const m = String(err?.message || err);
+    const shouldQueue =
+      (err instanceof TypeError && m.includes('fetch')) ||
+      /Failed to fetch|NetworkError/i.test(m) ||
+      /^HTTP_5\d\d$/i.test(m) ||
+      m.includes('Connection to AI service failed') ||
+      m.includes('Generation timed out');
+    if (shouldQueue) {
+      const body = buildGenerateProxyBody(dealerToken, userMessage, detectedPlatform, metadata);
+      const xh: Record<string, string> = { 'X-Idempotency-Key': idemKey };
+      if (repAuthToken) xh['X-Rep-Token'] = repAuthToken;
+      const queueId = await enqueue('/v1/generate', 'POST', xh, body);
+      addBreadcrumb('queue', 'Request queued offline', { endpoint: '/v1/generate', queueCount: await getDexieQueueCount() });
+      return {
+        queued: true as const,
+        message: m.includes('timed out')
+          ? 'Saved locally. Will retry when the server responds.'
+          : 'Saved offline. Will sync when connection returns.',
+        queue_id: queueId,
+      };
+    }
+    throw err instanceof Error ? err : new Error(m);
+  }
 }
 
-// --- Generate via Proxy ---
-// Does NOT send system prompt — proxy resolves it from dealer's vertical_config
-async function generateViaProxy(dealerToken: string, userMessage: string, platform: string = 'chrome_extension', metadata?: any, repAuthToken?: string) {
-  const body = {
+function buildGenerateProxyBody(
+  dealerToken: string,
+  userMessage: string,
+  platform: string,
+  metadata?: {
+    rep_name?: string | null;
+    workflow_type?: string | null;
+    customer_name?: string | null;
+    vehicle?: string | null;
+  }
+) {
+  return {
     dealer_token: dealerToken,
     messages: [{ role: 'user', content: userMessage }],
     max_tokens: 800,
     model: 'claude-sonnet-4-20250514',
     platform: platform,
-    // Structured metadata for accurate generation_events logging
-    rep_name: metadata?.rep_name || null,
-    workflow_type: metadata?.workflow_type || null,
-    customer_name: metadata?.customer_name || null,
-    vehicle: metadata?.vehicle || null
+    rep_name: metadata?.rep_name ?? null,
+    workflow_type: metadata?.workflow_type ?? null,
+    customer_name: metadata?.customer_name ?? null,
+    vehicle: metadata?.vehicle ?? null,
   };
+}
 
-  // X-Rep-Token is additive: sent ALONGSIDE the existing dealer_token +
-  // signed-HMAC headers, never as a replacement. Proxy reads this header
-  // first for rep resolution and falls back to rep_name string match when
-  // absent (legacy compat).
-  const extraHeaders: Record<string, string> | undefined = repAuthToken
-    ? { 'X-Rep-Token': repAuthToken }
-    : undefined;
+// --- Generate via Proxy ---
+// Does NOT send system prompt — proxy resolves it from dealer's vertical_config
+async function generateViaProxy(
+  dealerToken: string,
+  userMessage: string,
+  platform: string = 'chrome_extension',
+  metadata?: any,
+  repAuthToken?: string,
+  idempotencyKey?: string,
+  apiBase: string = PROXY_URL
+) {
+  const base = apiBase.replace(/\/$/, '');
+  const body = buildGenerateProxyBody(dealerToken, userMessage, platform, metadata);
 
-  // Use signedFetch for HMAC-signed requests (falls back to unsigned if no secret yet)
-  const resp = await signedFetch(`${PROXY_URL}/v1/generate`, body, extraHeaders);
+  const extraHeaders: Record<string, string> = {};
+  if (repAuthToken) extraHeaders['X-Rep-Token'] = repAuthToken;
+  if (idempotencyKey) extraHeaders['X-Idempotency-Key'] = idempotencyKey;
+  const mergedExtra = Object.keys(extraHeaders).length ? extraHeaders : undefined;
+
+  const resp = await signedFetch(`${base}/v1/generate`, body, mergedExtra);
 
   // Phase T7: detect revocation responses
   await handleRevocationResponse(resp);
@@ -936,7 +1177,7 @@ async function generateViaProxy(dealerToken: string, userMessage: string, platfo
   if (resp.status === 202) {
     // Async mode — poll for result from BullMQ queue
     const { job_id } = await resp.json();
-    const result = await pollForResult(job_id);
+    const result = await pollForResult(job_id, 30000, base);
     const text = result.content?.[0]?.text || '';
     if (!text) throw new Error('Empty response from AI. Please try again.');
     return { text, usage: result.usage || {} };
@@ -946,6 +1187,7 @@ async function generateViaProxy(dealerToken: string, userMessage: string, platfo
   if (resp.status === 429) throw new Error('Too many requests. Wait a few seconds and try again.');
   if (!resp.ok) {
     const errBody = await resp.json().catch(() => ({ error: 'Unknown error' }));
+    if (resp.status >= 500) throw new Error(`HTTP_${resp.status}`);
     throw new Error(errBody.error || `Proxy error: ${resp.status}`);
   }
 
@@ -957,7 +1199,8 @@ async function generateViaProxy(dealerToken: string, userMessage: string, platfo
 }
 
 // Poll for async generation result from BullMQ queue
-async function pollForResult(jobId: string, maxWait = 30000): Promise<any> {
+async function pollForResult(jobId: string, maxWait = 30000, apiBase: string = PROXY_URL): Promise<any> {
+  const base = apiBase.replace(/\/$/, '');
   const start = Date.now();
   while (Date.now() - start < maxWait) {
     await new Promise(r => setTimeout(r, 1000));
@@ -965,7 +1208,7 @@ async function pollForResult(jobId: string, maxWait = 30000): Promise<any> {
       // Signed poll — keeps the auth surface consistent with /v1/generate,
       // so server-side signature enforcement on the status route can be
       // flipped on later without a coordinated client rev.
-      const resp = await signedGet(`${PROXY_URL}/v1/generate/status/${jobId}`);
+      const resp = await signedGet(`${base}/v1/generate/status/${jobId}`);
       const data = await resp.json();
       if (data.status === 'completed') return data.data;
       if (data.status === 'failed') throw new Error(data.error || 'Generation failed');
@@ -1133,7 +1376,16 @@ async function handleVoiceReply(payload: { transcription: string }) {
     vehicle: null
   };
 
-  const result = await generateViaProxy(dealerToken, `${contextBlock}\nRep: ${repName}\nDealership: ${dealership}\n\n${voiceMessage}`, 'voice', metadata, repAuthToken);
+  const voiceBase = await getResolvedApiUrl();
+  const result = await generateViaProxy(
+    dealerToken,
+    `${contextBlock}\nRep: ${repName}\nDealership: ${dealership}\n\n${voiceMessage}`,
+    'voice',
+    metadata,
+    repAuthToken,
+    undefined,
+    voiceBase
+  );
   const sections = parseSections(result.text);
   return { text: result.text, sections };
 }
