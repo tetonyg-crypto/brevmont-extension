@@ -218,7 +218,7 @@ function App() {
         <div style={{ background: PALETTE.statusWarnBg, border: `1px solid ${PALETTE.statusWarnBorder}`, borderRadius: 8, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: PALETTE.statusWarn, flexShrink: 0 }} />
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: PALETTE.charcoal }}>Syncing {queueSize} item{queueSize > 1 ? 's' : ''}...</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: PALETTE.charcoal }}>{queueSize} queued generation{queueSize > 1 ? 's' : ''}</div>
             <div style={{ fontSize: 11, color: PALETTE.textBody }}>Will send when connection returns.</div>
           </div>
         </div>
