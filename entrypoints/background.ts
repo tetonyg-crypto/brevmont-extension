@@ -1222,7 +1222,13 @@ async function generateViaProxy(
   }
 
   if (resp.status === 401) throw new Error('License invalid or expired. Contact support to renew your Brevmont subscription.');
-  if (resp.status === 429) throw new Error('Too many requests. Wait a few seconds and try again.');
+  if (resp.status === 429) {
+    const body429 = await resp.json().catch(() => ({}));
+    if (body429.error === 'daily_limit_reached') {
+      throw new Error(body429.message || "You've hit your daily generation limit. This resets tomorrow morning.");
+    }
+    throw new Error('Too many requests. Wait a few seconds and try again.');
+  }
   if (!resp.ok) {
     const errBody = await resp.json().catch(() => ({ error: 'Unknown error' }));
     if (resp.status >= 500) throw new Error(`HTTP_${resp.status}`);
