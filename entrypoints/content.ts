@@ -191,6 +191,9 @@ export default defineContentScript({
     let isGenerating = false;
     let currentTier = 'floor';
 
+    // Intelligence: last AI output for edit-distance tracking
+    let lastAiOutput: { text: string; email: string; crm: string; timestamp: number } | null = null;
+
     async function getTier(): Promise<string> {
       try {
         const resp = await browser.runtime.sendMessage({ type: 'CHECK_FEATURES' });
@@ -2084,6 +2087,90 @@ export default defineContentScript({
         return null;
       }
 
+      // ===== INTELLIGENCE: VinSolutions lead creation timestamp =====
+      // 4-strategy fallback to find when the lead was created in the CRM.
+      function scrapeLeadCreatedAt(): string | null {
+        if (!isVinSolutions) return null;
+        try {
+          // Strategy 1: Explicit "Created:" label in activity/contact page
+          for (const el of document.querySelectorAll('td, span, div, label')) {
+            const t = (el as HTMLElement).textContent?.trim() || '';
+            if (/^Created:?\s*$/i.test(t)) {
+              const next = el.nextElementSibling || el.parentElement?.nextElementSibling;
+              const val = (next as HTMLElement)?.textContent?.trim();
+              if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
+            }
+          }
+          // Strategy 2: "Lead Created" or "Date Created" table cell
+          for (const td of document.querySelectorAll('td')) {
+            const t = (td as HTMLElement).textContent?.trim() || '';
+            if (/Lead Created|Date Created/i.test(t)) {
+              const sibling = td.nextElementSibling;
+              const val = (sibling as HTMLElement)?.textContent?.trim();
+              if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
+            }
+          }
+          // Strategy 3: data-attribute on known VinSolutions elements
+          const dated = document.querySelector('[data-created], [data-lead-created]');
+          if (dated) {
+            const val = dated.getAttribute('data-created') || dated.getAttribute('data-lead-created');
+            if (val) return val;
+          }
+          // Strategy 4: Scan first activity note timestamp as proxy
+          const firstNote = document.querySelector('.activity-note-date, .note-date, [class*="note"] [class*="date"]');
+          if (firstNote) {
+            const val = (firstNote as HTMLElement).textContent?.trim();
+            if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
+          }
+        } catch { /* never crash */ }
+        return null;
+      }
+
+      // ===== INTELLIGENCE: DOM discovery telemetry =====
+      // Captures page structure fingerprint once per page load to help
+      // identify CRM layout changes and new selector opportunities.
+      function captureDomDiscovery(): void {
+        try {
+          if (!isVinSolutions) return;
+          // Only fire once per session per URL path
+          const pageKey = `brevmont_dom_disc_${window.location.pathname}`;
+          if ((window as any)[pageKey]) return;
+          (window as any)[pageKey] = true;
+          // Capture iframe sources + key element IDs
+          const iframes = Array.from(document.querySelectorAll('iframe')).slice(0, 20).map(f => ({
+            src: (f.src || '').slice(0, 200),
+            id: f.id || null,
+            name: f.name || null,
+          }));
+          const ids = Array.from(document.querySelectorAll('[id]')).slice(0, 50).map(el => ({
+            id: el.id,
+            tag: el.tagName.toLowerCase(),
+          }));
+          const forms = Array.from(document.querySelectorAll('form')).slice(0, 10).map(f => ({
+            action: (f.action || '').slice(0, 200),
+            id: f.id || null,
+            inputs: Array.from(f.querySelectorAll('input, textarea, select')).slice(0, 15).map(i => ({
+              name: (i as HTMLInputElement).name || null,
+              id: i.id || null,
+              type: (i as HTMLInputElement).type || i.tagName.toLowerCase(),
+            })),
+          }));
+          browser.runtime.sendMessage({
+            type: 'TELEMETRY_DOM_DISCOVERY',
+            payload: {
+              url_path: window.location.pathname,
+              page_title: document.title?.slice(0, 200) || '',
+              platform: PLATFORM,
+              iframes,
+              ids,
+              forms,
+            }
+          }).catch(() => {});
+        } catch { /* never crash */ }
+      }
+      // Fire DOM discovery after a short delay to let CRM load
+      setTimeout(captureDomDiscovery, 5000);
+
       // Parse lead from text
       async function parseLead(rawText: string, inputMethod: string) {
         // Show loading in all input tabs
@@ -2389,6 +2476,52 @@ export default defineContentScript({
         reader.readAsDataURL(blob);
         e.preventDefault();
       });
+      // ===== INTELLIGENCE: Text paste interception for edit-distance =====
+      // When a rep copies AI output and pastes into CRM, capture both to measure
+      // how much they edited. Only fires when lastAiOutput is <10 min old.
+      document.addEventListener('paste', (ev: ClipboardEvent) => {
+        try {
+          if (!lastAiOutput || Date.now() - lastAiOutput.timestamp > 600_000) return;
+          const pastedText = ev.clipboardData?.getData('text/plain');
+          if (!pastedText || pastedText.length < 20) return;
+          // Skip if paste target is inside the Brevmont sidebar
+          const target = ev.target as HTMLElement | null;
+          if (target?.closest?.('#brevmont-sidebar-host') || target?.closest?.('[id^="o8"]')) return;
+          // Find the closest matching AI output channel
+          const channels = [
+            { key: 'crm', text: lastAiOutput.crm },
+            { key: 'email', text: lastAiOutput.email },
+            { key: 'text', text: lastAiOutput.text },
+          ];
+          let bestChannel = '';
+          let bestAiText = '';
+          for (const ch of channels) {
+            if (!ch.text) continue;
+            // Rough similarity: shared words ratio
+            const aiWords = new Set(ch.text.toLowerCase().split(/\s+/));
+            const pasteWords = pastedText.toLowerCase().split(/\s+/);
+            const overlap = pasteWords.filter(w => aiWords.has(w)).length;
+            if (overlap / Math.max(pasteWords.length, 1) > 0.3) {
+              bestChannel = ch.key;
+              bestAiText = ch.text;
+              break;
+            }
+          }
+          if (!bestChannel || !bestAiText) return;
+          // Fire-and-forget via background script
+          browser.runtime.sendMessage({
+            type: 'TELEMETRY_EDIT_DISTANCE',
+            payload: {
+              ai_output: bestAiText.slice(0, 5000),
+              pasted_content: pastedText.slice(0, 5000),
+              channel: bestChannel,
+              platform: PLATFORM,
+              customer_name: leadData?.customerName || extractContactName() || null,
+            }
+          }).catch(() => {});
+        } catch { /* never crash main flow */ }
+      }, true);
+
       function clearContextImage() { contextImage = null; if (ctxPreview) ctxPreview.style.display = 'none'; if (dropZone) dropZone.style.display = 'flex'; updCtx(); }
       if (s.getElementById('o8-ctx-remove')) s.getElementById('o8-ctx-remove')!.addEventListener('click', clearContextImage);
       if (ctxDir) ctxDir.addEventListener('input', updCtx);
@@ -2642,12 +2775,16 @@ export default defineContentScript({
         const response = await safeSend({
           type: 'GENERATE_OUTPUT',
           payload: { type, leadContext: leadData || {}, repInput: input + (leadData?.vehicle ? '' : '\n[SYSTEM: No vehicle of interest detected. Do not mention or invent a vehicle in the response.]'), repName: '', dealership: '', platform: PLATFORM, tone, goal,
-            metadata: { workflow_type: type === 'all' ? 'all' : type, customer_name: leadData?.customerName || extractContactName() || null, vehicle: leadData?.vehicle || null, email: leadData?.email || null } }
+            metadata: { workflow_type: type === 'all' ? 'all' : type, customer_name: leadData?.customerName || extractContactName() || null, vehicle: leadData?.vehicle || null, email: leadData?.email || null, lead_created_at: scrapeLeadCreatedAt(), lead_source: leadData?.source || null } }
         });
         if ((response as any).queued) {
           showToast(s, (response as any).message || 'Saved. Will sync when online.');
         } else if (response.error) addOutput(s, 'Error', response.error);
-        else { const sec = response.sections; if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) { if (sec.crm.trim() === 'NO_NEW_NOTE') { showToast(s, 'Nothing new to log. Last note covers this.'); } else { addOutput(s, outputLabels.crm, sec.crm); } } if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.'); }
+        else {
+          const sec = response.sections;
+          // Intelligence: store AI output for edit-distance tracking
+          lastAiOutput = { text: sec?.text || '', email: sec?.email || '', crm: sec?.crm || '', timestamp: Date.now() };
+          if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) { if (sec.crm.trim() === 'NO_NEW_NOTE') { showToast(s, 'Nothing new to log. Last note covers this.'); } else { addOutput(s, outputLabels.crm, sec.crm); } } if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.'); }
         // Tabbed outputs refactor (2026-04-19): auto-activate the first
         // generated output so the panel shows exactly one card post-gen.
         // Preference order: text → email → crm (matches the marketing demo

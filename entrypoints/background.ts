@@ -441,6 +441,44 @@ export default defineBackground(() => {
       });
       return true;
     }
+
+    // ===== Intelligence: Edit-distance telemetry =====
+    if (msg.type === 'TELEMETRY_EDIT_DISTANCE') {
+      browser.storage.sync.get(['dealer_token']).then(async (settings) => {
+        if (!settings.dealer_token) { sendResponse({ ok: false }); return; }
+        try {
+          await fetch(`${PROXY_URL}/api/telemetry/edit-distance`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.dealer_token}` },
+            body: JSON.stringify(msg.payload),
+          });
+          sendResponse({ ok: true });
+        } catch (e: any) {
+          telemetry.trackError(e, { flow: 'edit_distance' });
+          sendResponse({ ok: false });
+        }
+      });
+      return true;
+    }
+
+    // ===== Intelligence: DOM discovery telemetry =====
+    if (msg.type === 'TELEMETRY_DOM_DISCOVERY') {
+      browser.storage.sync.get(['dealer_token']).then(async (settings) => {
+        if (!settings.dealer_token) { sendResponse({ ok: false }); return; }
+        try {
+          await fetch(`${PROXY_URL}/api/telemetry/dom-discovery`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.dealer_token}` },
+            body: JSON.stringify(msg.payload),
+          });
+          sendResponse({ ok: true });
+        } catch (e: any) {
+          telemetry.trackError(e, { flow: 'dom_discovery' });
+          sendResponse({ ok: false });
+        }
+      });
+      return true;
+    }
   });
 
   // ===== HEARTBEAT + ALERTS via chrome.alarms (MV3 compliant) =====
