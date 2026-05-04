@@ -83,7 +83,22 @@ let profileData = {
     }
   }
 
-  // Path 2/3 — onboarded check + resume from local-storage progress.
+  // Path 2 — brevmont_rep_session cookie (set by /join flow in webapp).
+  // Reads the cookie from app.brevmont.com, calls /api/session/to-license
+  // which returns full credentials for the rep. Skips manual entry entirely.
+  const cookieOk = await tryAutoConfigFromCookie();
+  if (cookieOk) {
+    try {
+      const stored = await storage.getMany(['dealership', 'rep_name']);
+      document.getElementById('comp-name')!.textContent = stored.rep_name || 'You';
+      document.getElementById('comp-dealer')!.textContent = stored.dealership || '';
+      document.getElementById('comp-tone')!.textContent = 'Default';
+    } catch (_) { /* noop */ }
+    goToStep(5);
+    return;
+  }
+
+  // Path 3/4 — onboarded check + resume from local-storage progress.
   let stored: { profile_onboarded?: boolean; profile_onboarding?: string | null } = {};
   try {
     stored = await new Promise((resolve) => {
@@ -142,6 +157,66 @@ async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
     return true;
   } catch (e: any) {
     telemetry.trackError(e instanceof Error ? e : new Error(String(e)), { flow: 'install_token_validate' });
+    return false;
+  }
+}
+
+/**
+ * Try auto-config from brevmont_rep_session cookie (set by /join flow).
+ * Calls /api/session/to-license which returns full credentials for the rep.
+ * This is the zero-friction path for reps who joined via the webapp invite.
+ */
+async function tryAutoConfigFromCookie(): Promise<boolean> {
+  try {
+    // Read the brevmont_rep_session cookie from app.brevmont.com
+    let cookieVal: string | null = null;
+    try {
+      const cookie = await chrome.cookies.get({
+        url: 'https://app.brevmont.com',
+        name: 'brevmont_rep_session',
+      });
+      cookieVal = cookie?.value || null;
+    } catch (_) { /* cookies permission missing or cookie absent */ }
+
+    if (!cookieVal) return false;
+
+    const resp = await fetch(`${PROXY_URL}/api/session/to-license`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${cookieVal}`,
+        'Accept': 'application/json',
+      },
+    });
+    if (!resp.ok) return false;
+
+    const data = await resp.json();
+    if (!data?.license_key) return false;
+
+    const toStore: Record<string, any> = {
+      license_key: data.license_key,
+      dealer_token: data.dealer_token || data.license_key,
+      activated_at: Date.now(),
+      license_revoked: false,
+      profile_onboarded: true,
+      profile_onboarding: null,
+    };
+    if (data.license_secret) {
+      toStore.license_secret = data.license_secret;
+      toStore.brevmont_license_secret = data.license_secret;
+    }
+    if (data.dealership_name) toStore.dealership = data.dealership_name;
+    if (data.dealership_id) toStore.dealership_id = data.dealership_id;
+    if (data.rep_name) toStore.rep_name = data.rep_name;
+    if (data.rep_email) toStore.rep_email = data.rep_email;
+    if (data.rep_id) toStore.rep_id = data.rep_id;
+    if (data.rep_auth_token) toStore.rep_auth_token = data.rep_auth_token;
+
+    await chrome.storage.local.set(toStore);
+    await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
+    try { chrome.action?.setBadgeText?.({ text: '' }); } catch {}
+    return true;
+  } catch (e: any) {
+    telemetry.trackError(e instanceof Error ? e : new Error(String(e)), { flow: 'cookie_auto_config' });
     return false;
   }
 }
@@ -312,11 +387,25 @@ async function validateLicense(key: string) {
       return false;
     }
 
-    const dbName = data.dealership || null;
+    const dealer = data.dealership || null;
+    const dbName = typeof dealer === 'string' ? dealer : dealer?.name || null;
     if (dbName) {
       profileData.dealership.name = dbName;
       const nameInput = document.getElementById('s2-dealership') as HTMLInputElement;
       if (nameInput) { nameInput.value = dbName; nameInput.readOnly = true; nameInput.style.opacity = '0.7'; }
+    }
+    // Auto-fill city/state if returned by API (FIX 2)
+    if (dealer && typeof dealer === 'object') {
+      if (dealer.city) {
+        profileData.dealership.city = dealer.city;
+        const cityInput = document.getElementById('s3-city') as HTMLInputElement;
+        if (cityInput) { cityInput.value = dealer.city; }
+      }
+      if (dealer.state) {
+        profileData.dealership.state = dealer.state;
+        const stateInput = document.getElementById('s3-state') as HTMLInputElement;
+        if (stateInput) { stateInput.value = dealer.state; }
+      }
     }
 
     // Persist credentials returned by proxy. Clear any prior revocation flag.
@@ -336,6 +425,7 @@ async function validateLicense(key: string) {
       toStore.brevmont_license_secret = data.license_secret;
     }
     if (dbName) toStore.dealership = dbName;
+    if (dealer && typeof dealer === 'object' && dealer.id) toStore.dealership_id = dealer.id;
     try {
       await chrome.storage.local.set(toStore);
       // Also remove the stale revocation fields so old state doesn't linger
@@ -386,27 +476,8 @@ async function validateRepToken(token: string) {
     const resp = await fetch(`${PROXY_URL}/v1/rep/validate-token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rep_token: token }),
+      body: JSON.stringify({ token }),
     });
-
-    // TODO(orchestrator): the `/v1/rep/validate-token` proxy endpoint is being
-    // built in the parallel proxy sprint. Until it exists, a 404 here is the
-    // expected "stub" path. Treat 404 as a soft-accept so onboarding can
-    // proceed during the CODE RED sprint — every other status code is treated
-    // as a real validation failure. Remove this branch once the proxy ships.
-    if (resp.status === 404) {
-      console.warn('[Brevmont] /v1/rep/validate-token not yet deployed — accepting token as stub');
-      repSession = {
-        rep_auth_token: token,
-        rep_id: 'stub_rep_id',
-        rep_name: '',
-        dealership_id: 'stub_dealership_id',
-        dealership_name: profileData.dealership.name || '',
-      };
-      if (okEl) okEl.style.display = 'block';
-      if (errEl) errEl.style.display = 'none';
-      return true;
-    }
 
     if (resp.status === 400 || resp.status === 401 || resp.status === 403) {
       let body: any = {};
@@ -428,10 +499,8 @@ async function validateRepToken(token: string) {
       return false;
     }
 
-    // Cache validated payload for finish() to persist. Server returns these
-    // fields per the CODE RED proxy spec: rep_id, rep_name, dealership_id,
-    // dealership (display name). Fall back to empty strings so finish() is
-    // never blocked if a field is absent.
+    // Cache validated payload for finish() to persist. The endpoint now returns
+    // full credentials (license_key, license_secret, dealer_token) plus identity.
     repSession = {
       rep_auth_token: token,
       rep_id: data.rep_id || '',
@@ -439,6 +508,29 @@ async function validateRepToken(token: string) {
       dealership_id: data.dealership_id || '',
       dealership_name: data.dealership || data.dealership_name || profileData.dealership.name || '',
     };
+
+    // Persist license credentials so the extension can sign requests immediately
+    const toStore: Record<string, any> = {
+      rep_auth_token: token,
+      activated_at: Date.now(),
+      license_revoked: false,
+    };
+    if (data.license_key) toStore.license_key = data.license_key;
+    if (data.dealer_token) toStore.dealer_token = data.dealer_token;
+    if (data.license_secret) {
+      toStore.license_secret = data.license_secret;
+      toStore.brevmont_license_secret = data.license_secret;
+    }
+    if (data.dealership_id) toStore.dealership_id = data.dealership_id;
+    if (repSession.dealership_name) toStore.dealership = repSession.dealership_name;
+    if (data.rep_id) toStore.rep_id = data.rep_id;
+    if (data.rep_email) toStore.rep_email = data.rep_email;
+    if (data.rep_name) toStore.rep_name = data.rep_name;
+    try {
+      await chrome.storage.local.set(toStore);
+      await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
+    } catch {}
+    try { chrome.action?.setBadgeText?.({ text: '' }); } catch {}
 
     // If the server resolved the dealership name, overwrite local copy so
     // downstream prompts use the canonical name rather than whatever the rep
