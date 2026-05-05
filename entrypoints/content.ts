@@ -1760,7 +1760,7 @@ export default defineContentScript({
         Object.assign(host.style, {
           position: 'fixed',
           top: '555px',
-          left: '20px',
+          left: '40px',
           width: '256px',
           maxHeight: '600px',
           zIndex: '2147483647',
@@ -3283,7 +3283,8 @@ export default defineContentScript({
 /* Tabbed-outputs refactor (2026-04-19): stamped typed cards hide unless the
    matching chip is .tab-active. Untyped cards (Error / OUTPUT / REPLY) have
    no data-output-type and fall through — they always render. */
-.out-card[data-output-type]:not(.tab-visible) { display:none; }
+.out-card[data-output-type]:not(.tab-visible) { display:none !important; }
+.out-card[data-output-type].tab-visible { display:block !important; }
 .out-label { font-size:9px; font-weight:700; color:#0D6E6E; letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
 .out-textarea { width:100%; min-height:120px; max-height:300px; height:auto; padding:10px; border:1px solid #E5E7EB; border-radius:8px; font-size:12px; line-height:1.6; font-family:inherit; color:#1a202c; background:#fff; resize:vertical; outline:none; } .out-textarea:focus { border-color:#0D6E6E; }
 .out-actions { display:flex; gap:6px; margin-top:8px; }
