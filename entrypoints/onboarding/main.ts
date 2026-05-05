@@ -54,6 +54,22 @@ let profileData = {
     // storage migration failure is non-fatal — we fall through to legacy reads.
   }
 
+  // Close immediately if onboarding already completed. MUST run before the
+  // cookie / install_token shortcuts below — those paths call goToStep(5) and
+  // would trap users on "You're ready" every time they open onboarding.html
+  // (cookie handoff succeeds on every load while brevmont_rep_session exists).
+  try {
+    const gate = await new Promise<{ profile_onboarded?: boolean }>((resolve) => {
+      chrome.storage.local.get(['profile_onboarded'], (d) => resolve(d as { profile_onboarded?: boolean }));
+    });
+    if (gate.profile_onboarded) {
+      window.close();
+      return;
+    }
+  } catch (_) {
+    /* noop */
+  }
+
   // Path 1 — install_token in URL. Highest priority.
   const url = new URL(window.location.href);
   const installToken = url.searchParams.get('install_token');

@@ -60,6 +60,14 @@ export default defineConfig({
         matches: ['https://app.brevmont.com/*', 'https://*.brevmont.com/*'],
       },
     ],
+    externally_connectable: {
+      matches: [
+        'https://app.brevmont.com/*',
+        'https://*.brevmont.com/*',
+        'http://localhost:*/*',
+        'http://127.0.0.1:*/*',
+      ],
+    },
     host_permissions: [
       '*://*.vinsolutions.com/*',
       '*://vinsolutions.app.coxautoinc.com/*',

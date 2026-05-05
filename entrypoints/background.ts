@@ -120,6 +120,19 @@ export default defineBackground(() => {
     if (t?.id) void applySidePanelForTab(t.id, t.url);
   });
 
+  // app.brevmont.com /install detection — RepLanding pings via externally_connectable
+  chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+    if ((message as { type?: string })?.type === 'WEBAPP_INSTALL_CHECK') {
+      try {
+        sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
+      } catch {
+        /* noop */
+      }
+      return false;
+    }
+    return false;
+  });
+
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'CUSTOMER_CONTEXT') {
       void browser.storage.session.set({
