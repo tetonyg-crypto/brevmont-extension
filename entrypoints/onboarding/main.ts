@@ -54,15 +54,15 @@ let profileData = {
     // storage migration failure is non-fatal — we fall through to legacy reads.
   }
 
-  // Close immediately if onboarding already completed. MUST run before the
-  // cookie / install_token shortcuts below — those paths call goToStep(5) and
-  // would trap users on "You're ready" every time they open onboarding.html
-  // (cookie handoff succeeds on every load while brevmont_rep_session exists).
+  // EXIT FIRST if already activated — before install_token, cookie path, or resume.
+  // Requires dealer_token so we don't close on a half-written profile flag alone.
   try {
-    const gate = await new Promise<{ profile_onboarded?: boolean }>((resolve) => {
-      chrome.storage.local.get(['profile_onboarded'], (d) => resolve(d as { profile_onboarded?: boolean }));
+    const gate = await new Promise<{ profile_onboarded?: boolean; dealer_token?: string }>((resolve) => {
+      chrome.storage.local.get(['profile_onboarded', 'dealer_token'], (d) =>
+        resolve(d as { profile_onboarded?: boolean; dealer_token?: string }),
+      );
     });
-    if (gate.profile_onboarded) {
+    if (gate.profile_onboarded && gate.dealer_token) {
       window.close();
       return;
     }
@@ -115,14 +115,18 @@ let profileData = {
   }
 
   // Path 3/4 — onboarded check + resume from local-storage progress.
-  let stored: { profile_onboarded?: boolean; profile_onboarding?: string | null } = {};
+  let stored: {
+    profile_onboarded?: boolean;
+    profile_onboarding?: string | null;
+    dealer_token?: string;
+  } = {};
   try {
     stored = await new Promise((resolve) => {
-      chrome.storage.local.get(['profile_onboarded', 'profile_onboarding'], (d) => resolve(d as any));
+      chrome.storage.local.get(['profile_onboarded', 'profile_onboarding', 'dealer_token'], (d) => resolve(d as any));
     });
   } catch (_) { /* noop */ }
 
-  if (stored.profile_onboarded) {
+  if (stored.profile_onboarded && stored.dealer_token) {
     window.close();
     return;
   }

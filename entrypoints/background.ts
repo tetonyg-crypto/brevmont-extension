@@ -333,7 +333,10 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'OPEN_ONBOARDING') {
-      browser.tabs.create({ url: browser.runtime.getURL('onboarding.html') });
+      void browser.storage.local.get(['profile_onboarded', 'dealer_token']).then((s) => {
+        if (s.profile_onboarded && s.dealer_token) return;
+        browser.tabs.create({ url: browser.runtime.getURL('onboarding.html') }).catch(() => {});
+      });
       return false;
     }
 
@@ -1023,6 +1026,17 @@ export default defineBackground(() => {
       autoConfigured = false;
     }
 
+    const onboardedGate = await browser.storage.local.get(['profile_onboarded', 'dealer_token']);
+    const alreadySetup = Boolean(onboardedGate.profile_onboarded && onboardedGate.dealer_token);
+
+    // Updates / reloads: never pop install UI if they're already activated.
+    if (details.reason === 'update' && alreadySetup) {
+      sendHeartbeat().catch(() => {});
+      setTimeout(bootstrapLicenseSecret, 5000);
+      setTimeout(checkVersionStatus, 8000);
+      return;
+    }
+
     if (autoConfigured) {
       // Cookie share landed. Fire heartbeat now so the ACTIVATED Telegram
       // alert lands immediately instead of after the 5-min cron tick.
@@ -1032,7 +1046,7 @@ export default defineBackground(() => {
       // for the first time. Show the "Find Brevmont in Chrome" walkthrough
       // so they can pin the icon — without it, they'll lose the toolbar
       // affordance and assume the extension isn't installed.
-      if (details.reason === 'install') {
+      if (details.reason === 'install' && !alreadySetup) {
         try {
           await browser.tabs.create({ url: browser.runtime.getURL('install-screen.html') });
         } catch {
@@ -1040,7 +1054,7 @@ export default defineBackground(() => {
           // autoConfigured = true
         }
       }
-    } else if (details.reason === 'install') {
+    } else if (details.reason === 'install' && !alreadySetup) {
       // Auto-config didn't land (no cookie, or bridge call failed). Show
       // the "Find Brevmont in Chrome" walkthrough first — same screen the
       // cookie path shows — so the rep pins the icon. After that walkthrough

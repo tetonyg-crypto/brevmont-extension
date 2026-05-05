@@ -1,18 +1,18 @@
 /**
- * Minimal content script for app.brevmont.com (and local dev).
- * Stamps the DOM so the web app can detect "this Brevmont build is installed"
- * without knowing chrome-extension:// ID (Web Store vs unpacked vs Edge all differ).
- *
- * RepLanding reads `document.documentElement[data-brevmont-extension="1"]`.
+ * Stamps app.brevmont.com / admin so the web app can detect this Brevmont build
+ * without chrome-extension:// IDs (Store vs unpacked).
  */
 export default defineContentScript({
   matches: [
     'https://app.brevmont.com/*',
+    'https://admin.brevmont.com/*',
     'https://*.brevmont.com/*',
     'http://localhost:5173/*',
     'http://127.0.0.1:5173/*',
     'http://localhost:4173/*',
     'http://127.0.0.1:4173/*',
+    'http://localhost:3000/*',
+    'http://127.0.0.1:3000/*',
   ],
   allFrames: false,
   runAt: 'document_start',
@@ -28,10 +28,17 @@ export default defineContentScript({
     }
     try {
       const manifest = browser.runtime.getManifest();
+      document.dispatchEvent(
+        new CustomEvent('brevmont-extension-ready', {
+          bubbles: true,
+          detail: { version: manifest?.version ?? '' },
+        }),
+      );
       window.dispatchEvent(
         new CustomEvent('brevmont-extension-ready', {
+          bubbles: true,
           detail: { version: manifest?.version ?? '' },
-        })
+        }),
       );
     } catch {
       /* noop */
