@@ -338,3 +338,6 @@ export function extractContactNameLite(platform: string): string | null {
   }
   return null;
 }
+
+/** Legacy name — some bundles still reference `extractContactName`; keep alias to avoid ReferenceError. */
+export const extractContactName = extractContactNameLite;

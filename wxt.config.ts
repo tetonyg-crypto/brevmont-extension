@@ -7,7 +7,7 @@ export default defineConfig({
       minify: 'terser',
       terserOptions: {
         mangle: {
-          reserved: ['detectPlatform', 'gatherAllText', 'getDashboardScopedText', 'extractVehicle', 'scanText', 'attemptScan', 'updateSidebar', 'openSidebar', 'closeSidebar', 'pushContent', 'updatePillPosition', 'extractContactName']
+          reserved: ['detectPlatform', 'gatherAllText', 'getDashboardScopedText', 'extractVehicle', 'scanText', 'attemptScan', 'updateSidebar', 'openSidebar', 'closeSidebar', 'pushContent', 'updatePillPosition', 'extractContactName', 'extractContactNameLite']
         }
       }
     }
@@ -41,19 +41,25 @@ export default defineConfig({
     side_panel: {
       default_path: 'sidepanel.html',
     },
-    web_accessible_resources: [{
-      resources: ['voice.html', 'brevmont-intercept.js'],
-      matches: [
-        '*://*.vinsolutions.com/*',
-        '*://vinsolutions.app.coxautoinc.com/*',
-        '*://mail.google.com/*',
-        '*://www.facebook.com/*',
-        '*://www.messenger.com/*',
-        '*://www.linkedin.com/*',
-        '*://www.instagram.com/*',
-        '*://web.whatsapp.com/*'
-      ]
-    }],
+    web_accessible_resources: [
+      {
+        resources: ['voice.html', 'brevmont-intercept.js'],
+        matches: [
+          '*://*.vinsolutions.com/*',
+          '*://vinsolutions.app.coxautoinc.com/*',
+          '*://mail.google.com/*',
+          '*://www.facebook.com/*',
+          '*://www.messenger.com/*',
+          '*://www.linkedin.com/*',
+          '*://www.instagram.com/*',
+          '*://web.whatsapp.com/*',
+        ],
+      },
+      {
+        resources: ['icons/icon-128.png', 'icons/icon-48.png'],
+        matches: ['https://app.brevmont.com/*', 'https://*.brevmont.com/*'],
+      },
+    ],
     host_permissions: [
       '*://*.vinsolutions.com/*',
       '*://vinsolutions.app.coxautoinc.com/*',
