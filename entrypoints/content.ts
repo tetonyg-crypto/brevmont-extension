@@ -1210,7 +1210,7 @@ export default defineContentScript({
           pill.style.opacity = '0.85';
         }
       } else if (isGmail) {
-        pill.style.left = '14px';
+        pill.style.left = '72px';
         pill.style.top = '475px';
         pill.style.bottom = 'auto';
         pill.style.right = 'auto';
@@ -1759,9 +1759,9 @@ export default defineContentScript({
       function applyGmailFixedLayout(): void {
         Object.assign(host.style, {
           position: 'fixed',
-          top: '0',
-          left: '0',
-          width: '260px',
+          top: '515px',
+          left: '0px',
+          width: '256px',
           maxHeight: '400px',
           zIndex: '2147483647',
           overflowY: 'auto',
