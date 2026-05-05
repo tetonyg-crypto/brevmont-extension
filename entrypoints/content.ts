@@ -1175,32 +1175,8 @@ export default defineContentScript({
           pill.style.opacity = '0.85';
         }
       } else if (isGmail) {
-        // Position pill flush inside Gmail's left nav, aligned with label text
-        const nav = document.querySelector('div[role="navigation"]') as HTMLElement | null;
-        let pillTop = 435;
-        let pillLeft = 16; // fallback — Gmail nav labels sit at ~16px from nav left
-        if (nav) {
-          const navRect = nav.getBoundingClientRect();
-          // Find a label text element to match its exact left offset
-          const firstLabelText = nav.querySelector('.aim .nU > .n0') as HTMLElement | null;
-          if (firstLabelText) {
-            const textRect = firstLabelText.getBoundingClientRect();
-            pillLeft = textRect.left; // exact left edge of label text
-          } else {
-            pillLeft = navRect.left + 26; // fallback indent
-          }
-          // Place pill 16px below the last label item
-          const labels = nav.querySelectorAll('.aim');
-          if (labels.length > 0) {
-            const lastLabel = labels[labels.length - 1] as HTMLElement;
-            const lastRect = lastLabel.getBoundingClientRect();
-            pillTop = Math.max(lastRect.bottom + 16, navRect.top + 100);
-          } else {
-            pillTop = Math.min(navRect.bottom - 20, 500);
-          }
-        }
-        pill.style.left = pillLeft + 'px';
-        pill.style.top = pillTop + 'px';
+        pill.style.left = '20px';
+        pill.style.top = '435px';
         pill.style.bottom = 'auto';
         pill.style.right = 'auto';
         pill.style.transform = 'none';
@@ -1209,7 +1185,6 @@ export default defineContentScript({
         pill.style.fontSize = '11px';
         pill.style.visibility = 'visible';
         pill.style.opacity = '0.9';
-        pill.style.zIndex = '2147483647';
       } else if (isLinkedIn) {
         pill.style.right = '20px';
         pill.style.top = '70px';
