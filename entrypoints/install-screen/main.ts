@@ -18,6 +18,7 @@
  *     to text-only step descriptions so the screen is never broken
  */
 
+import { hasCompleteActivation } from '../lib/activationState';
 import { openRepPostInstallDestination } from '../lib/repAfterInstall';
 
 type Platform = 'mac' | 'windows' | 'other';
@@ -129,6 +130,14 @@ async function bootstrap() {
 
   document.getElementById('btn-pinned')?.addEventListener('click', async () => {
     await markFirstRunComplete();
+    if (await hasCompleteActivation()) {
+      try {
+        window.close();
+      } catch {
+        /* noop */
+      }
+      return;
+    }
     const activated = await isAlreadyActivated();
     if (activated) {
       const stored = await new Promise<any>((resolve) => {
@@ -139,7 +148,7 @@ async function bootstrap() {
       const repRoles = ['rep', 'sales_rep'];
 
       if (repRoles.includes(role)) {
-        openRepPostInstallDestination();
+        await openRepPostInstallDestination();
       } else {
         try {
           chrome.tabs.create({ url: 'https://app.brevmont.com/dashboard' });

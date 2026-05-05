@@ -17,6 +17,7 @@ import { telemetry } from './lib/telemetry';
 import { dlog } from './lib/dev';
 import { initSentry, setSentryContext, captureError, addBreadcrumb } from '../lib/sentry';
 import { fetchRemoteConfig, getResolvedApiUrl, applyConfig } from '../lib/remoteConfig';
+import { hasCompleteActivation } from './lib/activationState';
 
 initSentry();
 
@@ -246,8 +247,8 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'OPEN_ONBOARDING') {
-      void browser.storage.local.get(['profile_onboarded', 'dealer_token']).then((s) => {
-        if (s.profile_onboarded && s.dealer_token) return;
+      void hasCompleteActivation().then((ok) => {
+        if (ok) return;
         browser.tabs.create({ url: browser.runtime.getURL('onboarding.html') }).catch(() => {});
       });
       return false;
@@ -936,8 +937,7 @@ export default defineBackground(() => {
       autoConfigured = false;
     }
 
-    const onboardedGate = await browser.storage.local.get(['profile_onboarded', 'dealer_token']);
-    const alreadySetup = Boolean(onboardedGate.profile_onboarded && onboardedGate.dealer_token);
+    const alreadySetup = await hasCompleteActivation();
 
     // Updates / reloads: never pop install UI if they're already activated.
     if (details.reason === 'update' && alreadySetup) {

@@ -697,7 +697,7 @@ async function openBrevmont() {
   const repRoles = ['rep', 'sales_rep'];
 
   if (repRoles.includes(role)) {
-    openRepPostInstallDestination();
+    await openRepPostInstallDestination();
   } else {
     try {
       chrome.tabs.create({ url: 'https://app.brevmont.com/dashboard' });
