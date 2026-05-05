@@ -1760,7 +1760,7 @@ export default defineContentScript({
         Object.assign(host.style, {
           position: 'fixed',
           top: '555px',
-          left: '40px',
+          left: '50px',
           width: '256px',
           maxHeight: '600px',
           zIndex: '2147483647',
@@ -2941,11 +2941,19 @@ export default defineContentScript({
     // generated. Matches the marketing demo UX at brevmont.com/try.
     function setActiveOutputTab(s: ShadowRoot, type: string) {
       s.querySelectorAll('.chip').forEach((c) => {
-        c.classList.toggle('tab-active', c.getAttribute('data-type') === type);
+        c.classList.remove('tab-active');
       });
+      const activeChip = s.querySelector(`.chip[data-type="${type}"]`);
+      if (activeChip) activeChip.classList.add('tab-active');
       s.querySelectorAll('.out-card[data-output-type]').forEach((card) => {
-        card.classList.toggle('tab-visible', (card as HTMLElement).dataset.outputType === type);
+        card.classList.remove('tab-visible');
+        (card as HTMLElement).style.display = 'none';
       });
+      const activeCard = s.querySelector(`.out-card[data-output-type="${type}"]`);
+      if (activeCard) {
+        activeCard.classList.add('tab-visible');
+        (activeCard as HTMLElement).style.display = 'block';
+      }
     }
 
     function addOutput(s: ShadowRoot, label: string, content: string, containerId: string = 'o8-outputs') {
