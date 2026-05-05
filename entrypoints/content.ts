@@ -10,7 +10,7 @@ import {
   getDashboardScopedText,
   scanVinText,
   safeInjectText,
-  extractContactNameLite,
+  extractContactName,
   extractVehicle,
 } from './lib/leadContextScan';
 import type { LeadScanResult } from './lib/leadContextScan';
@@ -182,7 +182,7 @@ export default defineContentScript({
         }
         return;
       }
-      const name = extractContactNameLite(PLATFORM);
+      const name = extractContactName(PLATFORM);
       if (name) {
         const lead: LeadScanResult = {
           customerName: name,

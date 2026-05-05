@@ -274,8 +274,8 @@ export function safeInjectText(target: HTMLElement, text: string) {
   target.dispatchEvent(new Event('blur', { bubbles: true }));
 }
 
-/** Non-Vin contact name — simplified from legacy extractContactName */
-export function extractContactNameLite(platform: string): string | null {
+/** Non-Vin contact name (Gmail, Facebook/Messenger, LinkedIn, Instagram, …). */
+export function extractContactName(platform: string): string | null {
   if (platform === 'gmail') {
     const senderEl = document.querySelector('.gD') as HTMLElement | null;
     if (senderEl) {
@@ -339,5 +339,5 @@ export function extractContactNameLite(platform: string): string | null {
   return null;
 }
 
-/** Legacy name — some bundles still reference `extractContactName`; keep alias to avoid ReferenceError. */
-export const extractContactName = extractContactNameLite;
+/** Legacy import path — same implementation as `extractContactName`. */
+export const extractContactNameLite = extractContactName;
