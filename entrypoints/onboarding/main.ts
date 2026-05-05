@@ -149,6 +149,11 @@ async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
       rep_email: data.rep_email || null,
       rep_name: data.rep_name || null,
     });
+    try {
+      await chrome.storage.local.set({
+        brevmont_extension_role: (data.rep_id || data.rep_auth_token) ? 'rep' : 'manager',
+      });
+    } catch (_) { /* noop */ }
     // Mark onboarded so the popup/options pages don't re-prompt.
     await storage.patch({
       profile_onboarded: true,
@@ -210,6 +215,7 @@ async function tryAutoConfigFromCookie(): Promise<boolean> {
     if (data.rep_email) toStore.rep_email = data.rep_email;
     if (data.rep_id) toStore.rep_id = data.rep_id;
     if (data.rep_auth_token) toStore.rep_auth_token = data.rep_auth_token;
+    toStore.brevmont_extension_role = 'rep';
 
     await chrome.storage.local.set(toStore);
     await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
@@ -426,6 +432,7 @@ async function validateLicense(key: string) {
     }
     if (dbName) toStore.dealership = dbName;
     if (dealer && typeof dealer === 'object' && dealer.id) toStore.dealership_id = dealer.id;
+    toStore.brevmont_extension_role = 'manager';
     try {
       await chrome.storage.local.set(toStore);
       // Also remove the stale revocation fields so old state doesn't linger
@@ -526,6 +533,7 @@ async function validateRepToken(token: string) {
     if (data.rep_id) toStore.rep_id = data.rep_id;
     if (data.rep_email) toStore.rep_email = data.rep_email;
     if (data.rep_name) toStore.rep_name = data.rep_name;
+    toStore.brevmont_extension_role = 'rep';
     try {
       await chrome.storage.local.set(toStore);
       await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
@@ -591,6 +599,7 @@ async function finish() {
     'rep_name': profileData.identity.firstName + ' ' + profileData.identity.lastName,
     'dealership': profileData.dealership.name,
     'dealer_token': dealerTokenForSync,
+    brevmont_extension_role: authRole === 'rep' ? 'rep' : 'manager',
   };
   // If this install used the rep-token path, write the rep session fields to
   // sync so popup/options can display identity, and dual-write the token to
@@ -610,7 +619,9 @@ async function finish() {
       });
     } catch (_) { /* noop */ }
   }
-  try { await chrome.storage.local.set(payload); } catch (_) { /* noop */ }
+  try {
+    await chrome.storage.local.set(payload);
+  } catch (_) { /* noop */ }
   chrome.storage.sync.set(payload, () => {
     chrome.storage.sync.remove('profile_onboarding');
     chrome.storage.local.remove('profile_onboarding');
@@ -657,15 +668,17 @@ async function syncProfileToSupabase(profile: any) {
 }
 
 function openBrevmont() {
-  // Send the dealer to the actual dashboard where they see their stats,
-  // onboarding checklist, and rep invites. Previous behavior (window.close)
-  // just left them staring at a dead tab after a successful activation.
-  try {
-    chrome.tabs.create({ url: 'https://app.brevmont.com/dashboard' });
-    window.close();
-  } catch (_) {
-    window.location.href = 'https://app.brevmont.com/dashboard';
-  }
+  void chrome.storage.local.get(['brevmont_extension_role'], (r) => {
+    const role = (r?.brevmont_extension_role as string) || (authRole === 'rep' ? 'rep' : 'manager');
+    const repLike = role === 'rep' || role === 'sales_rep';
+    const url = repLike ? 'https://app.vinsolutions.com/' : 'https://app.brevmont.com/dashboard';
+    try {
+      chrome.tabs.create({ url });
+      window.close();
+    } catch (_) {
+      window.location.href = url;
+    }
+  });
 }
 
 // UI helpers

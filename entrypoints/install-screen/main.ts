@@ -129,10 +129,21 @@ async function bootstrap() {
     await markFirstRunComplete();
     const activated = await isAlreadyActivated();
     if (activated) {
+      const role = await new Promise<string | null>((resolve) => {
+        try {
+          chrome.storage.local.get(['brevmont_extension_role'], (d) => {
+            resolve((d.brevmont_extension_role as string) || null);
+          });
+        } catch {
+          resolve(null);
+        }
+      });
+      const repLike = role === 'rep' || role === 'sales_rep';
+      const url = repLike ? 'https://app.vinsolutions.com/' : 'https://app.brevmont.com/dashboard';
       try {
-        chrome.tabs.create({ url: 'https://app.brevmont.com/dashboard' });
+        chrome.tabs.create({ url });
       } catch {
-        window.location.href = 'https://app.brevmont.com/dashboard';
+        window.location.href = url;
       }
       window.close();
       return;

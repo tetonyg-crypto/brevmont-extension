@@ -47,7 +47,104 @@ export default defineBackground(() => {
     dlog('[Brevmont] Storage migration complete');
   })().catch(() => {});
 
+  const CRM_SIDE_PANEL_HOSTS = [
+    'vinsolutions.com',
+    'coxautoinc.com',
+    'mail.google.com',
+    'facebook.com',
+    'messenger.com',
+    'linkedin.com',
+    'instagram.com',
+    'web.whatsapp.com',
+  ];
+
+  function urlMatchesSidePanelHost(url: string | undefined): boolean {
+    if (!url || url.startsWith('chrome')) return false;
+    try {
+      const host = new URL(url).hostname;
+      return CRM_SIDE_PANEL_HOSTS.some((h) => host.includes(h));
+    } catch {
+      return false;
+    }
+  }
+
+  async function applySidePanelForTab(tabId: number, url: string | undefined) {
+    const sp = (chrome as any).sidePanel;
+    if (!sp?.setOptions) return;
+
+    const onCrm = urlMatchesSidePanelHost(url);
+    try {
+      await sp.setOptions({
+        tabId,
+        path: 'sidepanel.html',
+        enabled: onCrm,
+      });
+    } catch {
+      /* noop */
+    }
+
+    try {
+      await chrome.action.setPopup({ tabId, popup: onCrm ? '' : 'popup.html' });
+    } catch {
+      /* noop */
+    }
+
+    try {
+      await chrome.action.setBadgeText({ tabId, text: onCrm ? '●' : '' });
+      if (onCrm) {
+        await chrome.action.setBadgeBackgroundColor({ tabId, color: '#0D6E6E' });
+      }
+    } catch {
+      /* noop */
+    }
+  }
+
+  void (chrome as any).sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
+
+  chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+    if (info.status !== 'complete' || tab.id == null) return;
+    void applySidePanelForTab(tab.id, tab.url);
+  });
+
+  chrome.tabs.onActivated.addListener(async (activeInfo) => {
+    try {
+      const tab = await chrome.tabs.get(activeInfo.tabId);
+      await applySidePanelForTab(activeInfo.tabId, tab.url);
+    } catch {
+      /* noop */
+    }
+  });
+
+  void browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+    const t = tabs[0];
+    if (t?.id) void applySidePanelForTab(t.id, t.url);
+  });
+
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'CUSTOMER_CONTEXT') {
+      void browser.storage.session.set({
+        brevmont_customer_context: {
+          ...(msg.payload || {}),
+          updatedAt: Date.now(),
+        },
+      }).catch(() => {});
+      return false;
+    }
+
+    if (msg.type === 'OPEN_SIDE_PANEL') {
+      void (async () => {
+        try {
+          const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+          const id = tabs[0]?.id;
+          const sp = (chrome as any).sidePanel;
+          if (id != null && sp?.open) await sp.open({ tabId: id });
+        } catch {
+          /* noop */
+        }
+      })();
+      return false;
+    }
+
     // Health check — content script pings to verify service worker is alive
     if (msg.type === 'PING') { sendResponse({ pong: true }); return false; }
 
@@ -304,11 +401,19 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'OPEN_COMMAND_MODE') {
-      browser.tabs.query({ active: true, currentWindow: true }).then(tabs => {
-        if (tabs[0]?.id) {
-          browser.tabs.sendMessage(tabs[0].id, { type: 'OPEN_COMMAND_TAB' }).catch(() => {});
+      void (async () => {
+        try {
+          const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+          const id = tabs[0]?.id;
+          const sp = (chrome as any).sidePanel;
+          if (id != null && sp?.open) await sp.open({ tabId: id });
+          else if (tabs[0]?.id) {
+            await browser.tabs.sendMessage(tabs[0].id, { type: 'OPEN_COMMAND_TAB' }).catch(() => {});
+          }
+        } catch {
+          /* noop */
         }
-      }).catch(() => {});
+      })();
       return false;
     }
 

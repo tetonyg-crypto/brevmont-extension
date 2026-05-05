@@ -1,15 +1,54 @@
 import { useState, useEffect, useRef } from 'react';
 import SupportModal from './SupportModal';
 
-interface Settings {
+interface PopupState {
   rep_name: string;
   dealership: string;
   dealer_token: string;
   rep_auth_token: string;
+  extension_role: string;
+}
+
+const CRM_HOST_FRAGMENTS = [
+  'vinsolutions.com',
+  'coxautoinc.com',
+  'mail.google.com',
+  'facebook.com',
+  'messenger.com',
+  'linkedin.com',
+  'instagram.com',
+  'web.whatsapp.com',
+];
+
+function isManagerRole(role: string): boolean {
+  return [
+    'owner',
+    'owner_principal',
+    'gm',
+    'manager_gm',
+    'manager_used_car',
+    'manager_new_car',
+    'manager_internet',
+    'manager_finance',
+    'manager_bdc',
+    'founder',
+    'admin_founder',
+    'manager',
+  ].includes(role);
+}
+
+function isRepLike(role: string): boolean {
+  return role === 'rep' || role === 'sales_rep';
 }
 
 function App() {
-  const [settings, setSettings] = useState<Settings>({ rep_name: '', dealership: '', dealer_token: '', rep_auth_token: '' });
+  const [settings, setSettings] = useState<PopupState>({
+    rep_name: '',
+    dealership: '',
+    dealer_token: '',
+    rep_auth_token: '',
+    extension_role: 'rep',
+  });
   const [queueSize, setQueueSize] = useState(0);
   const [version, setVersion] = useState('');
   const [copied, setCopied] = useState(false);
@@ -17,11 +56,12 @@ function App() {
   const [supportOpen, setSupportOpen] = useState(false);
   const [reportBusy, setReportBusy] = useState(false);
   const [reportHint, setReportHint] = useState('');
+  const [isOnCrm, setIsOnCrm] = useState(false);
   const versionTapRef = useRef({ n: 0, t: 0 });
 
   async function loadQueueSize() {
     try {
-      const r = await browser.runtime.sendMessage({ type: 'GET_SYNC_QUEUE_COUNT' }) as { count?: number };
+      const r = (await browser.runtime.sendMessage({ type: 'GET_SYNC_QUEUE_COUNT' })) as { count?: number };
       setQueueSize(typeof r?.count === 'number' ? r.count : 0);
     } catch {
       setQueueSize(0);
@@ -63,10 +103,10 @@ function App() {
       tabDomain = null;
     }
     try {
-      const r = await browser.runtime.sendMessage({
+      const r = (await browser.runtime.sendMessage({
         type: 'SUPPORT_REPORT',
         payload: { note: '', tab_domain: tabDomain },
-      }) as { ok?: boolean };
+      })) as { ok?: boolean };
       setReportHint(r?.ok ? 'Report sent. We are on it.' : 'Could not send. Try again later.');
     } catch {
       setReportHint('Could not send. Try again later.');
@@ -75,53 +115,85 @@ function App() {
   }
 
   useEffect(() => {
-    // Load settings — prefer local (no sync-replication lag), fall back to sync
-    // for users onboarded on another device. Both buckets are checked so the
-    // popup shows rep identity instantly after onboarding.
     const loadSettings = async () => {
-      const local = await browser.storage.local.get(['rep_name', 'dealership', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']) as any;
-      const sync = await browser.storage.sync.get(['rep_name', 'dealership', 'dealer_token', 'rep_auth_token']) as any;
+      const local = (await browser.storage.local.get([
+        'rep_name',
+        'dealership',
+        'dealer_token',
+        'rep_auth_token',
+        'brevmont_rep_auth_token',
+        'brevmont_extension_role',
+      ])) as Record<string, string>;
+      const sync = (await browser.storage.sync.get(['rep_name', 'dealership', 'dealer_token', 'rep_auth_token'])) as Record<
+        string,
+        string
+      >;
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      let onCrm = false;
+      if (tab?.url) {
+        try {
+          const host = new URL(tab.url).hostname;
+          onCrm = CRM_HOST_FRAGMENTS.some((f) => host.includes(f));
+        } catch {
+          onCrm = false;
+        }
+      }
+      setIsOnCrm(onCrm);
       setSettings({
         rep_name: local.rep_name || sync.rep_name || '',
         dealership: local.dealership || sync.dealership || '',
         dealer_token: local.dealer_token || sync.dealer_token || '',
         rep_auth_token: local.brevmont_rep_auth_token || local.rep_auth_token || sync.rep_auth_token || '',
+        extension_role: local.brevmont_extension_role || 'rep',
       });
     };
-    loadSettings();
+    void loadSettings();
     void loadQueueSize();
 
-    // Live-update when onboarding finishes (or when a manager rotates tokens).
-    const onChange = (changes: any, area: string) => {
-      if ((area === 'local' || area === 'sync') && ('rep_name' in changes || 'dealership' in changes || 'dealer_token' in changes || 'rep_auth_token' in changes || 'brevmont_rep_auth_token' in changes)) {
-        loadSettings();
+    const onChange = (changes: Record<string, unknown>, area: string) => {
+      if (
+        (area === 'local' || area === 'sync') &&
+        ('rep_name' in changes ||
+          'dealership' in changes ||
+          'dealer_token' in changes ||
+          'rep_auth_token' in changes ||
+          'brevmont_rep_auth_token' in changes ||
+          'brevmont_extension_role' in changes)
+      ) {
+        void loadSettings();
       }
-      if (area === 'local') {
-        void loadQueueSize();
-      }
+      if (area === 'local') void loadQueueSize();
     };
     browser.storage.onChanged.addListener(onChange);
 
     const qTimer = window.setInterval(() => void loadQueueSize(), 15000);
 
-    // Get version
     const manifest = browser.runtime.getManifest();
     setVersion(manifest.version || '');
 
-    // Check connectivity
     fetch('https://api.brevmont.com/health')
-      .then(r => setStatus(r.ok ? 'online' : 'offline'))
+      .then((r) => setStatus(r.ok ? 'online' : 'offline'))
       .catch(() => setStatus('offline'));
 
+    const onTabUpdated = () => void loadSettings();
+    browser.tabs.onUpdated.addListener(onTabUpdated);
+    browser.tabs.onActivated.addListener(onTabUpdated);
+
     return () => {
-      try { browser.storage.onChanged.removeListener(onChange); } catch (_) { /* noop */ }
+      try {
+        browser.storage.onChanged.removeListener(onChange);
+      } catch {
+        /* noop */
+      }
       window.clearInterval(qTimer);
+      browser.tabs.onUpdated.removeListener(onTabUpdated);
+      browser.tabs.onActivated.removeListener(onTabUpdated);
     };
   }, []);
 
   const copyToken = () => {
     if (settings.dealer_token) {
-      navigator.clipboard.writeText(settings.dealer_token);
+      void navigator.clipboard.writeText(settings.dealer_token);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -132,9 +204,21 @@ function App() {
     return token.slice(0, 6) + '...' + token.slice(-4);
   };
 
-  // Brand-locked palette per brevmont-vault/brand/BRAND.md.
-  // Light surface: Bone background, Charcoal text, Deep Teal accent.
-  // Status colors per design-system.md §1.6.
+  const openSidePanel = () => {
+    void browser.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
+    window.close();
+  };
+
+  const goToVinSolutions = () => {
+    void browser.tabs.create({ url: 'https://app.vinsolutions.com/' });
+    window.close();
+  };
+
+  const goToGmDashboard = () => {
+    void browser.tabs.create({ url: 'https://app.brevmont.com/manager/overview' });
+    window.close();
+  };
+
   const PALETTE = {
     bone: '#F8F6F1',
     charcoal: '#0F1419',
@@ -152,31 +236,59 @@ function App() {
   };
 
   const statusColor =
-    status === 'online' ? PALETTE.statusOk :
-    status === 'offline' ? PALETTE.statusCrit :
-    PALETTE.statusWarn;
+    status === 'online' ? PALETTE.statusOk : status === 'offline' ? PALETTE.statusCrit : PALETTE.statusWarn;
 
-  // Support modal takes over the popup when open. Reps don't need
-  // dealership-info chrome while they're typing a ticket; surfacing it
-  // would just compete for attention.
+  const authenticated = !!settings.dealer_token;
+  const role = settings.extension_role || 'rep';
+  const showGmLink = isManagerRole(role) && !isRepLike(role);
+
   if (supportOpen) {
     return <SupportModal onClose={() => setSupportOpen(false)} repAuthToken={settings.rep_auth_token} />;
   }
 
+  if (!authenticated) {
+    return (
+      <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', background: PALETTE.bone }}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: PALETTE.charcoal }}>brevmont</div>
+        <p style={{ fontSize: 13, color: PALETTE.textMuted }}>Sign in from onboarding to activate.</p>
+        <button
+          type="button"
+          onClick={() => browser.runtime.openOptionsPage()}
+          style={{
+            padding: '10px',
+            borderRadius: 8,
+            border: 'none',
+            background: PALETTE.deepTeal,
+            color: '#fff',
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          Open setup
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', background: PALETTE.bone }}>
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: `1px solid ${PALETTE.border}` }}>
-        <div style={{ width: 32, height: 32, borderRadius: 8, background: PALETTE.deepTeal, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            background: PALETTE.deepTeal,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
           <span style={{ color: PALETTE.bone, fontWeight: 700, fontSize: 13, letterSpacing: '-0.02em' }}>b</span>
         </div>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15, color: PALETTE.charcoal, letterSpacing: '-0.02em' }}>brevmont</div>
-          <div
-            role="presentation"
-            onClick={onVersionClick}
-            style={{ fontSize: 11, color: PALETTE.textFaint, cursor: 'default', userSelect: 'none' }}
-          >
+          <div role="presentation" onClick={onVersionClick} style={{ fontSize: 11, color: PALETTE.textFaint, cursor: 'default', userSelect: 'none' }}>
             v{version}
           </div>
         </div>
@@ -187,25 +299,45 @@ function App() {
         </div>
       </div>
 
-      {/* Dealership */}
       <div style={{ background: PALETTE.cardWhite, border: `1px solid ${PALETTE.border}`, borderRadius: 8, padding: '10px 12px' }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: PALETTE.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Dealership</div>
+        <div style={{ fontSize: 10, fontWeight: 600, color: PALETTE.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
+          Where you are
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: PALETTE.charcoal }}>
+          {isOnCrm ? 'Supported CRM / messaging tab' : 'Outside CRM workspace'}
+        </div>
+        <div style={{ fontSize: 12, color: PALETTE.textMuted, marginTop: 6 }}>
+          {isOnCrm
+            ? 'Use the side panel (toolbar icon) for voice + generation.'
+            : 'Open VinSolutions or your messaging tab, then use the Brevmont icon.'}
+        </div>
+      </div>
+
+      <div style={{ background: PALETTE.cardWhite, border: `1px solid ${PALETTE.border}`, borderRadius: 8, padding: '10px 12px' }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: PALETTE.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
+          Dealership
+        </div>
         <div style={{ fontSize: 14, fontWeight: 600, color: PALETTE.charcoal }}>{settings.dealership || 'Not configured'}</div>
       </div>
 
-      {/* Rep */}
       <div style={{ background: PALETTE.cardWhite, border: `1px solid ${PALETTE.border}`, borderRadius: 8, padding: '10px 12px' }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: PALETTE.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Rep</div>
+        <div style={{ fontSize: 10, fontWeight: 600, color: PALETTE.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
+          Rep
+        </div>
         <div style={{ fontSize: 14, fontWeight: 600, color: PALETTE.charcoal }}>{settings.rep_name || 'Not configured'}</div>
       </div>
 
-      {/* License Key */}
       <div style={{ background: PALETTE.cardWhite, border: `1px solid ${PALETTE.border}`, borderRadius: 8, padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div style={{ fontSize: 10, fontWeight: 600, color: PALETTE.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>License Key</div>
-          <code style={{ fontSize: 12, color: PALETTE.deepTeal, fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace' }}>{maskToken(settings.dealer_token)}</code>
+          <div style={{ fontSize: 10, fontWeight: 600, color: PALETTE.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
+            License Key
+          </div>
+          <code style={{ fontSize: 12, color: PALETTE.deepTeal, fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace' }}>
+            {maskToken(settings.dealer_token)}
+          </code>
         </div>
         <button
+          type="button"
           onClick={copyToken}
           style={{ background: 'none', border: 'none', fontSize: 11, color: PALETTE.deepTeal, cursor: 'pointer', fontWeight: 600 }}
         >
@@ -213,40 +345,93 @@ function App() {
         </button>
       </div>
 
-      {/* Queue Status */}
       {queueSize > 0 && (
-        <div style={{ background: PALETTE.statusWarnBg, border: `1px solid ${PALETTE.statusWarnBorder}`, borderRadius: 8, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div
+          style={{
+            background: PALETTE.statusWarnBg,
+            border: `1px solid ${PALETTE.statusWarnBorder}`,
+            borderRadius: 8,
+            padding: '10px 12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: PALETTE.statusWarn, flexShrink: 0 }} />
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: PALETTE.charcoal }}>{queueSize} queued generation{queueSize > 1 ? 's' : ''}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: PALETTE.charcoal }}>
+              {queueSize} queued generation{queueSize > 1 ? 's' : ''}
+            </div>
             <div style={{ fontSize: 11, color: PALETTE.textBody }}>Will send when connection returns.</div>
           </div>
         </div>
       )}
 
-      {reportHint && (
-        <div style={{ fontSize: 11, color: PALETTE.textBody, textAlign: 'center' }}>{reportHint}</div>
+      {isOnCrm && (
+        <button
+          type="button"
+          onClick={openSidePanel}
+          style={{
+            width: '100%',
+            padding: '12px',
+            borderRadius: 8,
+            border: 'none',
+            background: PALETTE.deepTeal,
+            color: '#fff',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          Open Brevmont tool
+        </button>
       )}
 
-      {/* Links */}
+      {!isOnCrm && (
+        <button
+          type="button"
+          onClick={goToVinSolutions}
+          style={{
+            width: '100%',
+            padding: '12px',
+            borderRadius: 8,
+            border: `1px solid ${PALETTE.border}`,
+            background: '#fff',
+            color: PALETTE.charcoal,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          Open VinSolutions
+        </button>
+      )}
+
+      {showGmLink && (
+        <button
+          type="button"
+          onClick={goToGmDashboard}
+          style={{
+            width: '100%',
+            padding: '10px',
+            borderRadius: 8,
+            border: `1px solid ${PALETTE.border}`,
+            background: PALETTE.cardWhite,
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontSize: 12,
+          }}
+        >
+          GM dashboard
+        </button>
+      )}
+
+      {reportHint && <div style={{ fontSize: 11, color: PALETTE.textBody, textAlign: 'center' }}>{reportHint}</div>}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 8, borderTop: `1px solid ${PALETTE.border}` }}>
-        <a
-          href="https://app.brevmont.com/owner"
-          target="_blank"
-          rel="noopener"
-          style={{ fontSize: 12, color: PALETTE.deepTeal, textDecoration: 'none', fontWeight: 500 }}
-        >
-          Open Dashboard
-        </a>
-        <a
-          href="https://app.brevmont.com/changelog"
-          target="_blank"
-          rel="noopener"
-          style={{ fontSize: 12, color: PALETTE.textMuted, textDecoration: 'none' }}
-        >
+        <a href="https://app.brevmont.com/changelog" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: PALETTE.textMuted, textDecoration: 'none' }}>
           Changelog
         </a>
         <button
+          type="button"
           onClick={() => setSupportOpen(true)}
           style={{
             fontSize: 12,
@@ -281,15 +466,11 @@ function App() {
         >
           Report issue
         </button>
-        <a
-          href="mailto:founder@brevmont.com"
-          style={{ fontSize: 12, color: PALETTE.textMuted, textDecoration: 'none' }}
-        >
+        <a href="mailto:founder@brevmont.com" style={{ fontSize: 12, color: PALETTE.textMuted, textDecoration: 'none' }}>
           Or email founder@brevmont.com
         </a>
       </div>
 
-      {/* Footer */}
       <div style={{ textAlign: 'center', paddingTop: 8, borderTop: `1px solid ${PALETTE.border}` }}>
         <span style={{ fontSize: 10, color: PALETTE.textFaint }}>Brevmont Labs LLC, brevmont.com</span>
       </div>

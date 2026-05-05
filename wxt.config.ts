@@ -37,7 +37,10 @@ export default defineConfig({
         description: 'Open Brevmont Command Mode'
       }
     },
-    permissions: ['activeTab', 'storage', 'alarms', 'cookies'],
+    permissions: ['activeTab', 'storage', 'alarms', 'cookies', 'sidePanel', 'tabs'],
+    side_panel: {
+      default_path: 'sidepanel.html',
+    },
     web_accessible_resources: [{
       resources: ['voice.html', 'brevmont-intercept.js'],
       matches: [
