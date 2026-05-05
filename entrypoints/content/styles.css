@@ -1,1 +1,2 @@
-/* Intentionally empty. Generation UI lives in the Chrome Side Panel (entrypoints/sidepanel/). */
+/* Minimal content script styles — pill button only */
+/* All sidebar styles are in Shadow DOM via getSidebarCSS() */

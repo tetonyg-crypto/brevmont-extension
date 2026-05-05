@@ -1,6 +1,6 @@
 /**
  * VinSolutions + shared lead scanning — extracted from legacy content.ts
- * for the side-panel conduit architecture (no UI).
+ * Shared helpers used by the injected sidebar content script (and tests).
  */
 
 const MAKES =

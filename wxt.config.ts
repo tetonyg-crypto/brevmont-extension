@@ -21,8 +21,8 @@ export default defineConfig({
     key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkMsS75L94HSdLb6I5gYOWkaP7JwtWdeRtVTmBRjkVR8tbvnsvYBE54CPY4jrHGKR8+CUO8NSd62MRCabJZMaJ5N1QpwgttOY2XCD78wCggmRGbKlGsZOtZjwkvX93NHAgcNFc/1RKu1mq0ireFqtidDLp8tM6WKPD/maWZ83xPPeYWD5Ahmwx0qjLMyAsj4e3uBIegtyT05IrPBtpYOT30GRuoi2+kTDU/McaY6yS9VtVZXomsLH5kUlA8+RD7vzxToGitogc6g0pJdEluXtdIkSN+ulcPzOfWzmBBdbViiJlmOUr/m/OFF482E0eSy6Ek4V/Z1KAJGheOAKh0wOvwIDAQAB',
     name: 'Brevmont — AI Sales Assistant',
     short_name: 'Brevmont',
-    version: '1.10.7',
-    version_name: '1.10.7',
+    version: '1.11.0',
+    version_name: '1.11.0',
     description: 'AI writes the text, email, and CRM note inside your CRM. Every rep performs like your best one.',
     homepage_url: 'https://brevmont.com',
     icons: {
@@ -37,10 +37,7 @@ export default defineConfig({
         description: 'Open Brevmont Command Mode'
       }
     },
-    permissions: ['activeTab', 'storage', 'alarms', 'cookies', 'sidePanel', 'tabs'],
-    side_panel: {
-      default_path: 'sidepanel.html',
-    },
+    permissions: ['activeTab', 'storage', 'alarms', 'cookies', 'tabs'],
     web_accessible_resources: [
       {
         resources: ['voice.html', 'brevmont-intercept.js'],

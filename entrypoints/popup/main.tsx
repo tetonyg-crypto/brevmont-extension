@@ -204,11 +204,6 @@ function App() {
     return token.slice(0, 6) + '...' + token.slice(-4);
   };
 
-  const openSidePanel = () => {
-    void browser.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
-    window.close();
-  };
-
   /** Reps use many CRMs — open extension options (instructions / dealership CRM field), not a fixed host. */
   const openCrmSetupInstructions = () => {
     void browser.runtime.openOptionsPage();
@@ -309,8 +304,8 @@ function App() {
         </div>
         <div style={{ fontSize: 12, color: PALETTE.textMuted, marginTop: 6 }}>
           {isOnCrm
-            ? 'Use the side panel (toolbar icon) for voice + generation.'
-            : 'Open your CRM (from Brevmont settings if needed) or your messaging tab, then use the Brevmont icon.'}
+            ? 'Use the Brevmont sidebar on this page for voice + generation.'
+            : 'Open your CRM (from Brevmont settings if needed) or your messaging tab, then look for the Brevmont sidebar.'}
         </div>
       </div>
 
@@ -366,25 +361,6 @@ function App() {
             <div style={{ fontSize: 11, color: PALETTE.textBody }}>Will send when connection returns.</div>
           </div>
         </div>
-      )}
-
-      {isOnCrm && (
-        <button
-          type="button"
-          onClick={openSidePanel}
-          style={{
-            width: '100%',
-            padding: '12px',
-            borderRadius: 8,
-            border: 'none',
-            background: PALETTE.deepTeal,
-            color: '#fff',
-            fontWeight: 700,
-            cursor: 'pointer',
-          }}
-        >
-          Open Brevmont tool
-        </button>
       )}
 
       {!isOnCrm && (
