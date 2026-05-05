@@ -1,6 +1,6 @@
 {
   "name": "brevmont-extension",
-  "version": "1.10.5",
+  "version": "1.10.6",
   "description": "Brevmont Chrome Extension — AI Sales Assistant",
   "main": "index.js",
   "scripts": {
