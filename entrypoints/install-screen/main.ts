@@ -129,23 +129,28 @@ async function bootstrap() {
     await markFirstRunComplete();
     const activated = await isAlreadyActivated();
     if (activated) {
-      const role = await new Promise<string | null>((resolve) => {
-        try {
-          chrome.storage.local.get(['brevmont_extension_role'], (d) => {
-            resolve((d.brevmont_extension_role as string) || null);
-          });
-        } catch {
-          resolve(null);
-        }
+      const stored = await new Promise<any>((resolve) => {
+        chrome.storage.local.get(['brevmont_extension_role', 'dealer_token'], resolve);
       });
-      const repLike = role === 'rep' || role === 'sales_rep';
-      const url = repLike ? 'https://app.vinsolutions.com/' : 'https://app.brevmont.com/dashboard';
-      try {
-        chrome.tabs.create({ url });
-      } catch {
-        window.location.href = url;
+
+      const role = stored.brevmont_extension_role || 'rep';
+      const repRoles = ['rep', 'sales_rep'];
+
+      if (repRoles.includes(role)) {
+        try {
+          chrome.tabs.create({ url: 'https://crm.vinsolutions.com' });
+          window.close();
+        } catch {
+          window.location.href = 'https://crm.vinsolutions.com';
+        }
+      } else {
+        try {
+          chrome.tabs.create({ url: 'https://app.brevmont.com/dashboard' });
+          window.close();
+        } catch {
+          window.location.href = 'https://app.brevmont.com/dashboard';
+        }
       }
-      window.close();
       return;
     }
     // Not activated — open the legacy wizard so the rep pastes their license.

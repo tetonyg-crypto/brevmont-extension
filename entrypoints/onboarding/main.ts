@@ -687,18 +687,29 @@ async function syncProfileToSupabase(profile: any) {
   }
 }
 
-function openBrevmont() {
-  void chrome.storage.local.get(['brevmont_extension_role'], (r) => {
-    const role = (r?.brevmont_extension_role as string) || (authRole === 'rep' ? 'rep' : 'manager');
-    const repLike = role === 'rep' || role === 'sales_rep';
-    const url = repLike ? 'https://app.vinsolutions.com/' : 'https://app.brevmont.com/dashboard';
-    try {
-      chrome.tabs.create({ url });
-      window.close();
-    } catch (_) {
-      window.location.href = url;
-    }
+async function openBrevmont() {
+  const stored = await new Promise<any>((resolve) => {
+    chrome.storage.local.get(['brevmont_extension_role', 'dealer_token'], resolve);
   });
+
+  const role = stored.brevmont_extension_role || 'rep';
+  const repRoles = ['rep', 'sales_rep'];
+
+  if (repRoles.includes(role)) {
+    try {
+      chrome.tabs.create({ url: 'https://crm.vinsolutions.com' });
+      window.close();
+    } catch {
+      window.location.href = 'https://crm.vinsolutions.com';
+    }
+  } else {
+    try {
+      chrome.tabs.create({ url: 'https://app.brevmont.com/dashboard' });
+      window.close();
+    } catch {
+      window.location.href = 'https://app.brevmont.com/dashboard';
+    }
+  }
 }
 
 // UI helpers
