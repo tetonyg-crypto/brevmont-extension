@@ -1210,7 +1210,7 @@ export default defineContentScript({
           pill.style.opacity = '0.85';
         }
       } else if (isGmail) {
-        pill.style.left = '72px';
+        pill.style.left = '92px';
         pill.style.top = '515px';
         pill.style.bottom = 'auto';
         pill.style.right = 'auto';
@@ -1760,7 +1760,7 @@ export default defineContentScript({
         Object.assign(host.style, {
           position: 'fixed',
           top: '555px',
-          left: '0px',
+          left: '20px',
           width: '256px',
           maxHeight: '600px',
           zIndex: '2147483647',
