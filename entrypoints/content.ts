@@ -2952,11 +2952,13 @@ export default defineContentScript({
       }
       // Hide all output cards
       s.querySelectorAll('.out-card').forEach((card) => {
+        card.classList.remove('tab-visible');
         (card as HTMLElement).style.display = 'none';
       });
       // Show only the matching card
       const activeCard = s.querySelector(`.out-card[data-output-type="${type}"]`);
       if (activeCard) {
+        activeCard.classList.add('tab-visible');
         (activeCard as HTMLElement).style.display = 'block';
       }
     }
@@ -2964,7 +2966,7 @@ export default defineContentScript({
     function addOutput(s: ShadowRoot, label: string, content: string, containerId: string = 'o8-outputs') {
       const container = s.getElementById(containerId) || s.getElementById('o8-outputs')!;
       const card = document.createElement('div'); card.className = 'out-card';
-      const isCRM = label === 'CRM NOTE';
+      const isCRM = label === 'CRM NOTE' || label === 'NOTE';
       const isEmail = label === 'EMAIL' || label === 'EMAIL REPLY';
       const isText = !isCRM && !isEmail;
       // Tabbed outputs refactor (2026-04-19): stamp the card with a type that
