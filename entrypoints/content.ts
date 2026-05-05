@@ -1211,7 +1211,7 @@ export default defineContentScript({
         }
       } else if (isGmail) {
         pill.style.left = '72px';
-        pill.style.top = '475px';
+        pill.style.top = '515px';
         pill.style.bottom = 'auto';
         pill.style.right = 'auto';
         pill.style.transform = 'none';
@@ -1759,10 +1759,10 @@ export default defineContentScript({
       function applyGmailFixedLayout(): void {
         Object.assign(host.style, {
           position: 'fixed',
-          top: '515px',
+          top: '555px',
           left: '0px',
           width: '256px',
-          maxHeight: '400px',
+          maxHeight: '600px',
           zIndex: '2147483647',
           overflowY: 'auto',
           overflow: 'hidden',
@@ -3285,7 +3285,7 @@ export default defineContentScript({
    no data-output-type and fall through — they always render. */
 .out-card[data-output-type]:not(.tab-visible) { display:none; }
 .out-label { font-size:9px; font-weight:700; color:#0D6E6E; letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
-.out-textarea { width:100%; min-height:80px; max-height:200px; padding:10px; border:1px solid #E5E7EB; border-radius:8px; font-size:12px; line-height:1.6; font-family:inherit; color:#1a202c; background:#fff; resize:vertical; outline:none; } .out-textarea:focus { border-color:#0D6E6E; }
+.out-textarea { width:100%; min-height:120px; max-height:300px; height:auto; padding:10px; border:1px solid #E5E7EB; border-radius:8px; font-size:12px; line-height:1.6; font-family:inherit; color:#1a202c; background:#fff; resize:vertical; outline:none; } .out-textarea:focus { border-color:#0D6E6E; }
 .out-actions { display:flex; gap:6px; margin-top:8px; }
 .out-status { font-size:10px; margin-top:4px; min-height:14px; }
 .out-action { padding:6px 14px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; transition:all .15s; }
@@ -3334,7 +3334,7 @@ ${isGmail ? `
 .outputs { padding:6px 12px; overflow-y:auto; flex:1; min-height:0; }
 .out-card { padding:8px 10px; margin-bottom:6px; }
 .out-label { font-size:9px; margin-bottom:3px; }
-.out-textarea { min-height:60px; max-height:120px; font-size:11px; }
+.out-textarea { min-height:120px; max-height:300px; height:auto; font-size:11px; }
 .out-actions { gap:5px; margin-top:5px; }
 .out-action { padding:4px 12px; font-size:11px; }
 ` : ''}
