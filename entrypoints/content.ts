@@ -10,7 +10,6 @@ import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { telemetry } from './lib/telemetry';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
-import { extractContactName as extractContactNameForPlatform } from './lib/leadContextScan';
 
 type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
 
@@ -112,47 +111,6 @@ export default defineContentScript({
       return { text: 'REPLY', email: 'EMAIL', crm: 'NOTE' };
     }
     const outputLabels = getOutputLabels();
-
-    // Safe contact-name extraction — lives at main() scope so terser
-    // cannot tree-shake the definition while keeping call sites.
-    function safeExtractContactName(): string | null {
-      try { return extractContactNameForPlatform(PLATFORM) || null; } catch { return null; }
-    }
-
-    // VinSolutions lead creation timestamp — moved to main() scope
-    // so terser cannot tree-shake the definition (same bug as safeExtractContactName).
-    function scrapeLeadCreatedAt(): string | null {
-      if (!isVinSolutions) return null;
-      try {
-        for (const el of document.querySelectorAll('td, span, div, label')) {
-          const t = (el as HTMLElement).textContent?.trim() || '';
-          if (/^Created:?\s*$/i.test(t)) {
-            const next = el.nextElementSibling || el.parentElement?.nextElementSibling;
-            const val = (next as HTMLElement)?.textContent?.trim();
-            if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
-          }
-        }
-        for (const td of document.querySelectorAll('td')) {
-          const t = (td as HTMLElement).textContent?.trim() || '';
-          if (/Lead Created|Date Created/i.test(t)) {
-            const sibling = td.nextElementSibling;
-            const val = (sibling as HTMLElement)?.textContent?.trim();
-            if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
-          }
-        }
-        const dated = document.querySelector('[data-created], [data-lead-created]');
-        if (dated) {
-          const val = dated.getAttribute('data-created') || dated.getAttribute('data-lead-created');
-          if (val) return val;
-        }
-        const firstNote = document.querySelector('.activity-note-date, .note-date, [class*="note"] [class*="date"]');
-        if (firstNote) {
-          const val = (firstNote as HTMLElement).textContent?.trim();
-          if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
-        }
-      } catch { /* never crash */ }
-      return null;
-    }
 
     // ===== CLEANUP REGISTRY (Phase T8 / Wave 7) =====
     // Track every interval + MutationObserver so we can unbind on unload /
@@ -1064,7 +1022,7 @@ export default defineContentScript({
 
     // ===== SIDEBAR WIDTH PER PLATFORM =====
     function getSidebarWidth(): string {
-      if (isGmail) return '260px';
+      if (isGmail) return '250px';
       if (isInstagram) return '280px';
       if (isVinSolutions) return '340px';
       return '300px';
@@ -1334,7 +1292,7 @@ export default defineContentScript({
     // rep generates output. This runs every 3 seconds and is cheap (DOM queries only).
     if (!isVinSolutions) {
       addInterval(() => {
-        const name = extractContactNameForPlatform(PLATFORM);
+        const name = extractContactName();
         if (name && (!leadData || !leadData.customerName)) {
           leadData = leadData || {};
           leadData.customerName = name;
@@ -1698,7 +1656,7 @@ export default defineContentScript({
 
     // ===== SIDEBAR =====
     async function openSidebar() {
-      try { const syncCheck = await browser.storage.sync.get(['profile_onboarded', 'dealer_token']); const localCheck = await browser.storage.local.get(['profile_onboarded', 'dealer_token']); if (!(syncCheck.profile_onboarded || localCheck.profile_onboarded || syncCheck.dealer_token || localCheck.dealer_token)) { browser.runtime.sendMessage({ type: 'OPEN_ONBOARDING' }); return; } } catch(e: any) { logError('STORAGE_ERROR', e?.message || 'Storage onboarding check failed', 'pill_click'); }
+      try { const check = await browser.storage.sync.get(['profile_onboarded']); if (!check.profile_onboarded) { browser.runtime.sendMessage({ type: 'OPEN_ONBOARDING' }); return; } } catch(e: any) { logError('STORAGE_ERROR', e?.message || 'Storage onboarding check failed', 'pill_click'); }
       if (sidebarRoot) { sidebarRoot.style.display = 'block'; sidebarOpen = true; if (pill) pill.style.display = 'none'; updateSidebarPosition(); pushContent(true); return; }
       if (document.getElementById('brevmont-host')) return;
 
@@ -1707,10 +1665,10 @@ export default defineContentScript({
       const host = document.createElement('div');
       host.id = 'brevmont-host';
       let w = getSidebarWidth();
-      // Gmail: mount inside left nav when possible (product = in-page sidebar, not Chrome Side Panel).
-      // Fallback: fixed strip on left edge if navigation DOM is not ready yet.
+      // Gmail: LEFT side below header. All others: RIGHT side.
       if (isGmail) {
-        /* styles applied in mount step after shadow root is built */
+        // Position below Gmail labels section — labels nav ends around 200px from top
+        Object.assign(host.style, { position:'fixed', top:'435px', left:'0', width: w, height:'auto', maxHeight:'calc(100vh - 445px)', zIndex:'9999', overflow:'hidden', borderRadius:'0 8px 0 0', borderRight:'1px solid #e0e0e0', boxShadow:'none', background:'#fff' });
       } else if (isLinkedIn) {
         // LinkedIn: right side, below nav bar, card-style
         Object.assign(host.style, { position:'fixed', top:'72px', right:'8px', width: '280px', height:'calc(100vh - 82px)', maxHeight:'calc(100vh - 82px)', zIndex:'9999', overflow:'hidden', borderRadius:'8px', border:'1px solid #e0e0e0', boxShadow:'0 0 0 1px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.06)', background:'#fff' });
@@ -1753,31 +1711,7 @@ export default defineContentScript({
       const style = document.createElement('style'); style.textContent = getCSS(w); shadow.appendChild(style);
       const container = document.createElement('div'); container.id = 'o8'; container.innerHTML = getHTML(); shadow.appendChild(container);
 
-      /** Gmail: full-height sidebar appended to document.body.
-       *  Bypasses Gmail's stacking contexts (translateZ / will-change).
-       *  position:fixed + body append = always on top. */
-      function applyGmailFixedLayout(): void {
-        Object.assign(host.style, {
-          position: 'fixed',
-          top: '0',
-          left: '0',
-          width: '260px',
-          height: '100vh',
-          zIndex: '2147483647',
-          overflow: 'hidden',
-          background: '#fff',
-          borderRight: '1px solid #dadce0',
-          boxShadow: '2px 0 8px rgba(60,64,67,0.18)',
-          borderRadius: '0',
-        });
-      }
-
-      if (isGmail) {
-        applyGmailFixedLayout();
-        document.body.appendChild(host);
-      } else {
-        document.documentElement.appendChild(host);
-      }
+      document.documentElement.appendChild(host);
       const marker = document.createElement('div'); marker.id = 'brevmont-sidebar'; marker.style.display = 'none'; document.documentElement.appendChild(marker);
 
       sidebarRoot = host; sidebarOpen = true;
@@ -1974,18 +1908,15 @@ export default defineContentScript({
         if (statsPanel) statsPanel.style.display = 'flex';
         if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading stats...</div>';
         try {
-          const syncSettings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
-          const localSettings = await browser.storage.local.get(['dealer_token', 'rep_name']);
-          const dealerToken = syncSettings.dealer_token || localSettings.dealer_token;
-          const repName = syncSettings.rep_name || localSettings.rep_name;
-          if (!dealerToken || !repName) {
+          const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
+          if (!settings.dealer_token || !settings.rep_name) {
             if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Set your rep name in Settings first.</div>';
             return;
           }
-          const resp = await fetch(`https://api.brevmont.com/v1/rep/stats?rep_name=${encodeURIComponent(repName)}`, {
-            headers: { 'Authorization': `Bearer ${dealerToken}` }
+          const resp = await fetch(`https://api.brevmont.com/v1/rep/stats?rep_name=${encodeURIComponent(settings.rep_name)}`, {
+            headers: { 'Authorization': `Bearer ${settings.dealer_token}` }
           });
-          if (!resp.ok) throw new Error(`Stats API returned ${resp.status}`);
+          if (!resp.ok) throw new Error('Failed to load');
           const d = await resp.json();
           if (statsContent) statsContent.innerHTML = `
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
@@ -2153,6 +2084,45 @@ export default defineContentScript({
           return null;
         }
 
+        return null;
+      }
+
+      // ===== INTELLIGENCE: VinSolutions lead creation timestamp =====
+      // 4-strategy fallback to find when the lead was created in the CRM.
+      function scrapeLeadCreatedAt(): string | null {
+        if (!isVinSolutions) return null;
+        try {
+          // Strategy 1: Explicit "Created:" label in activity/contact page
+          for (const el of document.querySelectorAll('td, span, div, label')) {
+            const t = (el as HTMLElement).textContent?.trim() || '';
+            if (/^Created:?\s*$/i.test(t)) {
+              const next = el.nextElementSibling || el.parentElement?.nextElementSibling;
+              const val = (next as HTMLElement)?.textContent?.trim();
+              if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
+            }
+          }
+          // Strategy 2: "Lead Created" or "Date Created" table cell
+          for (const td of document.querySelectorAll('td')) {
+            const t = (td as HTMLElement).textContent?.trim() || '';
+            if (/Lead Created|Date Created/i.test(t)) {
+              const sibling = td.nextElementSibling;
+              const val = (sibling as HTMLElement)?.textContent?.trim();
+              if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
+            }
+          }
+          // Strategy 3: data-attribute on known VinSolutions elements
+          const dated = document.querySelector('[data-created], [data-lead-created]');
+          if (dated) {
+            const val = dated.getAttribute('data-created') || dated.getAttribute('data-lead-created');
+            if (val) return val;
+          }
+          // Strategy 4: Scan first activity note timestamp as proxy
+          const firstNote = document.querySelector('.activity-note-date, .note-date, [class*="note"] [class*="date"]');
+          if (firstNote) {
+            const val = (firstNote as HTMLElement).textContent?.trim();
+            if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
+          }
+        } catch { /* never crash */ }
         return null;
       }
 
@@ -2546,7 +2516,7 @@ export default defineContentScript({
               pasted_content: pastedText.slice(0, 5000),
               channel: bestChannel,
               platform: PLATFORM,
-              customer_name: leadData?.customerName || safeExtractContactName() || null,
+              customer_name: leadData?.customerName || extractContactName() || null,
             }
           }).catch(() => {});
         } catch { /* never crash main flow */ }
@@ -2801,19 +2771,17 @@ export default defineContentScript({
       let tone = 'professional'; let goal = 'close_deal';
       try { const stored = await browser.storage.local.get(['brevmont_tone', 'brevmont_goal']); tone = stored.brevmont_tone || 'professional'; goal = stored.brevmont_goal || 'close_deal'; } catch(e) {}
 
-      // Build metadata safely — no scraper function can block generation
-      let _meta: Record<string, any> = { workflow_type: type === 'all' ? 'all' : type };
-      try { _meta.customer_name = leadData?.customerName || safeExtractContactName() || null; } catch { _meta.customer_name = null; }
-      try { _meta.vehicle = leadData?.vehicle || null; } catch { _meta.vehicle = null; }
-      try { _meta.email = leadData?.email || null; } catch { _meta.email = null; }
-      try { _meta.lead_created_at = scrapeLeadCreatedAt(); } catch { _meta.lead_created_at = null; }
-      try { _meta.lead_source = leadData?.source || null; } catch { _meta.lead_source = null; }
+      // Build metadata safely — no scraper can block generation
+      let _customerName: string | null = null;
+      try { _customerName = leadData?.customerName || extractContactName() || null; } catch { }
+      let _leadCreatedAt: string | null = null;
+      try { _leadCreatedAt = scrapeLeadCreatedAt(); } catch { }
 
       try {
         const response = await safeSend({
           type: 'GENERATE_OUTPUT',
           payload: { type, leadContext: leadData || {}, repInput: input + (leadData?.vehicle ? '' : '\n[SYSTEM: No vehicle of interest detected. Do not mention or invent a vehicle in the response.]'), repName: '', dealership: '', platform: PLATFORM, tone, goal,
-            metadata: _meta }
+            metadata: { workflow_type: type === 'all' ? 'all' : type, customer_name: _customerName, vehicle: leadData?.vehicle || null, email: leadData?.email || null, lead_created_at: _leadCreatedAt, lead_source: leadData?.source || null } }
         });
         if ((response as any).queued) {
           showToast(s, (response as any).message || 'Saved. Will sync when online.');
@@ -2854,7 +2822,7 @@ export default defineContentScript({
       else {
         statusEl.textContent = 'Saved to pending notes'; statusEl.style.color = '#2563eb';
         // Persist to Supabase so it survives session/navigation
-        try { browser.runtime.sendMessage({ type: 'SAVE_PENDING_NOTE', payload: { customer_name: leadData?.customerName || safeExtractContactName() || '', note_text: noteText, contact_id: null } }); } catch(e) {}
+        try { browser.runtime.sendMessage({ type: 'SAVE_PENDING_NOTE', payload: { customer_name: leadData?.customerName || extractContactName() || '', note_text: noteText, contact_id: null } }); } catch(e) {}
         refreshPendingBadge();
       }
     }
@@ -3027,13 +2995,13 @@ export default defineContentScript({
             const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement;
             if (box) { box.focus(); safeInjectText(box, curContent); this.textContent = 'Sent'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Sent to Messenger'; st.style.color = '#16a34a'; }
             else { this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Copied. Open a conversation first.'; st.style.color = '#f59e0b'; }
-            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || safeExtractContactName() || null } }); } catch(e) {}
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
           } else if (isText && isLinkedIn) {
             const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement;
             if (box) { box.focus(); safeInjectText(box, curContent); this.textContent = 'Sent'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Sent to LinkedIn'; st.style.color = '#16a34a'; }
             else { this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Copied. Open a conversation first.'; st.style.color = '#f59e0b'; }
-            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || safeExtractContactName() || null } }); } catch(e) {}
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
           } else if (isEmail && isGmail) {
             let subject = ''; let body = curContent;
@@ -3044,7 +3012,7 @@ export default defineContentScript({
               composeBody.focus(); safeInjectText(composeBody, body);
               if (subject) { const subjectField = qSel(gmailSelectors, 'compose_subject', 'input[name="subjectbox"]') as HTMLInputElement; if (subjectField) { subjectField.focus(); safeInjectText(subjectField, subject); } }
               this.textContent = 'Applied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Applied to compose'; st.style.color = '#16a34a';
-              try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'EMAIL_APPLIED', platform: PLATFORM, customer: leadData?.customerName || safeExtractContactName() || null } }); } catch(e) {}
+              try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'EMAIL_APPLIED', platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
             } else {
               this.textContent = 'Copied'; this.style.background = '#f59e0b'; this.style.color = '#fff'; st.textContent = 'Copied. Open a compose window first.'; st.style.color = '#f59e0b';
             }
@@ -3052,7 +3020,7 @@ export default defineContentScript({
           } else {
             // Default: Copy
             this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff';
-            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || safeExtractContactName() || null } }); } catch(e) {}
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 1500);
           }
         });
