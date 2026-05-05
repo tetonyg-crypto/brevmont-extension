@@ -209,8 +209,9 @@ function App() {
     window.close();
   };
 
-  const goToVinSolutions = () => {
-    void browser.tabs.create({ url: 'https://app.vinsolutions.com/' });
+  /** Reps use many CRMs — open extension options (instructions / dealership CRM field), not a fixed host. */
+  const openCrmSetupInstructions = () => {
+    void browser.runtime.openOptionsPage();
     window.close();
   };
 
@@ -309,7 +310,7 @@ function App() {
         <div style={{ fontSize: 12, color: PALETTE.textMuted, marginTop: 6 }}>
           {isOnCrm
             ? 'Use the side panel (toolbar icon) for voice + generation.'
-            : 'Open VinSolutions or your messaging tab, then use the Brevmont icon.'}
+            : 'Open your CRM (from Brevmont settings if needed) or your messaging tab, then use the Brevmont icon.'}
         </div>
       </div>
 
@@ -389,7 +390,7 @@ function App() {
       {!isOnCrm && (
         <button
           type="button"
-          onClick={goToVinSolutions}
+          onClick={openCrmSetupInstructions}
           style={{
             width: '100%',
             padding: '12px',
@@ -401,7 +402,7 @@ function App() {
             cursor: 'pointer',
           }}
         >
-          Open VinSolutions
+          CRM setup
         </button>
       )}
 

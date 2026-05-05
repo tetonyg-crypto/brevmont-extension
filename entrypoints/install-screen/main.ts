@@ -18,6 +18,8 @@
  *     to text-only step descriptions so the screen is never broken
  */
 
+import { openRepPostInstallDestination } from '../lib/repAfterInstall';
+
 type Platform = 'mac' | 'windows' | 'other';
 
 const STEPS: Record<Platform, Array<{ caption: string; img: string }>> = {
@@ -98,7 +100,7 @@ async function bootstrap() {
       ? 'Pinning Brevmont takes about 15 seconds on macOS.'
       : platform === 'windows'
         ? 'Pinning Brevmont takes about 15 seconds on Windows.'
-        : 'One quick step before you open VinSolutions.';
+        : 'One quick step before you use Brevmont in your CRM.';
   }
 
   const stepsRoot = document.getElementById('steps');
@@ -137,12 +139,7 @@ async function bootstrap() {
       const repRoles = ['rep', 'sales_rep'];
 
       if (repRoles.includes(role)) {
-        try {
-          chrome.tabs.create({ url: 'https://crm.vinsolutions.com' });
-          window.close();
-        } catch {
-          window.location.href = 'https://crm.vinsolutions.com';
-        }
+        openRepPostInstallDestination();
       } else {
         try {
           chrome.tabs.create({ url: 'https://app.brevmont.com/dashboard' });

@@ -22,6 +22,7 @@
  */
 
 import { telemetry } from '../lib/telemetry';
+import { openRepPostInstallDestination } from '../lib/repAfterInstall';
 import * as storage from '../../lib/storage';
 
 const PROXY_URL = 'https://api.brevmont.com';
@@ -696,12 +697,7 @@ async function openBrevmont() {
   const repRoles = ['rep', 'sales_rep'];
 
   if (repRoles.includes(role)) {
-    try {
-      chrome.tabs.create({ url: 'https://crm.vinsolutions.com' });
-      window.close();
-    } catch {
-      window.location.href = 'https://crm.vinsolutions.com';
-    }
+    openRepPostInstallDestination();
   } else {
     try {
       chrome.tabs.create({ url: 'https://app.brevmont.com/dashboard' });
