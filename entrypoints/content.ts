@@ -2959,7 +2959,7 @@ export default defineContentScript({
       // shows one output at a time instead of stacking all three. Untyped
       // labels (Error / OUTPUT / REPLY) stay unstamped and fall through the
       // CSS default — they always render.
-      const outputType = isCRM ? 'crm' : isEmail ? 'email' : (label === 'TEXT MESSAGE' || label === 'TEXT') ? 'text' : '';
+      const outputType = isCRM ? 'crm' : isEmail ? 'email' : isText ? 'text' : '';
       if (outputType) card.dataset.outputType = outputType;
 
       // Primary button label — platform × output type
