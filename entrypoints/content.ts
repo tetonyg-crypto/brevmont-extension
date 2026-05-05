@@ -1760,7 +1760,7 @@ export default defineContentScript({
         Object.assign(host.style, {
           position: 'fixed',
           top: '555px',
-          left: '50px',
+          left: '60px',
           width: '256px',
           maxHeight: '600px',
           zIndex: '2147483647',
@@ -1840,8 +1840,8 @@ export default defineContentScript({
       s.querySelectorAll('.chip').forEach(c => {
         c.addEventListener('click', () => {
           const type = c.getAttribute('data-type') || '';
-          const existing = s.querySelector(`.out-card[data-output-type="${type}"]`);
-          if (existing) {
+          const hasCards = s.querySelectorAll('.out-card').length > 0;
+          if (hasCards) {
             setActiveOutputTab(s, type);
           } else {
             c.classList.toggle('on');
@@ -2940,18 +2940,23 @@ export default defineContentScript({
     // no scroll. Keeps the panel compact regardless of how many outputs were
     // generated. Matches the marketing demo UX at brevmont.com/try.
     function setActiveOutputTab(s: ShadowRoot, type: string) {
+      // Dim all chips, highlight active
       s.querySelectorAll('.chip').forEach((c) => {
         c.classList.remove('tab-active');
+        (c as HTMLElement).style.opacity = '0.5';
       });
       const activeChip = s.querySelector(`.chip[data-type="${type}"]`);
-      if (activeChip) activeChip.classList.add('tab-active');
-      s.querySelectorAll('.out-card[data-output-type]').forEach((card) => {
-        card.classList.remove('tab-visible');
+      if (activeChip) {
+        activeChip.classList.add('tab-active');
+        (activeChip as HTMLElement).style.opacity = '1';
+      }
+      // Hide all output cards
+      s.querySelectorAll('.out-card').forEach((card) => {
         (card as HTMLElement).style.display = 'none';
       });
+      // Show only the matching card
       const activeCard = s.querySelector(`.out-card[data-output-type="${type}"]`);
       if (activeCard) {
-        activeCard.classList.add('tab-visible');
         (activeCard as HTMLElement).style.display = 'block';
       }
     }
