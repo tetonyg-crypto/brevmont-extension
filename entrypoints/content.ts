@@ -1023,7 +1023,7 @@ export default defineContentScript({
 
     // ===== SIDEBAR WIDTH PER PLATFORM =====
     function getSidebarWidth(): string {
-      if (isGmail) return '250px';
+      if (isGmail) return '260px';
       if (isInstagram) return '280px';
       if (isVinSolutions) return '340px';
       return '300px';
@@ -1169,8 +1169,32 @@ export default defineContentScript({
           pill.style.opacity = '0.85';
         }
       } else if (isGmail) {
-        pill.style.left = '20px';
-        pill.style.top = '435px';
+        // Position pill flush inside Gmail's left nav, aligned with label text
+        const nav = document.querySelector('div[role="navigation"]') as HTMLElement | null;
+        let pillTop = 435;
+        let pillLeft = 16; // fallback — Gmail nav labels sit at ~16px from nav left
+        if (nav) {
+          const navRect = nav.getBoundingClientRect();
+          // Find a label text element to match its exact left offset
+          const firstLabelText = nav.querySelector('.aim .nU > .n0') as HTMLElement | null;
+          if (firstLabelText) {
+            const textRect = firstLabelText.getBoundingClientRect();
+            pillLeft = textRect.left; // exact left edge of label text
+          } else {
+            pillLeft = navRect.left + 26; // fallback indent
+          }
+          // Place pill 16px below the last label item
+          const labels = nav.querySelectorAll('.aim');
+          if (labels.length > 0) {
+            const lastLabel = labels[labels.length - 1] as HTMLElement;
+            const lastRect = lastLabel.getBoundingClientRect();
+            pillTop = Math.max(lastRect.bottom + 16, navRect.top + 100);
+          } else {
+            pillTop = Math.min(navRect.bottom - 20, 500);
+          }
+        }
+        pill.style.left = pillLeft + 'px';
+        pill.style.top = pillTop + 'px';
         pill.style.bottom = 'auto';
         pill.style.right = 'auto';
         pill.style.transform = 'none';
@@ -1179,6 +1203,7 @@ export default defineContentScript({
         pill.style.fontSize = '11px';
         pill.style.visibility = 'visible';
         pill.style.opacity = '0.9';
+        pill.style.zIndex = '2147483647';
       } else if (isLinkedIn) {
         pill.style.right = '20px';
         pill.style.top = '70px';
@@ -1712,62 +1737,28 @@ export default defineContentScript({
       const style = document.createElement('style'); style.textContent = getCSS(w); shadow.appendChild(style);
       const container = document.createElement('div'); container.id = 'o8'; container.innerHTML = getHTML(); shadow.appendChild(container);
 
-      /** Gmail: inject into native left navigation column (matches founder layout). */
-      function applyGmailEmbeddedLayout(): boolean {
-        const nav = document.querySelector('div[role="navigation"]') as HTMLElement | null;
-        if (!nav) return false;
-        try {
-          host.remove();
-          nav.appendChild(host);
-          Object.assign(host.style, {
-            position: 'relative',
-            top: '0',
-            left: '0',
-            width: '100%',
-            maxWidth: '280px',
-            margin: '8px 10px 16px 8px',
-            height: 'auto',
-            maxHeight: 'min(72vh, calc(100vh - 96px))',
-            zIndex: '1',
-            overflow: 'hidden',
-            borderRadius: '8px',
-            border: '1px solid #dadce0',
-            boxShadow: '0 1px 2px rgba(60,64,67,0.12)',
-            background: '#fff',
-          });
-          return true;
-        } catch {
-          return false;
-        }
-      }
-
-      function applyGmailFixedFallbackLayout(): void {
+      /** Gmail: full-height sidebar appended to document.body.
+       *  Bypasses Gmail's stacking contexts (translateZ / will-change).
+       *  position:fixed + body append = always on top. */
+      function applyGmailFixedLayout(): void {
         Object.assign(host.style, {
           position: 'fixed',
-          top: '435px',
+          top: '0',
           left: '0',
-          width: w,
-          height: 'auto',
-          maxHeight: 'calc(100vh - 445px)',
-          zIndex: '9999',
+          width: '260px',
+          height: '100vh',
+          zIndex: '2147483647',
           overflow: 'hidden',
-          borderRadius: '0 8px 0 0',
-          borderRight: '1px solid #e0e0e0',
-          boxShadow: 'none',
           background: '#fff',
+          borderRight: '1px solid #dadce0',
+          boxShadow: '2px 0 8px rgba(60,64,67,0.18)',
+          borderRadius: '0',
         });
       }
 
       if (isGmail) {
-        if (!applyGmailEmbeddedLayout()) {
-          applyGmailFixedFallbackLayout();
-          document.documentElement.appendChild(host);
-          const mo = new MutationObserver(() => {
-            if (applyGmailEmbeddedLayout()) mo.disconnect();
-          });
-          mo.observe(document.body, { childList: true, subtree: true });
-          setTimeout(() => mo.disconnect(), 25000);
-        }
+        applyGmailFixedLayout();
+        document.body.appendChild(host);
       } else {
         document.documentElement.appendChild(host);
       }
@@ -1967,15 +1958,18 @@ export default defineContentScript({
         if (statsPanel) statsPanel.style.display = 'flex';
         if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading stats...</div>';
         try {
-          const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
-          if (!settings.dealer_token || !settings.rep_name) {
+          const syncSettings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
+          const localSettings = await browser.storage.local.get(['dealer_token', 'rep_name']);
+          const dealerToken = syncSettings.dealer_token || localSettings.dealer_token;
+          const repName = syncSettings.rep_name || localSettings.rep_name;
+          if (!dealerToken || !repName) {
             if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Set your rep name in Settings first.</div>';
             return;
           }
-          const resp = await fetch(`https://api.brevmont.com/v1/rep/stats?rep_name=${encodeURIComponent(settings.rep_name)}`, {
-            headers: { 'Authorization': `Bearer ${settings.dealer_token}` }
+          const resp = await fetch(`https://api.brevmont.com/v1/rep/stats?rep_name=${encodeURIComponent(repName)}`, {
+            headers: { 'Authorization': `Bearer ${dealerToken}` }
           });
-          if (!resp.ok) throw new Error('Failed to load');
+          if (!resp.ok) throw new Error(`Stats API returned ${resp.status}`);
           const d = await resp.json();
           if (statsContent) statsContent.innerHTML = `
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
@@ -2144,6 +2138,11 @@ export default defineContentScript({
         }
 
         return null;
+      }
+
+      // Safe wrapper — prevents ReferenceError from crashing generation
+      function safeExtractContactName(): string | null {
+        try { return extractContactName(); } catch { return null; }
       }
 
       // ===== INTELLIGENCE: VinSolutions lead creation timestamp =====
@@ -2575,7 +2574,7 @@ export default defineContentScript({
               pasted_content: pastedText.slice(0, 5000),
               channel: bestChannel,
               platform: PLATFORM,
-              customer_name: leadData?.customerName || extractContactName() || null,
+              customer_name: leadData?.customerName || safeExtractContactName() || null,
             }
           }).catch(() => {});
         } catch { /* never crash main flow */ }
@@ -2834,7 +2833,7 @@ export default defineContentScript({
         const response = await safeSend({
           type: 'GENERATE_OUTPUT',
           payload: { type, leadContext: leadData || {}, repInput: input + (leadData?.vehicle ? '' : '\n[SYSTEM: No vehicle of interest detected. Do not mention or invent a vehicle in the response.]'), repName: '', dealership: '', platform: PLATFORM, tone, goal,
-            metadata: { workflow_type: type === 'all' ? 'all' : type, customer_name: leadData?.customerName || extractContactName() || null, vehicle: leadData?.vehicle || null, email: leadData?.email || null, lead_created_at: scrapeLeadCreatedAt(), lead_source: leadData?.source || null } }
+            metadata: { workflow_type: type === 'all' ? 'all' : type, customer_name: leadData?.customerName || safeExtractContactName() || null, vehicle: leadData?.vehicle || null, email: leadData?.email || null, lead_created_at: scrapeLeadCreatedAt(), lead_source: leadData?.source || null } }
         });
         if ((response as any).queued) {
           showToast(s, (response as any).message || 'Saved. Will sync when online.');
@@ -2875,7 +2874,7 @@ export default defineContentScript({
       else {
         statusEl.textContent = 'Saved to pending notes'; statusEl.style.color = '#2563eb';
         // Persist to Supabase so it survives session/navigation
-        try { browser.runtime.sendMessage({ type: 'SAVE_PENDING_NOTE', payload: { customer_name: leadData?.customerName || extractContactName() || '', note_text: noteText, contact_id: null } }); } catch(e) {}
+        try { browser.runtime.sendMessage({ type: 'SAVE_PENDING_NOTE', payload: { customer_name: leadData?.customerName || safeExtractContactName() || '', note_text: noteText, contact_id: null } }); } catch(e) {}
         refreshPendingBadge();
       }
     }
@@ -3048,13 +3047,13 @@ export default defineContentScript({
             const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement;
             if (box) { box.focus(); safeInjectText(box, curContent); this.textContent = 'Sent'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Sent to Messenger'; st.style.color = '#16a34a'; }
             else { this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Copied. Open a conversation first.'; st.style.color = '#f59e0b'; }
-            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || safeExtractContactName() || null } }); } catch(e) {}
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
           } else if (isText && isLinkedIn) {
             const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement;
             if (box) { box.focus(); safeInjectText(box, curContent); this.textContent = 'Sent'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Sent to LinkedIn'; st.style.color = '#16a34a'; }
             else { this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Copied. Open a conversation first.'; st.style.color = '#f59e0b'; }
-            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || safeExtractContactName() || null } }); } catch(e) {}
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 2000);
           } else if (isEmail && isGmail) {
             let subject = ''; let body = curContent;
@@ -3065,7 +3064,7 @@ export default defineContentScript({
               composeBody.focus(); safeInjectText(composeBody, body);
               if (subject) { const subjectField = qSel(gmailSelectors, 'compose_subject', 'input[name="subjectbox"]') as HTMLInputElement; if (subjectField) { subjectField.focus(); safeInjectText(subjectField, subject); } }
               this.textContent = 'Applied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Applied to compose'; st.style.color = '#16a34a';
-              try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'EMAIL_APPLIED', platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
+              try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'EMAIL_APPLIED', platform: PLATFORM, customer: leadData?.customerName || safeExtractContactName() || null } }); } catch(e) {}
             } else {
               this.textContent = 'Copied'; this.style.background = '#f59e0b'; this.style.color = '#fff'; st.textContent = 'Copied. Open a compose window first.'; st.style.color = '#f59e0b';
             }
@@ -3073,7 +3072,7 @@ export default defineContentScript({
           } else {
             // Default: Copy
             this.textContent = 'Copied'; this.style.background = '#16a34a'; this.style.color = '#fff';
-            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || extractContactName() || null } }); } catch(e) {}
+            try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label, platform: PLATFORM, customer: leadData?.customerName || safeExtractContactName() || null } }); } catch(e) {}
             setTimeout(() => { this.textContent = primaryLabel; this.style.background = ''; this.style.color = ''; }, 1500);
           }
         });
