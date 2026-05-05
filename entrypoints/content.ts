@@ -1666,10 +1666,10 @@ export default defineContentScript({
       const host = document.createElement('div');
       host.id = 'brevmont-host';
       let w = getSidebarWidth();
-      // Gmail: LEFT side below header. All others: RIGHT side.
+      // Gmail: mount inside left nav when possible (product = in-page sidebar, not Chrome Side Panel).
+      // Fallback: fixed strip on left edge if navigation DOM is not ready yet.
       if (isGmail) {
-        // Position below Gmail labels section — labels nav ends around 200px from top
-        Object.assign(host.style, { position:'fixed', top:'435px', left:'0', width: w, height:'auto', maxHeight:'calc(100vh - 445px)', zIndex:'9999', overflow:'hidden', borderRadius:'0 8px 0 0', borderRight:'1px solid #e0e0e0', boxShadow:'none', background:'#fff' });
+        /* styles applied in mount step after shadow root is built */
       } else if (isLinkedIn) {
         // LinkedIn: right side, below nav bar, card-style
         Object.assign(host.style, { position:'fixed', top:'72px', right:'8px', width: '280px', height:'calc(100vh - 82px)', maxHeight:'calc(100vh - 82px)', zIndex:'9999', overflow:'hidden', borderRadius:'8px', border:'1px solid #e0e0e0', boxShadow:'0 0 0 1px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.06)', background:'#fff' });
@@ -1712,7 +1712,65 @@ export default defineContentScript({
       const style = document.createElement('style'); style.textContent = getCSS(w); shadow.appendChild(style);
       const container = document.createElement('div'); container.id = 'o8'; container.innerHTML = getHTML(); shadow.appendChild(container);
 
-      document.documentElement.appendChild(host);
+      /** Gmail: inject into native left navigation column (matches founder layout). */
+      function applyGmailEmbeddedLayout(): boolean {
+        const nav = document.querySelector('div[role="navigation"]') as HTMLElement | null;
+        if (!nav) return false;
+        try {
+          host.remove();
+          nav.appendChild(host);
+          Object.assign(host.style, {
+            position: 'relative',
+            top: '0',
+            left: '0',
+            width: '100%',
+            maxWidth: '280px',
+            margin: '8px 10px 16px 8px',
+            height: 'auto',
+            maxHeight: 'min(72vh, calc(100vh - 96px))',
+            zIndex: '1',
+            overflow: 'hidden',
+            borderRadius: '8px',
+            border: '1px solid #dadce0',
+            boxShadow: '0 1px 2px rgba(60,64,67,0.12)',
+            background: '#fff',
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      function applyGmailFixedFallbackLayout(): void {
+        Object.assign(host.style, {
+          position: 'fixed',
+          top: '435px',
+          left: '0',
+          width: w,
+          height: 'auto',
+          maxHeight: 'calc(100vh - 445px)',
+          zIndex: '9999',
+          overflow: 'hidden',
+          borderRadius: '0 8px 0 0',
+          borderRight: '1px solid #e0e0e0',
+          boxShadow: 'none',
+          background: '#fff',
+        });
+      }
+
+      if (isGmail) {
+        if (!applyGmailEmbeddedLayout()) {
+          applyGmailFixedFallbackLayout();
+          document.documentElement.appendChild(host);
+          const mo = new MutationObserver(() => {
+            if (applyGmailEmbeddedLayout()) mo.disconnect();
+          });
+          mo.observe(document.body, { childList: true, subtree: true });
+          setTimeout(() => mo.disconnect(), 25000);
+        }
+      } else {
+        document.documentElement.appendChild(host);
+      }
       const marker = document.createElement('div'); marker.id = 'brevmont-sidebar'; marker.style.display = 'none'; document.documentElement.appendChild(marker);
 
       sidebarRoot = host; sidebarOpen = true;
