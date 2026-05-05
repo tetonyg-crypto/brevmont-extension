@@ -119,6 +119,41 @@ export default defineContentScript({
       try { return extractContactNameForPlatform(PLATFORM) || null; } catch { return null; }
     }
 
+    // VinSolutions lead creation timestamp — moved to main() scope
+    // so terser cannot tree-shake the definition (same bug as safeExtractContactName).
+    function scrapeLeadCreatedAt(): string | null {
+      if (!isVinSolutions) return null;
+      try {
+        for (const el of document.querySelectorAll('td, span, div, label')) {
+          const t = (el as HTMLElement).textContent?.trim() || '';
+          if (/^Created:?\s*$/i.test(t)) {
+            const next = el.nextElementSibling || el.parentElement?.nextElementSibling;
+            const val = (next as HTMLElement)?.textContent?.trim();
+            if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
+          }
+        }
+        for (const td of document.querySelectorAll('td')) {
+          const t = (td as HTMLElement).textContent?.trim() || '';
+          if (/Lead Created|Date Created/i.test(t)) {
+            const sibling = td.nextElementSibling;
+            const val = (sibling as HTMLElement)?.textContent?.trim();
+            if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
+          }
+        }
+        const dated = document.querySelector('[data-created], [data-lead-created]');
+        if (dated) {
+          const val = dated.getAttribute('data-created') || dated.getAttribute('data-lead-created');
+          if (val) return val;
+        }
+        const firstNote = document.querySelector('.activity-note-date, .note-date, [class*="note"] [class*="date"]');
+        if (firstNote) {
+          const val = (firstNote as HTMLElement).textContent?.trim();
+          if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
+        }
+      } catch { /* never crash */ }
+      return null;
+    }
+
     // ===== CLEANUP REGISTRY (Phase T8 / Wave 7) =====
     // Track every interval + MutationObserver so we can unbind on unload /
     // sidebar close. Prevents dangling observers after SPA tab teardown.
@@ -2121,45 +2156,6 @@ export default defineContentScript({
         return null;
       }
 
-      // ===== INTELLIGENCE: VinSolutions lead creation timestamp =====
-      // 4-strategy fallback to find when the lead was created in the CRM.
-      function scrapeLeadCreatedAt(): string | null {
-        if (!isVinSolutions) return null;
-        try {
-          // Strategy 1: Explicit "Created:" label in activity/contact page
-          for (const el of document.querySelectorAll('td, span, div, label')) {
-            const t = (el as HTMLElement).textContent?.trim() || '';
-            if (/^Created:?\s*$/i.test(t)) {
-              const next = el.nextElementSibling || el.parentElement?.nextElementSibling;
-              const val = (next as HTMLElement)?.textContent?.trim();
-              if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
-            }
-          }
-          // Strategy 2: "Lead Created" or "Date Created" table cell
-          for (const td of document.querySelectorAll('td')) {
-            const t = (td as HTMLElement).textContent?.trim() || '';
-            if (/Lead Created|Date Created/i.test(t)) {
-              const sibling = td.nextElementSibling;
-              const val = (sibling as HTMLElement)?.textContent?.trim();
-              if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
-            }
-          }
-          // Strategy 3: data-attribute on known VinSolutions elements
-          const dated = document.querySelector('[data-created], [data-lead-created]');
-          if (dated) {
-            const val = dated.getAttribute('data-created') || dated.getAttribute('data-lead-created');
-            if (val) return val;
-          }
-          // Strategy 4: Scan first activity note timestamp as proxy
-          const firstNote = document.querySelector('.activity-note-date, .note-date, [class*="note"] [class*="date"]');
-          if (firstNote) {
-            const val = (firstNote as HTMLElement).textContent?.trim();
-            if (val && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(val)) return val;
-          }
-        } catch { /* never crash */ }
-        return null;
-      }
-
       // ===== INTELLIGENCE: DOM discovery telemetry =====
       // Captures page structure fingerprint once per page load to help
       // identify CRM layout changes and new selector opportunities.
@@ -2805,11 +2801,19 @@ export default defineContentScript({
       let tone = 'professional'; let goal = 'close_deal';
       try { const stored = await browser.storage.local.get(['brevmont_tone', 'brevmont_goal']); tone = stored.brevmont_tone || 'professional'; goal = stored.brevmont_goal || 'close_deal'; } catch(e) {}
 
+      // Build metadata safely — no scraper function can block generation
+      let _meta: Record<string, any> = { workflow_type: type === 'all' ? 'all' : type };
+      try { _meta.customer_name = leadData?.customerName || safeExtractContactName() || null; } catch { _meta.customer_name = null; }
+      try { _meta.vehicle = leadData?.vehicle || null; } catch { _meta.vehicle = null; }
+      try { _meta.email = leadData?.email || null; } catch { _meta.email = null; }
+      try { _meta.lead_created_at = scrapeLeadCreatedAt(); } catch { _meta.lead_created_at = null; }
+      try { _meta.lead_source = leadData?.source || null; } catch { _meta.lead_source = null; }
+
       try {
         const response = await safeSend({
           type: 'GENERATE_OUTPUT',
           payload: { type, leadContext: leadData || {}, repInput: input + (leadData?.vehicle ? '' : '\n[SYSTEM: No vehicle of interest detected. Do not mention or invent a vehicle in the response.]'), repName: '', dealership: '', platform: PLATFORM, tone, goal,
-            metadata: { workflow_type: type === 'all' ? 'all' : type, customer_name: leadData?.customerName || safeExtractContactName() || null, vehicle: leadData?.vehicle || null, email: leadData?.email || null, lead_created_at: scrapeLeadCreatedAt(), lead_source: leadData?.source || null } }
+            metadata: _meta }
         });
         if ((response as any).queued) {
           showToast(s, (response as any).message || 'Saved. Will sync when online.');
