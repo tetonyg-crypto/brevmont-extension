@@ -113,6 +113,12 @@ export default defineContentScript({
     }
     const outputLabels = getOutputLabels();
 
+    // Safe contact-name extraction — lives at main() scope so terser
+    // cannot tree-shake the definition while keeping call sites.
+    function safeExtractContactName(): string | null {
+      try { return extractContactNameForPlatform(PLATFORM) || null; } catch { return null; }
+    }
+
     // ===== CLEANUP REGISTRY (Phase T8 / Wave 7) =====
     // Track every interval + MutationObserver so we can unbind on unload /
     // sidebar close. Prevents dangling observers after SPA tab teardown.
@@ -2138,11 +2144,6 @@ export default defineContentScript({
         }
 
         return null;
-      }
-
-      // Safe wrapper — prevents ReferenceError from crashing generation
-      function safeExtractContactName(): string | null {
-        try { return extractContactName(); } catch { return null; }
       }
 
       // ===== INTELLIGENCE: VinSolutions lead creation timestamp =====

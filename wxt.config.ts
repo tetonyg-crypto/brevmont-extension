@@ -7,7 +7,7 @@ export default defineConfig({
       minify: 'terser',
       terserOptions: {
         mangle: {
-          reserved: ['detectPlatform', 'gatherAllText', 'getDashboardScopedText', 'extractVehicle', 'scanText', 'attemptScan', 'updateSidebar', 'openSidebar', 'closeSidebar', 'pushContent', 'updatePillPosition', 'extractContactName', 'extractContactNameLite']
+          reserved: ['detectPlatform', 'gatherAllText', 'getDashboardScopedText', 'extractVehicle', 'scanText', 'attemptScan', 'updateSidebar', 'openSidebar', 'closeSidebar', 'pushContent', 'updatePillPosition', 'extractContactName', 'extractContactNameLite', 'safeExtractContactName']
         }
       }
     }
