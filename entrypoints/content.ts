@@ -1657,7 +1657,7 @@ export default defineContentScript({
 
     // ===== SIDEBAR =====
     async function openSidebar() {
-      try { const check = await browser.storage.sync.get(['profile_onboarded']); if (!check.profile_onboarded) { browser.runtime.sendMessage({ type: 'OPEN_ONBOARDING' }); return; } } catch(e: any) { logError('STORAGE_ERROR', e?.message || 'Storage onboarding check failed', 'pill_click'); }
+      try { const syncCheck = await browser.storage.sync.get(['profile_onboarded', 'dealer_token']); const localCheck = await browser.storage.local.get(['profile_onboarded', 'dealer_token']); if (!(syncCheck.profile_onboarded || localCheck.profile_onboarded || syncCheck.dealer_token || localCheck.dealer_token)) { browser.runtime.sendMessage({ type: 'OPEN_ONBOARDING' }); return; } } catch(e: any) { logError('STORAGE_ERROR', e?.message || 'Storage onboarding check failed', 'pill_click'); }
       if (sidebarRoot) { sidebarRoot.style.display = 'block'; sidebarOpen = true; if (pill) pill.style.display = 'none'; updateSidebarPosition(); pushContent(true); return; }
       if (document.getElementById('brevmont-host')) return;
 

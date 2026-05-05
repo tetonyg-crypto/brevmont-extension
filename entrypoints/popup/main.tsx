@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createRoot } from 'react-dom/client';
 import SupportModal from './SupportModal';
 
 interface PopupState {
@@ -455,4 +456,4 @@ function App() {
   );
 }
 
-export default App;
+createRoot(document.getElementById('root')!).render(<App />);
