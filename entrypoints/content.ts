@@ -2897,9 +2897,22 @@ export default defineContentScript({
       let _meta: Record<string, any> = { workflow_type: type === 'all' ? 'all' : type };
       try { _meta.customer_name = leadData?.customerName || safeExtractContactName() || null; } catch { _meta.customer_name = null; }
       try { _meta.vehicle = leadData?.vehicle || null; } catch { _meta.vehicle = null; }
-      try { _meta.email = leadData?.email || null; } catch { _meta.email = null; }
+      try { _meta.customer_phone = leadData?.phone || null; } catch { _meta.customer_phone = null; }
+      try { _meta.customer_email = leadData?.email || null; } catch { _meta.customer_email = null; }
+      _meta.email = _meta.customer_email; // legacy field name kept for back-compat
+      try { _meta.vehicle_make = leadData?.vehicleMake || null; } catch { _meta.vehicle_make = null; }
+      try { _meta.vehicle_model = leadData?.vehicleModel || null; } catch { _meta.vehicle_model = null; }
+      try { _meta.vehicle_of_interest = leadData?.vehicleOfInterest || leadData?.vehicle || null; } catch { _meta.vehicle_of_interest = null; }
       try { _meta.lead_created_at = scrapeLeadCreatedAt(); } catch { _meta.lead_created_at = null; }
       try { _meta.lead_source = leadData?.source || null; } catch { _meta.lead_source = null; }
+      // generation_id: SAME UUID for the proxy call AND the post-render
+      // generation.created honest events. Stored on window so the proxy
+      // server can UPSERT event_log_v2 on the same row the extension wrote.
+      const _generationId = (typeof crypto !== 'undefined' && (crypto as any).randomUUID)
+        ? (crypto as any).randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      _meta.generation_id = _generationId;
+      (window as any).__brevmontLastGenerationId = _generationId;
 
       try {
         const response = await safeSend({
@@ -2916,9 +2929,11 @@ export default defineContentScript({
           lastAiOutput = { text: sec?.text || '', email: sec?.email || '', crm: sec?.crm || '', timestamp: Date.now() };
           if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) { if (sec.crm.trim() === 'NO_NEW_NOTE') { showToast(s, 'Nothing new to log. Last note covers this.'); } else { addOutput(s, outputLabels.crm, sec.crm); } } if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.');
           // Honest tracking — emit generation.created for each output the rep can see.
+          // Reuses the SAME generation_id sent to the proxy (_generationId, _meta.generation_id)
+          // so the server-side event_log_v2 UPSERT lands on the same row the
+          // extension's logEvent() writes here.
           try {
-            const generationId = (crypto as any)?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-            (window as any).__brevmontLastGenerationId = generationId;
+            const generationId = _generationId;
             const honestPlatform = detectHonestPlatform();
             const honestCustomer = {
               name: (_meta && _meta.customer_name) || null,

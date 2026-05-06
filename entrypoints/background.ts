@@ -1181,12 +1181,26 @@ async function handleGenerate(payload: {
     }
   }
 
-  // Structured metadata for generation_events logging (sent alongside the prompt)
-  const metadata = {
+  // Structured metadata for generation_events logging (sent alongside the prompt).
+  // generation_id is generated here and propagated to the proxy so the server-side
+  // event_log_v2 UPSERT lands on the same row the extension's logEvent() (sync
+  // honest tracker) wrote — single row carries everything for dashboards + async
+  // enrichment.
+  const generationId =
+    (payload?.metadata?.generation_id && typeof payload.metadata.generation_id === 'string'
+      ? payload.metadata.generation_id
+      : null) || (typeof crypto !== 'undefined' && (crypto as any).randomUUID ? (crypto as any).randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const metadata: any = {
     rep_name: finalRepName,
     workflow_type: payload.metadata?.workflow_type || payload.type || 'all',
     customer_name: customerName,
-    vehicle: payload.metadata?.vehicle || payload.leadContext?.vehicle || null
+    customer_phone: payload.metadata?.customer_phone || payload.leadContext?.phone || null,
+    customer_email: payload.metadata?.customer_email || payload.leadContext?.email || null,
+    vehicle: payload.metadata?.vehicle || payload.leadContext?.vehicle || null,
+    vehicle_make: payload.metadata?.vehicle_make || null,
+    vehicle_model: payload.metadata?.vehicle_model || null,
+    vehicle_of_interest: payload.metadata?.vehicle_of_interest || null,
+    generation_id: generationId,
   };
 
   const apiBase = await getResolvedApiUrl();
@@ -1237,7 +1251,13 @@ function buildGenerateProxyBody(
     rep_name?: string | null;
     workflow_type?: string | null;
     customer_name?: string | null;
+    customer_phone?: string | null;
+    customer_email?: string | null;
     vehicle?: string | null;
+    vehicle_make?: string | null;
+    vehicle_model?: string | null;
+    vehicle_of_interest?: string | null;
+    generation_id?: string | null;
   }
 ) {
   return {
@@ -1249,7 +1269,13 @@ function buildGenerateProxyBody(
     rep_name: metadata?.rep_name ?? null,
     workflow_type: metadata?.workflow_type ?? null,
     customer_name: metadata?.customer_name ?? null,
+    customer_phone: metadata?.customer_phone ?? null,
+    customer_email: metadata?.customer_email ?? null,
     vehicle: metadata?.vehicle ?? null,
+    vehicle_make: metadata?.vehicle_make ?? null,
+    vehicle_model: metadata?.vehicle_model ?? null,
+    vehicle_of_interest: metadata?.vehicle_of_interest ?? null,
+    generation_id: metadata?.generation_id ?? null,
   };
 }
 
