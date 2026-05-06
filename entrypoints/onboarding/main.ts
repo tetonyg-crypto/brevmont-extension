@@ -169,6 +169,7 @@ async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
       rep_id: data.rep_id || null,
       rep_email: data.rep_email || null,
       rep_name: data.rep_name || null,
+      rep_auth_token: data.rep_auth_token || null,
     });
     try {
       await chrome.storage.local.set({

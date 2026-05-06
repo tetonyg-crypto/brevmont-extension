@@ -303,6 +303,7 @@ export async function setCredentialsFromInstallToken(payload: {
   rep_id?: string | null;
   rep_email?: string | null;
   rep_name?: string | null;
+  rep_auth_token?: string | null;
 }) {
   // Atomic patch: write all credentials together so a partial read between
   // writes never sees half-state.
@@ -315,6 +316,8 @@ export async function setCredentialsFromInstallToken(payload: {
     dealership: payload.dealership_name || null,
     rep_id: payload.rep_id ?? null,
     rep_name: payload.rep_name ?? null,
+    rep_auth_token: payload.rep_auth_token ?? null,
+    brevmont_rep_auth_token: payload.rep_auth_token ?? null,
     activated_at: Date.now(),
     license_revoked: false,
     license_revoked_at: null,

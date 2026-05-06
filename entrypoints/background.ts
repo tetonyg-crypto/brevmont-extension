@@ -180,11 +180,13 @@ export default defineBackground(() => {
 
     if (msg.type === 'LOG_ACTION') {
       const p = msg.payload;
-      browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token', 'rep_id']).then(async (local) => {
+      browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token', 'rep_id', 'dealer_token']).then(async (local) => {
         let repToken = (local.rep_auth_token as string) || (local.brevmont_rep_auth_token as string) || '';
         if (!repToken) {
-          const sync = await browser.storage.sync.get(['rep_auth_token']);
+          const sync = await browser.storage.sync.get(['rep_auth_token', 'dealer_token']);
           repToken = (sync.rep_auth_token as string) || '';
+          // Fallback: use dealer_token if rep_auth_token unavailable (server accepts both via requireExtensionAuth)
+          if (!repToken) repToken = (local.dealer_token as string) || (sync.dealer_token as string) || '';
         }
         if (!repToken) return;
         const ACTION_MAP: Record<string, string> = {
@@ -214,11 +216,12 @@ export default defineBackground(() => {
 
     if (msg.type === 'LOG_COPY') {
       const p = msg.payload;
-      browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token', 'rep_id']).then(async (local) => {
+      browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token', 'rep_id', 'dealer_token']).then(async (local) => {
         let repToken = (local.rep_auth_token as string) || (local.brevmont_rep_auth_token as string) || '';
         if (!repToken) {
-          const sync = await browser.storage.sync.get(['rep_auth_token']);
+          const sync = await browser.storage.sync.get(['rep_auth_token', 'dealer_token']);
           repToken = (sync.rep_auth_token as string) || '';
+          if (!repToken) repToken = (local.dealer_token as string) || (sync.dealer_token as string) || '';
         }
         if (!repToken) return;
         const label = (p.label || 'COPY').toUpperCase();
