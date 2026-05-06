@@ -277,26 +277,12 @@ export function safeInjectText(target: HTMLElement, text: string) {
 /** Non-Vin contact name (Gmail, Facebook/Messenger, LinkedIn, Instagram, …). */
 export function extractContactName(platform: string): string | null {
   if (platform === 'gmail') {
-    // Open-thread paths (reading an existing email).
-    const senderEl = document.querySelector('.gD') as HTMLElement | null;
-    if (senderEl) {
-      const name = senderEl.getAttribute('name') || senderEl.textContent?.trim() || null;
-      if (name && name.length > 1 && name.length < 60) return name;
-    }
-    const goEl = document.querySelector('.go');
-    if (goEl) {
-      const name = (goEl as HTMLElement).textContent?.trim();
-      if (name && name.length > 1 && name.length < 60) return name;
-    }
-    const namedEl = document.querySelector('[data-name]');
-    if (namedEl) {
-      const name = namedEl.getAttribute('data-name');
-      if (name && name.length > 1 && name.length < 60) return name;
-    }
-    // Compose-mode paths (writing a new email — the prior gap that left
-    // customer_name=null when a rep typed an email from blank). Gmail puts
-    // recipients into a chip with data-hovercard-id="user@host.tld" and a
-    // separate name attribute on the resolved chip.
+    // Priority order matters: when a compose dialog is OPEN, that's the
+    // rep's active intent (writing a new email or reply). The underlying
+    // thread behind it is just background — its .gD sender is NOT the
+    // customer being written to. v1.14.3 had compose-mode after open-
+    // thread paths and returned the wrong "Brevmont"-style sender on
+    // every compose-over-thread case. v1.14.4 inverts the priority.
     const composeRoot =
       document.querySelector('div[role="dialog"]') ||
       document.querySelector('[role="region"][aria-label*="compose" i]') ||
@@ -312,18 +298,37 @@ export function extractContactName(platform: string): string | null {
         if (candidateName && candidateName.length > 1 && candidateName.length < 60 && !candidateName.includes('@')) {
           return candidateName;
         }
-        // Fall back to the email's local-part as a last resort.
         const email = hover.getAttribute('data-hovercard-id') || '';
         const local = email.split('@')[0];
         if (local && local.length > 1 && local.length < 60) return local;
       }
-      // Last-resort plain `<input name="to">` value — covers older Gmail DOMs.
       const toInput = composeRoot.querySelector('input[name="to"]') as HTMLInputElement | null;
       const raw = toInput?.value?.trim() || '';
       if (raw) {
         const local = raw.split('@')[0];
         if (local && local.length > 1 && local.length < 60) return local;
       }
+      // Compose is open but To is empty — return null instead of falling
+      // through to an unrelated thread sender. Better signal: "no contact
+      // captured" than "wrong contact captured." Documented in
+      // DEVIATIONS.md D-2026-05-06-6 (compose-with-empty-To).
+      return null;
+    }
+    // No compose dialog open — read the currently-viewed thread.
+    const senderEl = document.querySelector('.gD') as HTMLElement | null;
+    if (senderEl) {
+      const name = senderEl.getAttribute('name') || senderEl.textContent?.trim() || null;
+      if (name && name.length > 1 && name.length < 60) return name;
+    }
+    const goEl = document.querySelector('.go');
+    if (goEl) {
+      const name = (goEl as HTMLElement).textContent?.trim();
+      if (name && name.length > 1 && name.length < 60) return name;
+    }
+    const namedEl = document.querySelector('[data-name]');
+    if (namedEl) {
+      const name = namedEl.getAttribute('data-name');
+      if (name && name.length > 1 && name.length < 60) return name;
     }
     return null;
   }
