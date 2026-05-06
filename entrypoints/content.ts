@@ -3196,10 +3196,60 @@ export default defineContentScript({
             let subject = ''; let body = curContent;
             const subjectMatch = curContent.match(/^(?:Subject:\s*|Re:\s*)(.+)/i);
             if (subjectMatch) { subject = subjectMatch[1].trim(); body = curContent.slice(curContent.indexOf('\n') + 1).trim(); }
-            const composeBody = qSel(gmailSelectors, 'compose_body', 'div[aria-label="Message Body"][contenteditable="true"]') as HTMLElement;
+            // Multi-compose tolerant lookup. Gmail allows many composes open
+            // at once and the legacy single-querySelector lookup just grabbed
+            // the first DOM match, which was almost never the one the rep
+            // was actually looking at. Pick by signal:
+            //   1. compose body containing document.activeElement (rep just
+            //      clicked or tabbed into it)
+            //   2. compose body in the same container as the focused subject
+            //      input (typing the subject is just-as-good a signal)
+            //   3. largest visible body (full window, not minimized)
+            //   4. first match (legacy fallback)
+            const pickComposeBody = (): HTMLElement | null => {
+              const all = Array.from(document.querySelectorAll<HTMLElement>(
+                'div[aria-label="Message Body"][contenteditable="true"]'
+              ));
+              if (all.length === 0) return null;
+              if (all.length === 1) return all[0];
+              const active = document.activeElement as HTMLElement | null;
+              if (active) {
+                const containing = all.find((b) => b === active || b.contains(active));
+                if (containing) return containing;
+                // Subject field active → find sibling body
+                const subj = active.closest('[role="dialog"]') || active.closest('table');
+                if (subj) {
+                  const inSameContainer = all.find((b) => subj.contains(b));
+                  if (inSameContainer) return inSameContainer;
+                }
+              }
+              const visible = all.filter((b) => b.offsetParent !== null);
+              if (visible.length === 0) return all[0];
+              // Largest by area = the un-minimized compose
+              return visible.reduce((best, b) => {
+                const a1 = best.offsetWidth * best.offsetHeight;
+                const a2 = b.offsetWidth * b.offsetHeight;
+                return a2 > a1 ? b : best;
+              });
+            };
+            const composeBody =
+              pickComposeBody() ||
+              (qSel(gmailSelectors, 'compose_body', 'div[aria-label="Message Body"][contenteditable="true"]') as HTMLElement | null);
             if (composeBody) {
               composeBody.focus(); safeInjectText(composeBody, body);
-              if (subject) { const subjectField = qSel(gmailSelectors, 'compose_subject', 'input[name="subjectbox"]') as HTMLInputElement; if (subjectField) { subjectField.focus(); safeInjectText(subjectField, subject); } }
+              if (subject) {
+                // Subject field that lives in the SAME compose container as
+                // the body we just injected, not the first one in DOM order.
+                let subjectField: HTMLInputElement | null = null;
+                const composeContainer = composeBody.closest('[role="dialog"]') || composeBody.closest('table');
+                if (composeContainer) {
+                  subjectField = composeContainer.querySelector<HTMLInputElement>('input[name="subjectbox"]');
+                }
+                if (!subjectField) {
+                  subjectField = qSel(gmailSelectors, 'compose_subject', 'input[name="subjectbox"]') as HTMLInputElement;
+                }
+                if (subjectField) { subjectField.focus(); safeInjectText(subjectField, subject); }
+              }
               this.textContent = 'Applied'; this.style.background = '#16a34a'; this.style.color = '#fff'; st.textContent = 'Applied to compose'; st.style.color = '#16a34a';
               try { browser.runtime.sendMessage({ type: 'LOG_COPY', payload: { label: 'EMAIL_APPLIED', platform: PLATFORM, customer: leadData?.customerName || safeExtractContactName() || null } }); } catch(e) {}
             } else {
