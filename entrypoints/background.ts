@@ -38,6 +38,25 @@ export default defineBackground(() => {
             ts: new Date().toISOString(),
           }),
         }).catch(() => {});
+        // Also fire the lighter health-ping handshake so the API records
+        // the running version on every install/update without paging
+        // Telegram a second time. The response carries `latest_known_version`
+        // and a `stale` flag that surface in the panel's version badge.
+        fetch(`${PROXY_URL}/v1/health/extension-ping`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Extension-Version': version },
+          body: JSON.stringify({ version, ts: new Date().toISOString() }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (data && typeof data === 'object' && 'stale' in data) {
+              browser.storage.local.set({
+                brevmont_ext_version_stale: !!(data as { stale?: boolean }).stale,
+                brevmont_ext_latest_known: (data as { latest_known_version?: string }).latest_known_version || null,
+              }).catch(() => {});
+            }
+          })
+          .catch(() => {});
       } catch {}
     });
   } catch {}
