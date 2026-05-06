@@ -277,6 +277,7 @@ export function safeInjectText(target: HTMLElement, text: string) {
 /** Non-Vin contact name (Gmail, Facebook/Messenger, LinkedIn, Instagram, …). */
 export function extractContactName(platform: string): string | null {
   if (platform === 'gmail') {
+    // Open-thread paths (reading an existing email).
     const senderEl = document.querySelector('.gD') as HTMLElement | null;
     if (senderEl) {
       const name = senderEl.getAttribute('name') || senderEl.textContent?.trim() || null;
@@ -291,6 +292,38 @@ export function extractContactName(platform: string): string | null {
     if (namedEl) {
       const name = namedEl.getAttribute('data-name');
       if (name && name.length > 1 && name.length < 60) return name;
+    }
+    // Compose-mode paths (writing a new email — the prior gap that left
+    // customer_name=null when a rep typed an email from blank). Gmail puts
+    // recipients into a chip with data-hovercard-id="user@host.tld" and a
+    // separate name attribute on the resolved chip.
+    const composeRoot =
+      document.querySelector('div[role="dialog"]') ||
+      document.querySelector('[role="region"][aria-label*="compose" i]') ||
+      null;
+    if (composeRoot) {
+      // Resolved chips carry email + display name on the same element.
+      const hover = composeRoot.querySelector('[data-hovercard-id]');
+      if (hover) {
+        const candidateName =
+          hover.getAttribute('name') ||
+          (hover as HTMLElement).textContent?.trim() ||
+          null;
+        if (candidateName && candidateName.length > 1 && candidateName.length < 60 && !candidateName.includes('@')) {
+          return candidateName;
+        }
+        // Fall back to the email's local-part as a last resort.
+        const email = hover.getAttribute('data-hovercard-id') || '';
+        const local = email.split('@')[0];
+        if (local && local.length > 1 && local.length < 60) return local;
+      }
+      // Last-resort plain `<input name="to">` value — covers older Gmail DOMs.
+      const toInput = composeRoot.querySelector('input[name="to"]') as HTMLInputElement | null;
+      const raw = toInput?.value?.trim() || '';
+      if (raw) {
+        const local = raw.split('@')[0];
+        if (local && local.length > 1 && local.length < 60) return local;
+      }
     }
     return null;
   }

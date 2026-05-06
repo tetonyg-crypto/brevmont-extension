@@ -1315,6 +1315,15 @@ async function generateViaProxy(
   const extraHeaders: Record<string, string> = {};
   if (repAuthToken) extraHeaders['X-Rep-Token'] = repAuthToken;
   if (idempotencyKey) extraHeaders['X-Idempotency-Key'] = idempotencyKey;
+  // X-Extension-Version stamps the running build on every /v1/generate so
+  // the early-block event_log_v2 UPSERT (routes/generation.js) can record
+  // ext_version on generation.created rows. Without this header the row
+  // lands with action_metadata.ext_version = null even though .copied/
+  // .pasted/.send_clicked events stamp it correctly via honestEvents.
+  try {
+    const v = chrome.runtime.getManifest()?.version;
+    if (typeof v === 'string' && v.length > 0) extraHeaders['X-Extension-Version'] = v;
+  } catch { /* manifest unavailable; skip header */ }
   const mergedExtra = Object.keys(extraHeaders).length ? extraHeaders : undefined;
 
   const resp = await signedFetch(`${base}/v1/generate`, body, mergedExtra);
