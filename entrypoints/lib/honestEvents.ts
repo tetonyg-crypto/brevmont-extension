@@ -35,12 +35,26 @@ export interface HonestEventPayload {
 }
 
 async function getRepToken(): Promise<string | null> {
+  // Check every storage slot the rest of the extension uses. Background.ts
+  // writes both rep_auth_token and brevmont_rep_auth_token on activation;
+  // some legacy paths only land in chrome.storage.sync. Returning null
+  // here drops events silently, so we exhaust every key before giving up.
+  const KEYS = ['rep_auth_token', 'brevmont_rep_auth_token', 'rep_token', 'dealer_token'];
   try {
-    const r = await chrome.storage.local.get(['rep_auth_token', 'rep_token', 'dealer_token']);
-    return r.rep_auth_token || r.rep_token || r.dealer_token || null;
-  } catch {
-    return null;
-  }
+    const local = await chrome.storage.local.get(KEYS);
+    for (const k of KEYS) {
+      const v = (local as any)[k];
+      if (typeof v === 'string' && v) return v;
+    }
+  } catch {}
+  try {
+    const sync = await chrome.storage.sync.get(KEYS);
+    for (const k of KEYS) {
+      const v = (sync as any)[k];
+      if (typeof v === 'string' && v) return v;
+    }
+  } catch {}
+  return null;
 }
 
 function getExtVersion(): string {
