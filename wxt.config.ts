@@ -1,4 +1,14 @@
 import { defineConfig } from 'wxt';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+// Single source of truth for the extension version: package.json.
+// Anything else (manifest hardcode, .env override, etc.) gets one place to break.
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkgVersion = JSON.parse(
+  readFileSync(resolve(__dirname, 'package.json'), 'utf8'),
+).version as string;
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
@@ -21,8 +31,8 @@ export default defineConfig({
     key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkMsS75L94HSdLb6I5gYOWkaP7JwtWdeRtVTmBRjkVR8tbvnsvYBE54CPY4jrHGKR8+CUO8NSd62MRCabJZMaJ5N1QpwgttOY2XCD78wCggmRGbKlGsZOtZjwkvX93NHAgcNFc/1RKu1mq0ireFqtidDLp8tM6WKPD/maWZ83xPPeYWD5Ahmwx0qjLMyAsj4e3uBIegtyT05IrPBtpYOT30GRuoi2+kTDU/McaY6yS9VtVZXomsLH5kUlA8+RD7vzxToGitogc6g0pJdEluXtdIkSN+ulcPzOfWzmBBdbViiJlmOUr/m/OFF482E0eSy6Ek4V/Z1KAJGheOAKh0wOvwIDAQAB',
     name: 'Brevmont — AI Sales Assistant',
     short_name: 'Brevmont',
-    version: '1.12.1',
-    version_name: '1.12.1',
+    version: pkgVersion,
+    version_name: pkgVersion,
     description: 'AI writes the text, email, and CRM note inside your CRM. Every rep performs like your best one.',
     homepage_url: 'https://brevmont.com',
     icons: {

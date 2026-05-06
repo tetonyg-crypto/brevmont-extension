@@ -1832,6 +1832,18 @@ export default defineContentScript({
       // Close
       s.getElementById('o8-close')!.onclick = closeSidebar;
 
+      // Version badge — pulls live from chrome.runtime.getManifest() so
+      // the founder always sees the actual loaded version, not a hardcoded
+      // string. If two extensions are loaded, this confirms which one is
+      // attached to the page.
+      try {
+        const vb = s.getElementById('o8-version-badge');
+        if (vb) {
+          const v = chrome?.runtime?.getManifest?.()?.version || 'unknown';
+          vb.textContent = `v${v}`;
+        }
+      } catch {}
+
       // Output chips — dual role (2026-04-19 tabbed-outputs refactor):
       //   1. Pre-generation (no card exists for this type): toggle `.on` =
       //      include-in-next-generation. Same as the legacy behavior.
@@ -3310,6 +3322,7 @@ export default defineContentScript({
 <div class="header">
   <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0D6E6E"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">BM</text></svg>
   <span class="logo">BREVMONT</span>
+  <span class="version-badge" id="o8-version-badge"></span>
   <span style="flex:1"></span>
   <button id="o8-lead-btn" class="lead-btn">+ Lead</button>
   <span id="o8-close" class="close">&times;</span>
@@ -3391,6 +3404,7 @@ export default defineContentScript({
 .header { padding:0 14px; height:48px; border-bottom:1px solid #E5E7EB; display:flex; align-items:center; gap:8px; flex-shrink:0; background:#fff; border-radius:12px 12px 0 0; }
 .header-icon { flex-shrink:0; }
 .logo { font-size:13px; font-weight:500; color:#1a202c; letter-spacing:0.5px; }
+.version-badge { font-size:9px; font-family:'JetBrains Mono',ui-monospace,monospace; color:#0D6E6E; background:rgba(13,110,110,0.10); padding:2px 6px; border-radius:4px; margin-left:6px; letter-spacing:0; }
 .close { font-size:20px; color:#94a3b8; cursor:pointer; padding:0 4px; } .close:hover { color:#475569; }
 .quick-mode { display:flex; flex-direction:column; flex:0 0 auto; overflow:hidden; }
 .card { padding:10px 14px; border-bottom:1px solid #e8eaed; flex-shrink:0; }

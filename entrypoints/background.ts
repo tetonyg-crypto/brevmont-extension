@@ -22,6 +22,26 @@ import { hasCompleteActivation } from './lib/activationState';
 initSentry();
 
 export default defineBackground(() => {
+  // Telegram-via-API ping on install/update so the founder gets a
+  // confirmation message every time Chrome loads or reloads the extension.
+  // No more guessing which version is actually running.
+  try {
+    chrome.runtime.onInstalled.addListener((details) => {
+      try {
+        const version = chrome.runtime.getManifest()?.version || 'unknown';
+        fetch(`${PROXY_URL}/api/v1/extension-loaded`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            version,
+            reason: details.reason,
+            ts: new Date().toISOString(),
+          }),
+        }).catch(() => {});
+      } catch {}
+    });
+  } catch {}
+
   // One-time migration: brevmont_ → brevmont_ storage keys
   (async () => {
     const migrated = await browser.storage.local.get('brevmont_storage_migrated');

@@ -43,6 +43,14 @@ async function getRepToken(): Promise<string | null> {
   }
 }
 
+function getExtVersion(): string {
+  try {
+    return chrome?.runtime?.getManifest?.()?.version || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 const queue: HonestEventPayload[] = [];
 let flushing = false;
 
@@ -92,7 +100,19 @@ try {
 
 export function logEvent(payload: Omit<HonestEventPayload, 'client_ts'>): void {
   try {
-    queue.push({ ...payload, client_ts: new Date().toISOString() });
+    // Auto-stamp the extension version into action_metadata so any event
+    // landing in event_log_v2 carries proof of which build emitted it.
+    // Lets us run a single SQL query to see whether v1.13.0 events are
+    // landing or whether old extensions are still firing.
+    const stamped: HonestEventPayload = {
+      ...payload,
+      client_ts: new Date().toISOString(),
+      action_metadata: {
+        ...(payload.action_metadata || {}),
+        ext_version: getExtVersion(),
+      },
+    };
+    queue.push(stamped);
     flushQueue().catch(() => {});
   } catch {
     // never throw into main flow
