@@ -716,12 +716,22 @@ export default defineBackground(() => {
   browser.alarms.create('brevmont-check-alerts', { periodInMinutes: 0.5 });
   browser.alarms.create('brevmont-queue-flush', { periodInMinutes: 1 });
   browser.alarms.create('brevmont-config-refresh', { periodInMinutes: 60 });
+  // Phase 2 (2026-05-06): chrome.storage.local-backed honest-events queue
+  // drain. Survives MV3 SW respawn unlike the prior setInterval inside
+  // the honestEvents module. The alarm fires every 60s and the handler
+  // imports flushQueue dynamically so failed imports don't crash boot.
+  browser.alarms.create('brevmont-honest-drain', { periodInMinutes: 1 });
 
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === 'brevmont-heartbeat') void sendHeartbeat();
     else if (alarm.name === 'brevmont-check-alerts') void checkAlerts();
     else if (alarm.name === 'brevmont-queue-flush') {
       void getResolvedApiUrl().then((u) => processQueue(u).catch(() => {}));
+    } else if (alarm.name === 'brevmont-honest-drain') {
+      // Honest-events queue drain (chrome.storage.local-backed).
+      void import('./lib/honestEvents')
+        .then((mod) => (mod.flushQueue ? mod.flushQueue() : Promise.resolve()))
+        .catch(() => {});
     } else if (alarm.name === 'brevmont-config-refresh') {
       void getResolvedApiUrl().then(async (apiUrl) => {
         const cfg = await fetchRemoteConfig(apiUrl);

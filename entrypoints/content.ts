@@ -1333,6 +1333,17 @@ export default defineContentScript({
     // VinSolutions has its own deep scanning. For all other platforms, periodically
     // extract the contact name from the conversation header so it's ready when the
     // rep generates output. This runs every 3 seconds and is cheap (DOM queries only).
+    //
+    // 2026-05-06 Phase 2 fix (audit E-1, P0):
+    // The prior version only WROTE leadData.customerName when the extractor returned
+    // a truthy value. With v1.14.4's compose-priority fix, extractContactName('gmail')
+    // correctly returns null when a compose dialog is open with an empty To field —
+    // but the previously-cached open-thread name (e.g. "Brevmont") would persist on
+    // leadData and doGenerate would read it first, regenerating the v1.14.3
+    // wrong-not-null bug. Fix: when the extractor returns null, EXPLICITLY CLEAR
+    // the cached name and email so doGenerate falls through to safeExtractContactName
+    // (also null in compose-empty-To) and the row lands with customer_name=null —
+    // the correct, honest value when no DOM source exists.
     if (!isVinSolutions) {
       addInterval(() => {
         const name = extractContactNameForPlatform(PLATFORM);
@@ -1348,15 +1359,21 @@ export default defineContentScript({
             }
           }
           dlog('[Brevmont] Auto-captured contact:', name);
-        }
-        // If the name changed (user switched conversations), update leadData
-        if (name && leadData && leadData.customerName && leadData.customerName !== name) {
+        } else if (name && leadData && leadData.customerName && leadData.customerName !== name) {
+          // Name changed (user switched conversations or filled in compose To)
           leadData.customerName = name;
           if (isGmail) {
             const emailEl = qSel(gmailSelectors, 'sender_email_badge', '.gD');
             if (emailEl) leadData.email = emailEl.getAttribute('email') || leadData.email;
           }
           dlog('[Brevmont] Contact name updated to:', name);
+        } else if (!name && leadData && leadData.customerName) {
+          // Extractor returned null AND we have a stale cached name. Clear it so
+          // doGenerate doesn't read a name from a thread the rep is no longer in.
+          // This is the audit E-1 fix.
+          dlog('[Brevmont] Extractor returned null — clearing stale leadData name', leadData.customerName);
+          leadData.customerName = null;
+          if (isGmail) leadData.email = null;
         }
       }, 3000);
     }

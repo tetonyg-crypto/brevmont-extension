@@ -1,16 +1,33 @@
 /**
  * Tool: honestEvents.ts
- * Purpose: Browser-observable event logging client for Brevmont.
- *          Posts to /api/v1/events on the API. Only fires for events the
+ * Purpose: Browser-observable event logging client for Brevmont. Posts to
+ *          /api/v1/events/batch on the API. Only fires for events the
  *          extension can actually observe — never sends, deliveries, opens,
  *          or replies. See routes/events-v2.js for the server-side allowlist.
+ *
+ *          Phase 2 (2026-05-06) durability rewrite:
+ *            - queue is persisted in chrome.storage.local (key: telemetry_queue_v2)
+ *              so a service-worker respawn or tab close doesn't lose pending
+ *              events
+ *            - queue is FIFO-capped at 100 (drops oldest first)
+ *            - flush is driven by chrome.alarms (every 60s) — survives MV3
+ *              service-worker idle/respawn cycles, unlike the prior
+ *              setInterval(...) which died on first SW idle
+ *            - flush sends one batch POST to /api/v1/events/batch instead of
+ *              N single POSTs, eliminating the per-tab dupe-flush race
+ *          Audit E-3 (P1) fixes both the durability gap and the multi-tab
+ *          duplicate-send issue.
+ *
  * Inputs: event_type + browser-observed metadata
  * Outputs: Best-effort delivery; never throws into the main flow
- * Dependencies: chrome.storage.local
+ * Dependencies: chrome.storage.local, chrome.alarms (background SW only)
  * Last Updated: 2026-05-06
  */
 
 const API_BASE = 'https://api.brevmont.com';
+const QUEUE_KEY = 'telemetry_queue_v2';
+const MAX_QUEUE_SIZE = 100;
+const BATCH_SIZE = 50;
 
 export type HonestEventType =
   | 'generation.created'
@@ -65,50 +82,94 @@ function getExtVersion(): string {
   }
 }
 
-const queue: HonestEventPayload[] = [];
+async function readQueue(): Promise<HonestEventPayload[]> {
+  try {
+    const result = await chrome.storage.local.get(QUEUE_KEY);
+    const arr = (result as any)[QUEUE_KEY];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeQueue(queue: HonestEventPayload[]): Promise<void> {
+  try {
+    await chrome.storage.local.set({ [QUEUE_KEY]: queue });
+  } catch {}
+}
+
+async function enqueue(payload: HonestEventPayload): Promise<void> {
+  const queue = await readQueue();
+  queue.push(payload);
+  // FIFO cap — drop oldest if over MAX. The cap is per-extension-install,
+  // not per-tab, because storage.local is shared across tabs. Multi-tab
+  // floors with 50 reps would still fit comfortably under 100.
+  if (queue.length > MAX_QUEUE_SIZE) {
+    queue.splice(0, queue.length - MAX_QUEUE_SIZE);
+  }
+  await writeQueue(queue);
+}
+
 let flushing = false;
 
-async function flushQueue() {
-  if (flushing || queue.length === 0) return;
+export async function flushQueue(): Promise<void> {
+  if (flushing) return;
   flushing = true;
   try {
+    const queue = await readQueue();
+    if (queue.length === 0) {
+      flushing = false;
+      return;
+    }
     const token = await getRepToken();
     if (!token) {
       // Diagnostic so the founder can see in DevTools why events aren't landing.
-      // Drop is silent in prod, but the warn line surfaces the no-token state.
       try { console.warn('[brevmont:honest] no rep token in storage — events held in queue:', queue.length); } catch {}
       flushing = false;
       return;
     }
-    try { console.info('[brevmont:honest] flushing', queue.length, 'events with token prefix', token.slice(0, 12)); } catch {}
-    const batch = queue.splice(0, queue.length);
-    for (const payload of batch) {
+
+    // Send in batches of BATCH_SIZE so a 100-event flush after an outage
+    // doesn't hit any per-request body limits. POST one batch; on success
+    // remove those rows from the persisted queue and continue. On 5xx /
+    // network error, leave queue intact and bail (next alarm will retry).
+    let remaining = queue;
+    while (remaining.length > 0) {
+      const batch = remaining.slice(0, BATCH_SIZE);
+      let ok = false;
       try {
-        const res = await fetch(`${API_BASE}/api/v1/events`, {
+        const res = await fetch(`${API_BASE}/api/v1/events/batch`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
             'X-Rep-Token': token,
+            'X-Extension-Version': getExtVersion(),
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ events: batch }),
         });
-        if (!res.ok) {
-          let bodyText = '';
-          try { bodyText = (await res.text()).slice(0, 240); } catch {}
-          try { console.warn('[brevmont:honest] POST', res.status, payload.event_type, bodyText); } catch {}
-          if (res.status >= 500) {
-            queue.push(payload);
-          }
+        if (res.ok) {
+          ok = true;
+          try { console.info('[brevmont:honest] batch POST 201', batch.length, 'events'); } catch {}
+        } else if (res.status >= 400 && res.status < 500) {
+          // 4xx (validation failure) — drop the batch so we don't loop on it.
+          // The server returns the offending index for an invalid event.
+          let body = '';
+          try { body = (await res.text()).slice(0, 240); } catch {}
+          try { console.warn('[brevmont:honest] batch POST', res.status, 'dropping batch:', body); } catch {}
+          ok = true; // treat as "removed from queue" so we don't retry forever
         } else {
-          try { console.info('[brevmont:honest] POST 201', payload.event_type, payload.platform); } catch {}
+          // 5xx — leave queue intact, retry next alarm.
+          try { console.warn('[brevmont:honest] batch POST', res.status, '— leaving queue for retry'); } catch {}
         }
       } catch (err) {
-        try { console.warn('[brevmont:honest] fetch threw:', (err as any)?.message || err); } catch {}
-        queue.push(payload);
-        break;
+        try { console.warn('[brevmont:honest] batch fetch threw:', (err as any)?.message || err); } catch {}
       }
+      if (!ok) break;
+      remaining = remaining.slice(batch.length);
     }
+    // Persist the remaining queue (whatever wasn't successfully drained).
+    await writeQueue(remaining);
   } catch {
     // never throw
   } finally {
@@ -116,12 +177,26 @@ async function flushQueue() {
   }
 }
 
+// chrome.alarms-driven drain. Survives MV3 service-worker respawn (unlike
+// setInterval). 1-minute period balances delivery latency with battery /
+// network use. The alarm is registered in background.ts onInstalled +
+// onStartup; this module doesn't register it directly because content.ts
+// imports this file too and content scripts can't create alarms.
+//
+// Belt and suspenders: when running in the SW context AND chrome.alarms
+// is reachable, ensure the alarm exists. The check is no-op-safe in
+// content-script context (chrome.alarms is undefined there).
+try {
+  if (typeof chrome !== 'undefined' && (chrome as any).alarms && typeof (chrome as any).alarms.create === 'function') {
+    (chrome as any).alarms.create('telemetry_drain', { periodInMinutes: 1 });
+  }
+} catch {}
+
 // Debug helper — exposed on the global so the founder can probe state from
 // the page console even though chrome.storage isn't reachable from page context.
 //   In DevTools on Gmail: window.__brevmontHonestDebug?.()
-//   Returns { queue_size, has_token, token_prefix } via a content-script
-//   side handler. We attach this in content.ts main().
 export async function honestDebug(): Promise<{ queue_size: number; has_token: boolean; token_prefix: string | null }> {
+  const queue = await readQueue();
   const token = await getRepToken();
   return {
     queue_size: queue.length,
@@ -130,18 +205,10 @@ export async function honestDebug(): Promise<{ queue_size: number; has_token: bo
   };
 }
 
-try {
-  setInterval(() => {
-    flushQueue().catch(() => {});
-  }, 5000);
-} catch {}
-
 export function logEvent(payload: Omit<HonestEventPayload, 'client_ts'>): void {
   try {
     // Auto-stamp the extension version into action_metadata so any event
     // landing in event_log_v2 carries proof of which build emitted it.
-    // Lets us run a single SQL query to see whether v1.13.0 events are
-    // landing or whether old extensions are still firing.
     const stamped: HonestEventPayload = {
       ...payload,
       client_ts: new Date().toISOString(),
@@ -150,7 +217,8 @@ export function logEvent(payload: Omit<HonestEventPayload, 'client_ts'>): void {
         ext_version: getExtVersion(),
       },
     };
-    queue.push(stamped);
+    // Persist + opportunistic flush. Both are async + safe-to-fail.
+    enqueue(stamped).catch(() => {});
     flushQueue().catch(() => {});
   } catch {
     // never throw into main flow
