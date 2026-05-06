@@ -8,6 +8,7 @@
 import './content/styles.css';
 import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { telemetry } from './lib/telemetry';
+import { logEvent, detectPlatform as detectHonestPlatform, mapOutputType } from './lib/honestEvents';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
 import { extractContactName as extractContactNameForPlatform } from './lib/leadContextScan';
@@ -2553,6 +2554,84 @@ export default defineContentScript({
         } catch { /* never crash main flow */ }
       }, true);
 
+      // ===== HONEST TRACKING: paste + send-click listeners on host page =====
+      // Fires generation.pasted whenever a non-trivial paste lands in a host
+      // composer, and generation.send_clicked when the host's Send button
+      // (or Enter on chat composers) is clicked. send_clicked is LOW
+      // confidence — a click is intent, not delivery. The dashboard is
+      // labeled accordingly; we never claim the message was delivered.
+      try {
+        const HONEST_PASTE_SELECTORS: Record<string, string[]> = {
+          gmail: ['div[role="textbox"][contenteditable="true"]'],
+          messenger: ['div[contenteditable="true"][role="textbox"]', 'div[data-lexical-editor="true"]'],
+          linkedin: ['div.msg-form__contenteditable', 'div[role="textbox"][contenteditable="true"]'],
+          vinsolutions: ['textarea', 'div[contenteditable="true"]'],
+          unknown: [],
+        };
+        const HONEST_SEND_SELECTORS: Record<string, string> = {
+          gmail: 'div[role="button"][data-tooltip*="Send"], div[aria-label*="Send"]',
+          messenger: 'div[role="button"][aria-label*="Send"], svg[aria-label*="Send"]',
+          linkedin: 'button.msg-form__send-button',
+          vinsolutions: 'button[id*="save"], button[id*="Save"]',
+          unknown: '',
+        };
+        const honestPlatform = detectHonestPlatform();
+        const pasteSel = (HONEST_PASTE_SELECTORS[honestPlatform] || []).join(',');
+        if (pasteSel) {
+          document.addEventListener('paste', (e: ClipboardEvent) => {
+            try {
+              const target = e.target as HTMLElement | null;
+              if (!target) return;
+              if (target.closest?.('#brevmont-sidebar-host') || target.closest?.('[id^="o8"]')) return;
+              if (!target.matches?.(pasteSel) && !target.closest?.(pasteSel)) return;
+              const pastedText = e.clipboardData?.getData('text/plain') || '';
+              if (pastedText.length < 20) return;
+              logEvent({
+                event_type: 'generation.pasted',
+                platform: honestPlatform,
+                generation_id: (window as any).__brevmontLastGenerationId,
+                action_metadata: { paste_length: pastedText.length },
+              });
+            } catch {}
+          }, true);
+        }
+        const sendSel = HONEST_SEND_SELECTORS[honestPlatform];
+        if (sendSel) {
+          document.addEventListener('click', (e: MouseEvent) => {
+            try {
+              const target = e.target as HTMLElement | null;
+              if (!target) return;
+              if (target.matches?.(sendSel) || target.closest?.(sendSel)) {
+                logEvent({
+                  event_type: 'generation.send_clicked',
+                  platform: honestPlatform,
+                  generation_id: (window as any).__brevmontLastGenerationId,
+                  action_metadata: { confidence: 'low', note: 'click intent only, not delivery' },
+                });
+              }
+            } catch {}
+          }, true);
+        }
+        if (honestPlatform === 'messenger' || honestPlatform === 'linkedin') {
+          document.addEventListener('keydown', (e: KeyboardEvent) => {
+            try {
+              if (e.key !== 'Enter' || e.shiftKey) return;
+              const active = document.activeElement as HTMLElement | null;
+              if (!active) return;
+              if (active.closest?.('#brevmont-sidebar-host') || active.closest?.('[id^="o8"]')) return;
+              if (active.matches?.('[contenteditable="true"]')) {
+                logEvent({
+                  event_type: 'generation.send_clicked',
+                  platform: honestPlatform,
+                  generation_id: (window as any).__brevmontLastGenerationId,
+                  action_metadata: { confidence: 'low', via: 'enter_key' },
+                });
+              }
+            } catch {}
+          }, true);
+        }
+      } catch { /* never break main flow */ }
+
       function clearContextImage() { contextImage = null; if (ctxPreview) ctxPreview.style.display = 'none'; if (dropZone) dropZone.style.display = 'flex'; updCtx(); }
       if (s.getElementById('o8-ctx-remove')) s.getElementById('o8-ctx-remove')!.addEventListener('click', clearContextImage);
       if (ctxDir) ctxDir.addEventListener('input', updCtx);
@@ -2823,7 +2902,32 @@ export default defineContentScript({
           const sec = response.sections;
           // Intelligence: store AI output for edit-distance tracking
           lastAiOutput = { text: sec?.text || '', email: sec?.email || '', crm: sec?.crm || '', timestamp: Date.now() };
-          if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) { if (sec.crm.trim() === 'NO_NEW_NOTE') { showToast(s, 'Nothing new to log. Last note covers this.'); } else { addOutput(s, outputLabels.crm, sec.crm); } } if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.'); }
+          if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) { if (sec.crm.trim() === 'NO_NEW_NOTE') { showToast(s, 'Nothing new to log. Last note covers this.'); } else { addOutput(s, outputLabels.crm, sec.crm); } } if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.');
+          // Honest tracking — emit generation.created for each output the rep can see.
+          try {
+            const generationId = (crypto as any)?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            (window as any).__brevmontLastGenerationId = generationId;
+            const honestPlatform = detectHonestPlatform();
+            const honestCustomer = {
+              name: (_meta && _meta.customer_name) || null,
+              vehicle: (_meta && _meta.vehicle) || null,
+            };
+            const outputs: Array<{ key: 'text' | 'email' | 'crm'; content: string }> = [];
+            if (selected.includes('text') && sec.text) outputs.push({ key: 'text', content: sec.text });
+            if (selected.includes('email') && sec.email) outputs.push({ key: 'email', content: sec.email });
+            if (selected.includes('crm') && sec.crm && sec.crm.trim() !== 'NO_NEW_NOTE') outputs.push({ key: 'crm', content: sec.crm });
+            for (const o of outputs) {
+              logEvent({
+                event_type: 'generation.created',
+                platform: honestPlatform,
+                output_type: mapOutputType(o.key),
+                generation_id: generationId,
+                customer_context: honestCustomer,
+                output_length: (o.content || '').length,
+              });
+            }
+          } catch {}
+        }
         // Tabbed outputs refactor (2026-04-19): auto-activate the first
         // generated output so the panel shows exactly one card post-gen.
         // Preference order: text → email → crm (matches the marketing demo
@@ -3016,6 +3120,16 @@ export default defineContentScript({
           const st = card.querySelector('.out-status') as HTMLElement;
           const curContent = getContent();
           navigator.clipboard.writeText(curContent); // always copy
+          // Honest tracking — primary button always copies, so emit generation.copied.
+          try {
+            logEvent({
+              event_type: 'generation.copied',
+              platform: detectHonestPlatform(),
+              output_type: mapOutputType((card as HTMLElement).dataset.outputType),
+              generation_id: (window as any).__brevmontLastGenerationId,
+              output_length: (curContent || '').length,
+            });
+          } catch {}
 
           if (isCRM && isVinSolutions) {
             (this as any).disabled = true; this.textContent = 'Pasting...';
@@ -3078,6 +3192,15 @@ export default defineContentScript({
       const regenBtn = card.querySelector('.out-regen');
       if (regenBtn) {
         regenBtn.addEventListener('click', () => {
+          // Honest tracking — emit before card removal so DOM still has type info.
+          try {
+            logEvent({
+              event_type: 'generation.regenerated',
+              platform: detectHonestPlatform(),
+              output_type: mapOutputType((card as HTMLElement).dataset.outputType),
+              generation_id: (window as any).__brevmontLastGenerationId,
+            });
+          } catch {}
           card.remove();
           const genBtn = s.getElementById('o8-generate');
           if (genBtn) genBtn.click();
