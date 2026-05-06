@@ -3401,11 +3401,11 @@ export default defineContentScript({
 * { margin:0; padding:0; box-sizing:border-box; }
 :host { all:initial; font-family:system-ui,-apple-system,sans-serif; font-size:13px; color:#1a202c; }
 #o8 { width:${width}; height:auto; max-height:100%; background:#FFFFFF; border:1px solid #E5E7EB; border-radius:12px; box-shadow:0 0 0 1px rgba(0,0,0,0.05), 0 8px 24px -4px rgba(0,0,0,0.1); overflow:hidden; overscroll-behavior:contain; display:flex; flex-direction:column; padding-bottom:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
-.header { padding:0 14px; height:48px; border-bottom:1px solid #E5E7EB; display:flex; align-items:center; gap:8px; flex-shrink:0; background:#fff; border-radius:12px 12px 0 0; }
+.header { position:relative; padding:0 14px; height:48px; border-bottom:1px solid #E5E7EB; display:flex; align-items:center; gap:8px; flex-shrink:0; background:#fff; border-radius:12px 12px 0 0; }
 .header-icon { flex-shrink:0; }
 .logo { font-size:13px; font-weight:500; color:#1a202c; letter-spacing:0.5px; }
-.version-badge { font-size:9px; font-family:'JetBrains Mono',ui-monospace,monospace; color:#0D6E6E; background:rgba(13,110,110,0.10); padding:2px 6px; border-radius:4px; margin-left:6px; letter-spacing:0; }
-.close { font-size:20px; color:#94a3b8; cursor:pointer; padding:0 4px; } .close:hover { color:#475569; }
+.version-badge { position:absolute; top:2px; left:14px; font-size:8px; font-family:'JetBrains Mono',ui-monospace,monospace; color:#0D6E6E; background:transparent; padding:0; border-radius:0; margin:0; letter-spacing:0; white-space:nowrap; line-height:1; pointer-events:none; opacity:0.7; }
+.close { font-size:20px; color:#94a3b8; cursor:pointer; padding:0 4px; flex-shrink:0; line-height:1; } .close:hover { color:#475569; }
 .quick-mode { display:flex; flex-direction:column; flex:0 0 auto; overflow:hidden; }
 .card { padding:10px 14px; border-bottom:1px solid #e8eaed; flex-shrink:0; }
 .name { font-size:14px; font-weight:600; } .vehicle { font-size:11px; color:#2563eb; margin-top:1px; } .meta { font-size:10px; color:#64748b; margin-top:2px; }
@@ -3459,7 +3459,7 @@ export default defineContentScript({
 .alert-item { display:flex; align-items:center; padding:6px 8px; background:#FFF7ED; border:1px solid #FBBF24; border-radius:6px; margin-bottom:4px; font-size:11px; gap:6px; } .alert-time { font-size:10px; color:#92400E; margin-left:auto; } .alert-dismiss { background:none; border:none; color:#94a3b8; cursor:pointer; font-size:14px; }
 .tcpa-inline { padding:4px 14px 8px; font-size:11px; color:#9CA3AF; line-height:1.3; text-align:center; flex-shrink:0; }
 /* Lead Capture */
-.lead-btn { height:24px; padding:0 8px; border-radius:6px; border:1px solid #E5E7EB; background:#fff; color:${isVinSolutions ? '#9CA3AF' : '#0D6E6E'}; font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; margin-right:4px; } .lead-btn:hover { background:#f3f4f6; }
+.lead-btn { height:24px; padding:0 8px; border-radius:6px; border:1px solid #E5E7EB; background:#fff; color:${isVinSolutions ? '#9CA3AF' : '#0D6E6E'}; font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; margin-right:4px; flex-shrink:0; white-space:nowrap; line-height:1; } .lead-btn:hover { background:#f3f4f6; }
 .lead-tab-btn { flex:1; padding:8px 4px; font-size:11px; font-weight:600; font-family:inherit; border:none; background:transparent; color:#94a3b8; cursor:pointer; border-bottom:2px solid transparent; } .lead-tab-btn.active { color:#0D6E6E; border-bottom-color:#0D6E6E; }
 .lead-field { display:flex; flex-direction:column; gap:2px; margin-bottom:8px; } .lead-field label { font-size:10px; font-weight:600; color:#6B7280; text-transform:uppercase; letter-spacing:0.5px; } .lead-field input { padding:6px 8px; border:1px solid #E5E7EB; border-radius:4px; font-size:13px; font-family:inherit; outline:none; color:#1a202c; } .lead-field input:focus { border-color:#0D6E6E; } .lead-field input.empty { background:#FEF08A; }
 .lead-confidence { text-align:center; font-size:11px; color:#6B7280; margin-bottom:10px; padding:4px 8px; background:#f3f4f6; border-radius:4px; }
