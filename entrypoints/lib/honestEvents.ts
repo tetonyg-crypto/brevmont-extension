@@ -74,9 +74,13 @@ async function flushQueue() {
   try {
     const token = await getRepToken();
     if (!token) {
+      // Diagnostic so the founder can see in DevTools why events aren't landing.
+      // Drop is silent in prod, but the warn line surfaces the no-token state.
+      try { console.warn('[brevmont:honest] no rep token in storage — events held in queue:', queue.length); } catch {}
       flushing = false;
       return;
     }
+    try { console.info('[brevmont:honest] flushing', queue.length, 'events with token prefix', token.slice(0, 12)); } catch {}
     const batch = queue.splice(0, queue.length);
     for (const payload of batch) {
       try {
@@ -89,12 +93,18 @@ async function flushQueue() {
           },
           body: JSON.stringify(payload),
         });
-        if (!res.ok && res.status >= 500) {
-          // requeue transient failures
-          queue.push(payload);
+        if (!res.ok) {
+          let bodyText = '';
+          try { bodyText = (await res.text()).slice(0, 240); } catch {}
+          try { console.warn('[brevmont:honest] POST', res.status, payload.event_type, bodyText); } catch {}
+          if (res.status >= 500) {
+            queue.push(payload);
+          }
+        } else {
+          try { console.info('[brevmont:honest] POST 201', payload.event_type, payload.platform); } catch {}
         }
-      } catch {
-        // network failure — requeue and stop draining
+      } catch (err) {
+        try { console.warn('[brevmont:honest] fetch threw:', (err as any)?.message || err); } catch {}
         queue.push(payload);
         break;
       }
@@ -104,6 +114,20 @@ async function flushQueue() {
   } finally {
     flushing = false;
   }
+}
+
+// Debug helper — exposed on the global so the founder can probe state from
+// the page console even though chrome.storage isn't reachable from page context.
+//   In DevTools on Gmail: window.__brevmontHonestDebug?.()
+//   Returns { queue_size, has_token, token_prefix } via a content-script
+//   side handler. We attach this in content.ts main().
+export async function honestDebug(): Promise<{ queue_size: number; has_token: boolean; token_prefix: string | null }> {
+  const token = await getRepToken();
+  return {
+    queue_size: queue.length,
+    has_token: !!token,
+    token_prefix: token ? token.slice(0, 12) : null,
+  };
 }
 
 try {
