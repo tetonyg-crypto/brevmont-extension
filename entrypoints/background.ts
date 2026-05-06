@@ -180,13 +180,13 @@ export default defineBackground(() => {
 
     if (msg.type === 'LOG_ACTION') {
       const p = msg.payload;
-      browser.storage.local.get(['dealer_token', 'rep_id']).then(async (local) => {
-        let dealerToken = (local.dealer_token as string) || '';
-        if (!dealerToken) {
-          const sync = await browser.storage.sync.get(['dealer_token']);
-          dealerToken = (sync.dealer_token as string) || '';
+      browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token', 'rep_id']).then(async (local) => {
+        let repToken = (local.rep_auth_token as string) || (local.brevmont_rep_auth_token as string) || '';
+        if (!repToken) {
+          const sync = await browser.storage.sync.get(['rep_auth_token']);
+          repToken = (sync.rep_auth_token as string) || '';
         }
-        if (!dealerToken) return;
+        if (!repToken) return;
         const ACTION_MAP: Record<string, string> = {
           GENERATE: 'crm.generation', PASTE: 'crm.paste',
           SEND: 'crm.send', CONFIRM: 'crm.confirm',
@@ -195,7 +195,7 @@ export default defineBackground(() => {
         try {
           await fetch(`${PROXY_URL}/api/events`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dealerToken}` },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${repToken}` },
             body: JSON.stringify({
               event_type,
               rep_id: (local.rep_id as string) || null,
@@ -214,13 +214,13 @@ export default defineBackground(() => {
 
     if (msg.type === 'LOG_COPY') {
       const p = msg.payload;
-      browser.storage.local.get(['dealer_token', 'rep_id']).then(async (local) => {
-        let dealerToken = (local.dealer_token as string) || '';
-        if (!dealerToken) {
-          const sync = await browser.storage.sync.get(['dealer_token']);
-          dealerToken = (sync.dealer_token as string) || '';
+      browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token', 'rep_id']).then(async (local) => {
+        let repToken = (local.rep_auth_token as string) || (local.brevmont_rep_auth_token as string) || '';
+        if (!repToken) {
+          const sync = await browser.storage.sync.get(['rep_auth_token']);
+          repToken = (sync.rep_auth_token as string) || '';
         }
-        if (!dealerToken) return;
+        if (!repToken) return;
         const label = (p.label || 'COPY').toUpperCase();
         const LABEL_MAP: Record<string, string> = {
           LEAD_CAPTURED: 'crm.generation', EMAIL_QUEUED: 'crm.send',
@@ -230,7 +230,7 @@ export default defineBackground(() => {
         try {
           await fetch(`${PROXY_URL}/api/events`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dealerToken}` },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${repToken}` },
             body: JSON.stringify({
               event_type,
               rep_id: (local.rep_id as string) || null,
