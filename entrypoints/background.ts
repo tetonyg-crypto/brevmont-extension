@@ -808,34 +808,21 @@ export default defineBackground(() => {
   }
 
   // ===== AUTH HARDENING: Bootstrap license secret =====
+  // Phase 3 (2026-05-06): /v1/license/secret returns 410 Gone. JWT auth
+  // via /api/v1/auth/token replaced HMAC signing. We keep the function
+  // shape so existing call sites compile, but it now only clears stale
+  // brevmont_license_secret values from prior installs to free storage
+  // and avoid confusion in the inspector. The actual auth path is
+  // handled by lib/jwtCache.ts via getJWT(apiBase) on first signedFetch.
   async function bootstrapLicenseSecret() {
     try {
-      // Check if we already have a secret
       const existing = await browser.storage.local.get(['brevmont_license_secret']);
-      if (existing.brevmont_license_secret) return;
-
-      const settings = await browser.storage.sync.get(['dealer_token']);
-      const licenseKey = settings.dealer_token;
-      if (!licenseKey) return; // no license yet, onboarding handles this
-
-      const response = await fetch(`${PROXY_URL}/v1/license/secret`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ license_key: licenseKey }),
-      });
-
-      if (!response.ok) {
-        console.warn('[Brevmont] License secret bootstrap failed:', response.status);
-        return;
-      }
-
-      const { license_secret } = await response.json();
-      if (license_secret) {
-        await browser.storage.local.set({ brevmont_license_secret: license_secret });
-        dlog('[Brevmont] License secret bootstrapped successfully');
+      if (existing.brevmont_license_secret) {
+        await browser.storage.local.remove(['brevmont_license_secret']);
+        dlog('[Brevmont] Phase 3: cleared legacy license_secret (JWT auth replaces HMAC)');
       }
     } catch (err) {
-      console.warn('[Brevmont] License secret bootstrap error:', (err as Error).message);
+      console.warn('[Brevmont] License secret cleanup error:', (err as Error).message);
     }
   }
 

@@ -1,141 +1,88 @@
 /**
  * Tool: authSigning.ts
- * Purpose: HMAC-SHA256 request signing for Brevmont proxy authentication
- * Inputs: License key, license secret, request details
- * Outputs: Signed headers object
- * Dependencies: Web Crypto API (built into Chrome extensions)
- * Last Updated: 2026-04-12
+ * Purpose: JWT-based request authentication. Phase 3 (2026-05-06) replaced
+ *          HMAC-SHA256 signing with short-lived bearer JWTs minted by
+ *          POST /api/v1/auth/token. Function names preserved (signedFetch,
+ *          signedGet) so all ~50 call sites continue to work unchanged.
+ * Inputs: rep_auth_token (storage), API base URL
+ * Outputs: signedFetch(url, body, extraHeaders), signedGet(url, extraHeaders)
+ * Dependencies: jwtCache.ts, fetch
+ * Last Updated: 2026-05-06
  * Changelog:
- *   - 2026-04-12: Initial creation — Phase 1 signing client
+ *   - 2026-04-12: Initial creation — Phase 1 HMAC signing client
+ *   - 2026-05-06: Phase 3 — switched to JWT bearer auth, removed HMAC
  */
 
-const encoder = new TextEncoder();
+import { getJWT } from './jwtCache';
 
-async function sha256Hex(data: string): Promise<string> {
-  const hash = await crypto.subtle.digest('SHA-256', encoder.encode(data));
-  return Array.from(new Uint8Array(hash))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-}
+const PROXY_URL = 'https://api.brevmont.com';
 
-async function hmacSha256Hex(secret: string, message: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
-  return Array.from(new Uint8Array(signature))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-}
+async function buildAuthHeaders(): Promise<Record<string, string>> {
+  const jwt = await getJWT(PROXY_URL);
+  if (jwt) return { Authorization: `Bearer ${jwt}` };
 
-function generateNonce(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-export async function buildSignedHeaders(
-  licenseKey: string,
-  licenseSecret: string,
-  method: string,
-  path: string,
-  bodyString: string
-): Promise<Record<string, string>> {
-  const timestamp = Date.now().toString();
-  const nonce = generateNonce();
-  const bodyHash = await sha256Hex(bodyString);
-  const canonical = `${timestamp}\n${nonce}\n${method.toUpperCase()}\n${path}\n${bodyHash}`;
-  const signature = await hmacSha256Hex(licenseSecret, canonical);
-
-  return {
-    'X-Brevmont-License-Key': licenseKey,
-    'X-Brevmont-Timestamp': timestamp,
-    'X-Brevmont-Nonce': nonce,
-    'X-Brevmont-Signature': signature,
-  };
-}
-
-// Get license credentials from storage
-export async function getLicenseCredentials(): Promise<{ key: string; secret: string } | null> {
+  // Fallback: legacy rep_auth_token UUID via X-Rep-Token. The dual-validation
+  // middleware in the API (Phase 3 requireExtensionAuth) accepts this path
+  // for any extension that hasn't yet acquired a JWT. Used only on the very
+  // first call after install; getJWT() succeeds on subsequent calls.
   try {
-    const result = await browser.storage.local.get(['brevmont_license_secret']);
-    const syncResult = await browser.storage.sync.get(['dealer_token']);
-    const key = syncResult.dealer_token;
-    const secret = result.brevmont_license_secret;
-    if (!key || !secret) return null;
-    return { key, secret };
+    const local = await browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token']);
+    const token =
+      (local.rep_auth_token as string | undefined) ||
+      (local.brevmont_rep_auth_token as string | undefined);
+    if (token) return { 'X-Rep-Token': token };
   } catch {
-    return null;
+    // ignore
   }
+  return {};
 }
 
-// Signed fetch wrapper — adds HMAC headers to any proxy POST request
 export async function signedFetch(
   url: string,
   body: unknown,
-  extraHeaders?: Record<string, string>
+  extraHeaders?: Record<string, string>,
 ): Promise<Response> {
-  const creds = await getLicenseCredentials();
-  const bodyString = JSON.stringify(body);
-  const urlObj = new URL(url);
-
-  let headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...extraHeaders,
-  };
-
-  // If we have credentials, sign the request
-  if (creds) {
-    const signedHeaders = await buildSignedHeaders(
-      creds.key,
-      creds.secret,
-      'POST',
-      urlObj.pathname,
-      bodyString
-    );
-    headers = { ...headers, ...signedHeaders };
-  }
-  // If no credentials, request goes unsigned — Phase 1 allows this
-
+  const auth = await buildAuthHeaders();
   return fetch(url, {
     method: 'POST',
-    headers,
-    body: bodyString,
+    headers: {
+      'Content-Type': 'application/json',
+      ...auth,
+      ...extraHeaders,
+    },
+    body: JSON.stringify(body),
   });
 }
 
-// Signed GET wrapper — adds HMAC headers to proxy GET requests (status polls etc.).
-// Body hash is computed over the empty string so the canonical matches what the
-// server would compute for a no-body GET. Server-side enforcement on GET routes
-// is not yet active, but signing now keeps the auth surface consistent and
-// lets us flip the enforcement flag later without a coordinated client rev.
 export async function signedGet(
   url: string,
-  extraHeaders?: Record<string, string>
+  extraHeaders?: Record<string, string>,
 ): Promise<Response> {
-  const creds = await getLicenseCredentials();
-  const urlObj = new URL(url);
-
-  let headers: Record<string, string> = {
-    ...extraHeaders,
-  };
-
-  if (creds) {
-    const signedHeaders = await buildSignedHeaders(
-      creds.key,
-      creds.secret,
-      'GET',
-      urlObj.pathname,
-      ''
-    );
-    headers = { ...headers, ...signedHeaders };
-  }
-
+  const auth = await buildAuthHeaders();
   return fetch(url, {
     method: 'GET',
-    headers,
+    headers: {
+      ...auth,
+      ...extraHeaders,
+    },
   });
+}
+
+// Legacy: kept exported for any in-flight call sites that pull credentials
+// directly. Returns null in v1.16.0+ since license_secret is no longer issued.
+export async function getLicenseCredentials(): Promise<null> {
+  return null;
+}
+
+// Legacy: kept exported so the type surface doesn't break callers that
+// imported buildSignedHeaders. Always returns an empty object — Phase 3
+// auth is bearer-JWT, not HMAC. Remove after grep shows zero callers.
+export async function buildSignedHeaders(
+  _licenseKey: string,
+  _licenseSecret: string,
+  _method: string,
+  _path: string,
+  _bodyString: string,
+): Promise<Record<string, string>> {
+  return {};
 }
