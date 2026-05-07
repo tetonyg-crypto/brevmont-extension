@@ -1,0 +1,64 @@
+name: Notify brevmont-api on extension release
+
+# Phase 9.1 (2026-05-07) — when a new extension version is tagged, fire a
+# repository_dispatch to brevmont-api so its UI persona regression test
+# runs against the freshly-released bundle.
+#
+# Why: the persona test exercises the extension end-to-end. A new release
+# is the moment where regressions are most likely (manifest changes,
+# auth flow tweaks, content-script reloads). Triggering immediately means
+# we know within ~10 minutes whether the new version still works.
+#
+# Requires repo secret API_DISPATCH_TOKEN: a fine-grained PAT with
+# `Actions: write` scope on tetonyg-crypto/brevmont-api. The default
+# GITHUB_TOKEN cannot fire cross-repo dispatches.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version string to send (e.g. v1.16.0)'
+        required: true
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Dispatching for version: $VERSION"
+
+      - name: Fire repository_dispatch to brevmont-api
+        env:
+          TOKEN: ${{ secrets.API_DISPATCH_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::API_DISPATCH_TOKEN secret is missing — cannot fire cross-repo dispatch"
+            exit 1
+          fi
+          RESP=$(curl -sS -w "\n%{http_code}" -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/tetonyg-crypto/brevmont-api/dispatches \
+            -d "{\"event_type\":\"extension-released\",\"client_payload\":{\"version\":\"$VERSION\",\"source_repo\":\"brevmont-extension\",\"source_run\":\"${{ github.run_id }}\"}}")
+          BODY=$(echo "$RESP" | head -n -1)
+          CODE=$(echo "$RESP" | tail -n 1)
+          echo "HTTP $CODE"
+          echo "$BODY"
+          if [ "$CODE" != "204" ]; then
+            echo "::error::dispatch failed (expected 204, got $CODE)"
+            exit 1
+          fi
+          echo "✓ dispatched extension-released($VERSION) to brevmont-api"
