@@ -1211,9 +1211,16 @@ export default defineContentScript({
           pill.style.opacity = '0.85';
         }
       } else if (isGmail) {
+        // Anchor relative to viewport bottom-left so the pill works on any
+        // MacBook/external-monitor combo. Gmail's left rail width (~64-92px
+        // depending on density) is consistent, so left:92px is safe.
+        // Bottom-anchor with bottom:96px keeps the pill above Gmail's footer
+        // ('Last account activity' bar at ~32px tall) regardless of viewport
+        // height. Was previously hardcoded top:515px which only worked on
+        // ~768-820px-tall viewports and overlapped/hid on shorter or taller.
         pill.style.left = '92px';
-        pill.style.top = '515px';
-        pill.style.bottom = 'auto';
+        pill.style.top = 'auto';
+        pill.style.bottom = '96px';
         pill.style.right = 'auto';
         pill.style.transform = 'none';
         pill.style.borderRadius = '16px';
@@ -1773,14 +1780,20 @@ export default defineContentScript({
 
       /** Gmail: full-height sidebar appended to document.body.
        *  Bypasses Gmail's stacking contexts (translateZ / will-change).
-       *  position:fixed + body append = always on top. */
+       *  position:fixed + body append = always on top.
+       *
+       *  Bottom-anchored + viewport-relative max-height so layout works on
+       *  every MacBook + external-monitor combo. Was hardcoded top:555px +
+       *  maxHeight:600px which overflowed 1366x768 viewports and floated
+       *  oddly on 1920x1080+ displays. */
       function applyGmailFixedLayout(): void {
         Object.assign(host.style, {
           position: 'fixed',
-          top: '555px',
+          top: 'auto',
+          bottom: '64px',
           left: '60px',
           width: '256px',
-          maxHeight: '600px',
+          maxHeight: 'min(600px, calc(100vh - 140px))',
           zIndex: '2147483647',
           overflowY: 'auto',
           overflow: 'hidden',
