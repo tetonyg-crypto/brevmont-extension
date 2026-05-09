@@ -1508,54 +1508,94 @@ async function pollForResult(jobId: string, maxWait = 30000, apiBase: string = P
   throw new Error('Generation timed out. Please try again.');
 }
 
-// --- Generate Direct (fallback — uses local SYSTEM_PROMPT) ---
-// --- Coach via Proxy ---
+// --- Coach via /v1/generate ---
+// Routes through the same generateViaProxy pipeline that powers the main
+// Generate button. The proxy's system prompt handles automotive coaching
+// context; we just wrap the objection in an instruction prefix.
 async function handleCoach(payload: { situation: string; vehicleContext?: string }) {
-  const settings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'dealership']);
-  let resp: Response;
-  try {
-    resp = await signedFetch(`${PROXY_URL}/api/coach`, {
-      situation: payload.situation,
-      rep_name: settings.rep_name || '',
-      dealership: settings.dealership || '',
-      vehicle_context: payload.vehicleContext || '',
-      dealer_token: settings.dealer_token || ''
-    });
-  } catch (e: any) {
-    telemetry.trackError(e, { flow: 'coach' });
-    throw e;
+  const settings = await browser.storage.sync.get(['dealer_token', 'rep_auth_token']);
+  const { repName, dealership, contextBlock } = await buildRepContext();
+  const dealerToken = settings.dealer_token || '';
+  if (!dealerToken) throw new Error('No license key found. Complete onboarding at brevmont.com.');
+
+  let repAuthToken: string = (settings.rep_auth_token as string | undefined) || '';
+  if (!repAuthToken) {
+    try {
+      const local = await browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token']);
+      repAuthToken = (local.rep_auth_token as string | undefined)
+        || (local.brevmont_rep_auth_token as string | undefined)
+        || '';
+    } catch {}
   }
-  await handleRevocationResponse(resp);
-  if (!resp.ok) throw new Error('Coach unavailable. Try again.');
-  const data = await resp.json();
-  return { coaching: data.coaching };
+
+  const vehicleCtx = payload.vehicleContext ? `\nVehicle context: ${payload.vehicleContext}` : '';
+  const coachMessage = `[COACHING MODE — Do NOT generate a customer message. Instead, coach the sales rep on how to handle this situation.]
+
+Rep: ${repName}
+Dealership: ${dealership}
+${contextBlock}${vehicleCtx}
+
+The customer said: "${payload.situation}"
+
+Provide a concise coaching response (3-5 sentences max):
+1. Acknowledge the objection
+2. Explain the best approach to handle it
+3. Give an example of what the rep should say back
+4. If relevant, suggest a follow-up action
+
+Keep it practical and direct — this rep is on the floor right now.`;
+
+  const apiBase = await getResolvedApiUrl();
+  const result = await generateViaProxy(
+    dealerToken,
+    coachMessage,
+    'coach',
+    { rep_name: repName, workflow_type: 'coach', customer_name: null, vehicle: null },
+    repAuthToken,
+    undefined,
+    apiBase
+  );
+  return { coaching: result.text };
 }
 
-// --- Command Mode via Proxy ---
+// --- Ask Anything (Command Mode) via /v1/generate ---
 async function handleCommand(payload: { command: string; currentUrl?: string; vehicleContext?: string }) {
-  const settings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'dealership']);
-  let resp: Response;
-  try {
-    resp = await signedFetch(`${PROXY_URL}/api/command`, {
-      command: payload.command,
-      current_url: payload.currentUrl || '',
-      rep_name: settings.rep_name || '',
-      dealership: settings.dealership || '',
-      customer_context: null,
-      dealer_token: settings.dealer_token || ''
-    });
-  } catch (e: any) {
-    telemetry.trackError(e, { flow: 'command' });
-    throw e;
+  const settings = await browser.storage.sync.get(['dealer_token', 'rep_auth_token']);
+  const { repName, dealership, contextBlock } = await buildRepContext();
+  const dealerToken = settings.dealer_token || '';
+  if (!dealerToken) throw new Error('No license key found. Complete onboarding at brevmont.com.');
+
+  let repAuthToken: string = (settings.rep_auth_token as string | undefined) || '';
+  if (!repAuthToken) {
+    try {
+      const local = await browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token']);
+      repAuthToken = (local.rep_auth_token as string | undefined)
+        || (local.brevmont_rep_auth_token as string | undefined)
+        || '';
+    } catch {}
   }
-  await handleRevocationResponse(resp);
-  if (!resp.ok) throw new Error('Command service unavailable. Try again.');
-  const data = await resp.json();
-  if (data.error) throw new Error(data.error);
 
-  // Logging handled server-side in proxy — no double logging
+  const cmdMessage = `[COMMAND MODE — Answer this question or execute this request for an automotive sales rep.]
 
-  return data;
+Rep: ${repName}
+Dealership: ${dealership}
+${contextBlock}
+
+Question/Request: "${payload.command}"
+
+Provide a direct, actionable answer. Keep it concise (2-4 sentences). If the question is about a specific process, give step-by-step instructions. If it's a knowledge question, answer factually.`;
+
+  const apiBase = await getResolvedApiUrl();
+  const result = await generateViaProxy(
+    dealerToken,
+    cmdMessage,
+    'command',
+    { rep_name: repName, workflow_type: 'command', customer_name: null, vehicle: null },
+    repAuthToken,
+    undefined,
+    apiBase
+  );
+  return { parsed: { action: 'answer', content: result.text }, text: result.text };
 }
 
 // ===== CONTEXT REPLY (screenshot vision) =====
@@ -1564,8 +1604,7 @@ async function handleContextReply(payload: { image: string; direction: string })
   const dealerToken = settings.dealer_token || '';
   if (!dealerToken) throw new Error('No license key found.');
 
-  // Rep-token resolution — mirrors handleGenerate. Attached to both the
-  // dedicated context-reply endpoint and the /v1/generate vision fallback.
+  // Rep-token resolution — mirrors handleGenerate.
   let repAuthToken: string = (settings.rep_auth_token as string | undefined) || '';
   if (!repAuthToken) {
     try {
@@ -1579,28 +1618,7 @@ async function handleContextReply(payload: { image: string; direction: string })
     ? { 'X-Rep-Token': repAuthToken }
     : undefined;
 
-  // Try dedicated endpoint first
-  try {
-    const resp = await signedFetch(`${PROXY_URL}/api/context-reply`, {
-      dealer_token: dealerToken,
-      image: payload.image,
-      direction: payload.direction,
-      rep_name: settings.rep_name || 'Unknown'
-    }, repTokenHeader);
-
-    await handleRevocationResponse(resp);
-    if (resp.status === 401) throw new Error('License invalid or expired.');
-    if (resp.status === 413) throw new Error('Screenshot too large — try a smaller crop');
-    if (resp.status === 429) throw new Error('Too many requests. Wait a few seconds.');
-    // If 403 (tier gate) or other error, fall through to vision fallback
-    if (resp.ok) return await resp.json();
-  } catch(e: any) {
-    if (e.message?.includes('License') || e.message?.includes('Too many')) { telemetry.trackError(e, { flow: 'context_reply_dedicated' }); throw e; }
-    telemetry.trackError(e, { flow: 'context_reply_dedicated' });
-    // Fall through to fallback
-  }
-
-  // Fallback: use /v1/generate with vision content blocks
+  // Use /v1/generate with vision content blocks
   const imageMediaType = payload.image.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
   const base64Data = payload.image.replace(/^data:image\/\w+;base64,/, '');
 
