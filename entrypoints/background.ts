@@ -319,6 +319,18 @@ export default defineBackground(() => {
       return false;
     }
 
+    if (msg.type === 'OPEN_EXTENSION_SETTINGS') {
+      // Open the extension's Chrome site-settings page so the user can
+      // manually flip Microphone to "Allow" on managed browsers.
+      const settingsUrl = msg.url || `chrome://settings/content/siteDetails?site=chrome-extension://${chrome.runtime.id}`;
+      chrome.tabs.create({ url: settingsUrl }).then(() => {
+        sendResponse?.({ ok: true });
+      }).catch(() => {
+        sendResponse?.({ ok: false });
+      });
+      return true; // keep message channel open for async sendResponse
+    }
+
     if (msg.type === 'OPEN_MIC_PERMISSION') {
       browser.windows.create({
         url: browser.runtime.getURL('permission.html'),
@@ -1132,12 +1144,8 @@ export default defineBackground(() => {
       try {
         await browser.tabs.create({ url: browser.runtime.getURL('install-screen.html') });
       } catch {
-        // Final fallback — legacy options page direct.
-        if (browser.runtime.openOptionsPage) {
-          browser.runtime.openOptionsPage();
-        } else {
-          browser.tabs.create({ url: browser.runtime.getURL('options.html') });
-        }
+        // Final fallback — permission page (mic + setup gate).
+        browser.tabs.create({ url: browser.runtime.getURL('permission.html') }).catch(() => {});
       }
     }
 
