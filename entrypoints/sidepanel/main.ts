@@ -381,21 +381,35 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
       activeMicRecognition.stop();
     }
 
-    // Check mic permission via getUserMedia probe
+    // Check mic permission via Permissions API (non-blocking, no prompt)
+    // getUserMedia hangs in side panels because Chrome can't show the prompt.
+    // permissions.query() returns the state without triggering any UI.
+    let permState: string = 'prompt';
     try {
-      const testStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      testStream.getTracks().forEach(t => t.stop());
-    } catch (err: any) {
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        // No permission — open the bootstrap page
-        chrome.tabs.create({ url: chrome.runtime.getURL('mic-permission.html') });
-        const root = document.getElementById('sp-root');
-        if (root) showToast(root, 'Grant microphone access in the new tab, then try again.');
-        return;
-      }
-      // Hardware or other error
+      const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      permState = status.state;
+    } catch {
+      // Permissions API unavailable — try starting recognition directly,
+      // it will fire 'not-allowed' error if permission is missing.
+    }
+
+    if (permState === 'denied') {
       const root = document.getElementById('sp-root');
-      if (root) showToast(root, 'Microphone unavailable: ' + (err.message || err.name));
+      if (root) showToast(root, 'Microphone blocked. Click the lock icon in Chrome\'s address bar to allow mic.');
+      return;
+    }
+
+    if (permState === 'prompt') {
+      // Permission not yet granted — open bootstrap page as a focused popup window
+      chrome.windows.create({
+        url: chrome.runtime.getURL('mic-permission.html'),
+        type: 'popup',
+        width: 420,
+        height: 340,
+        focused: true,
+      });
+      const root = document.getElementById('sp-root');
+      if (root) showToast(root, 'Grant microphone access in the popup, then click mic again.');
       return;
     }
 
@@ -431,9 +445,12 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
     recognition.onerror = (event: any) => {
       if (event.error === 'aborted' || event.error === 'no-speech') return;
       if (event.error === 'not-allowed') {
-        chrome.tabs.create({ url: chrome.runtime.getURL('mic-permission.html') });
+        chrome.windows.create({
+          url: chrome.runtime.getURL('mic-permission.html'),
+          type: 'popup', width: 420, height: 340, focused: true,
+        });
         const root = document.getElementById('sp-root');
-        if (root) showToast(root, 'Microphone permission needed. Grant access in the new tab.');
+        if (root) showToast(root, 'Microphone permission needed. Grant access in the popup.');
       } else {
         const root = document.getElementById('sp-root');
         if (root) showToast(root, 'Mic error: ' + event.error);
