@@ -65,6 +65,12 @@ async function safeSend(msg: any): Promise<any> {
         reject(new Error(chrome.runtime.lastError.message || 'Message send failed'));
         return;
       }
+      // Surface API errors instead of silently swallowing them.
+      // Background handlers send { error: '...' } when the API fails.
+      if (response?.error && typeof response.error === 'string') {
+        reject(new Error(response.error));
+        return;
+      }
       resolve(response);
     });
   });
@@ -666,7 +672,6 @@ async function doCoach(root: HTMLElement): Promise<void> {
   output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Thinking...</div>';
   try {
     const resp = await safeSend({ type: 'COACH_ME', payload: { situation: input, platform: currentPlatform.platform } });
-    if (resp?.error) throw new Error(resp.error);
     output.innerHTML = `<div class="tool-result">${esc(resp?.coaching || resp?.text || 'No response')}</div>`;
   } catch (e: any) {
     output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
@@ -739,7 +744,6 @@ async function doCommand(root: HTMLElement): Promise<void> {
   status.innerHTML = '<div class="tool-result" style="color:#94a3b8">Executing...</div>';
   try {
     const resp = await safeSend({ type: 'EXECUTE_COMMAND', payload: { command: input, platform: currentPlatform.platform } });
-    if (resp?.error) throw new Error(resp.error);
     status.innerHTML = `<div class="tool-result">${esc(resp?.result || resp?.text || 'Done')}</div>`;
   } catch (e: any) {
     status.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
