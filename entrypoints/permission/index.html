@@ -35,6 +35,20 @@
     .success { display: none; flex-direction: column; align-items: center; gap: 12px; }
     .success svg { width: 48px; height: 48px; fill: #0D6E6E; }
     .success p { color: #F8F6F1; font-weight: 500; }
+    .success .sub { font-weight: 400; color: rgba(248,246,241,0.7); font-size: 13px; }
+    .btn-close {
+      display: inline-block; padding: 10px 24px; background: #0D6E6E;
+      color: #F8F6F1; border: none; border-radius: 8px;
+      font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s;
+      margin-top: 8px;
+    }
+    .btn-close:hover { background: #0A5A5A; }
+    .skip {
+      display: inline-block; margin-top: 16px; color: rgba(248,246,241,0.5);
+      font-size: 13px; text-decoration: underline; cursor: pointer;
+      background: none; border: none; font-family: inherit;
+    }
+    .skip:hover { color: rgba(248,246,241,0.8); }
     .error {
       display: none; margin-top: 16px; padding: 12px;
       background: rgba(220,38,38,0.1); border-radius: 8px;
@@ -52,10 +66,13 @@
       <p>Voice input lets you speak customer scenarios instead of typing. This permission is granted once and works everywhere.</p>
       <button class="btn" id="enable-btn">Enable Microphone</button>
       <div class="error" id="error-msg"></div>
+      <button class="skip" id="skip-btn">Skip — I don't use voice</button>
     </div>
     <div class="success" id="success-state">
       <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-      <p>Microphone enabled. You can close this tab.</p>
+      <p>You're all set!</p>
+      <p class="sub">Click the Brevmont icon in your toolbar to get started.</p>
+      <button class="btn-close" id="close-btn">Got it</button>
     </div>
   </div>
   <script type="module" src="./main.ts"></script>

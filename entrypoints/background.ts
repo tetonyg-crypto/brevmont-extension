@@ -22,15 +22,27 @@ import { hasCompleteActivation } from './lib/activationState';
 initSentry();
 
 export default defineBackground(() => {
-  // ── Side Panel: clicking the toolbar icon opens the side panel ──
-  // Replaces the popup as the primary UI surface (Phase 1 of Side Panel migration).
-  // The popup entrypoint is retained for fallback but is NOT wired as default_popup.
-  try {
-    (chrome.sidePanel as any).setPanelBehavior({ openPanelOnActionClick: true });
-  } catch (e) {
-    // sidePanel API not available (older Chrome < 114) — falls back to no-op.
-    console.warn('[Brevmont] sidePanel.setPanelBehavior not available:', e);
-  }
+  // ── Permission-gated Side Panel ──
+  // First click opens the mic permission page if setup hasn't completed.
+  // After setup_complete flag is set, clicks open the side panel directly.
+  const SETUP_KEY = 'brevmont_setup_complete';
+
+  chrome.action.onClicked.addListener(async (tab) => {
+    try {
+      const data = await chrome.storage.local.get(SETUP_KEY);
+      if (data[SETUP_KEY]) {
+        // Setup done — open side panel directly
+        await (chrome.sidePanel as any).open({ windowId: tab.windowId });
+      } else {
+        // First time — open permission page as a full tab
+        await chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') });
+      }
+    } catch (e) {
+      console.warn('[Brevmont] action.onClicked handler error:', e);
+      // Fallback: try opening permission page
+      chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') }).catch(() => {});
+    }
+  });
 
   // Telegram-via-API ping on install/update so the founder gets a
   // confirmation message every time Chrome loads or reloads the extension.
