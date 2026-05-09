@@ -65,6 +65,12 @@ async function safeSend(msg: any): Promise<any> {
         reject(new Error(chrome.runtime.lastError.message || 'Message send failed'));
         return;
       }
+      // Chrome auto-completes the channel with undefined when the background
+      // handler never calls sendResponse (e.g., service worker restart).
+      if (response === undefined || response === null) {
+        reject(new Error('No response from background — try again.'));
+        return;
+      }
       // Surface API errors instead of silently swallowing them.
       // Background handlers send { error: '...' } when the API fails.
       if (response?.error && typeof response.error === 'string') {
@@ -74,6 +80,15 @@ async function safeSend(msg: any): Promise<any> {
       resolve(response);
     });
   });
+}
+
+// ─── Token check helper — avoids sending API calls destined to 401 ──────────
+async function requireToken(): Promise<string> {
+  const sync = await chrome.storage.sync.get(['dealer_token']);
+  const local = await chrome.storage.local.get(['dealer_token']);
+  const token = (sync.dealer_token || local.dealer_token || '') as string;
+  if (!token) throw new Error('No license key configured. Open Settings and enter your Brevmont license key.');
+  return token;
 }
 
 // ─── Send message to content script in active tab ────────────────────────────
@@ -657,8 +672,14 @@ async function doCoach(root: HTMLElement): Promise<void> {
   const output = root.querySelector('#o8-coach-output') as HTMLElement;
   output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Thinking...</div>';
   try {
+    await requireToken();
     const resp = await safeSend({ type: 'COACH_ME', payload: { situation: input, platform: currentPlatform.platform } });
-    output.innerHTML = `<div class="tool-result">${esc(resp?.coaching || resp?.text || 'No response')}</div>`;
+    const text = resp?.coaching || resp?.text || '';
+    if (!text) {
+      output.innerHTML = '<div class="tool-result" style="color:#ef4444">Empty response from Coach. Try again.</div>';
+      return;
+    }
+    output.innerHTML = `<div class="tool-result">${esc(text)}</div>`;
   } catch (e: any) {
     output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
   }
@@ -729,8 +750,16 @@ async function doCommand(root: HTMLElement): Promise<void> {
   const status = root.querySelector('#o8-cmd-status') as HTMLElement;
   status.innerHTML = '<div class="tool-result" style="color:#94a3b8">Executing...</div>';
   try {
+    await requireToken();
     const resp = await safeSend({ type: 'EXECUTE_COMMAND', payload: { command: input, platform: currentPlatform.platform } });
-    status.innerHTML = `<div class="tool-result">${esc(resp?.result || resp?.text || 'Done')}</div>`;
+    // API returns { parsed: { action, content, ... }, usage }.
+    // Display the content field from the parsed command JSON.
+    const text = resp?.parsed?.content || resp?.result || resp?.text || '';
+    if (!text) {
+      status.innerHTML = '<div class="tool-result" style="color:#ef4444">Empty response. Try again.</div>';
+      return;
+    }
+    status.innerHTML = `<div class="tool-result">${esc(text)}</div>`;
   } catch (e: any) {
     status.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
   }
@@ -787,11 +816,16 @@ function wireContextTool(root: HTMLElement): void {
       const direction = directionInput?.value.trim() || '';
       output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Analyzing screenshot...</div>';
       try {
+        await requireToken();
         const resp = await safeSend({
           type: 'CONTEXT_REPLY',
           payload: { image: screenshotData, direction },
         });
-        const replyText = resp?.reply || resp?.text || 'No response';
+        const replyText = resp?.reply || resp?.text || '';
+        if (!replyText) {
+          output.innerHTML = '<div class="tool-result" style="color:#ef4444">Empty response. Try again.</div>';
+          return;
+        }
         output.innerHTML = `<div class="out-card"><div class="out-label">SCREENSHOT REPLY</div><textarea class="out-textarea" rows="5" readonly>${esc(replyText)}</textarea><div class="out-actions"><button class="out-action out-primary">Copy</button><button class="out-action out-regen">Regen</button></div></div>`;
         output.querySelector('.out-primary')?.addEventListener('click', async () => { await navigator.clipboard.writeText(replyText); const b = output.querySelector('.out-primary'); if (b) { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 2000); } });
         output.querySelector('.out-regen')?.addEventListener('click', () => genBtn.click());
@@ -899,10 +933,10 @@ function wireLeadCapture(root: HTMLElement): void {
       voiceParseBtn.innerHTML = '<span class="gen-spinner"></span> Parsing…';
       voiceParseBtn.disabled = true;
       try {
+        await requireToken();
         const resp = await safeSend({ type: 'PARSE_LEAD', payload: { raw_text: input, platform: currentPlatform.platform } });
-        if (resp?.error) { showToast(root, 'Parse failed: ' + resp.error); }
-        else { showLeadResult(root, resp?.lead || resp); }
-      } catch (e: any) { showToast(root, 'Parse error: ' + (e.message || 'Unknown')); }
+        showLeadResult(root, resp?.lead || resp);
+      } catch (e: any) { showToast(root, e.message || 'Parse error'); }
       voiceParseBtn.innerHTML = 'Parse';
       voiceParseBtn.disabled = false;
     };
@@ -917,10 +951,10 @@ function wireLeadCapture(root: HTMLElement): void {
       pasteParseBtn.innerHTML = '<span class="gen-spinner"></span> Parsing…';
       pasteParseBtn.disabled = true;
       try {
+        await requireToken();
         const resp = await safeSend({ type: 'PARSE_LEAD', payload: { raw_text: input, platform: currentPlatform.platform } });
-        if (resp?.error) { showToast(root, 'Parse failed: ' + resp.error); }
-        else { showLeadResult(root, resp?.lead || resp); }
-      } catch (e: any) { showToast(root, 'Parse error: ' + (e.message || 'Unknown')); }
+        showLeadResult(root, resp?.lead || resp);
+      } catch (e: any) { showToast(root, e.message || 'Parse error'); }
       pasteParseBtn.innerHTML = 'Parse';
       pasteParseBtn.disabled = false;
     };
