@@ -107,6 +107,10 @@
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         // Permission granted — stop the stream immediately, we just needed the grant
         stream.getTracks().forEach(track => track.stop());
+        // Persist the grant so the side panel knows permission exists
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.set({ brevmont_mic_granted: true });
+        }
         // Show success
         promptState.style.display = 'none';
         successState.style.display = 'flex';

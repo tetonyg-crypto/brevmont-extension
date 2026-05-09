@@ -377,18 +377,14 @@ function updatePlatformBadge(root: HTMLElement): void {
 
 // ─── Mic (Direct SpeechRecognition in Side Panel) ───────────────────────────
 // SpeechRecognition works natively in chrome-extension:// side panel pages.
-// The only issue is Chrome blocks the permission PROMPT from firing in a side
-// panel. Solution: a one-time permission bootstrap via mic-permission.html.
-// Once permission is granted at the extension origin, the side panel inherits
-// it permanently.
-//
-// IMPORTANT: Do NOT call getUserMedia() or permissions.query() in the side
-// panel — both hang indefinitely because Chrome tries to show a prompt it
-// can't render. Instead, just start SpeechRecognition directly. If permission
-// is missing, Chrome fires onerror with 'not-allowed', and we open the
-// bootstrap page from there.
+// Chrome SILENTLY SWALLOWS SpeechRecognition.start() in side panels when
+// mic permission hasn't been granted. No error, no event, nothing fires.
+// Fix: track permission state in storage + timeout-based silent failure
+// detection. If onstart hasn't fired within 1500ms, assume silent failure
+// and proactively open mic-permission.html bootstrap page.
 let activeMicRecognition: any = null;
 let activeMicBtn: HTMLElement | null = null;
+const MIC_PERM_KEY = 'brevmont_mic_granted';
 
 function openMicPermissionPage(): void {
   // Try popup window first, fall back to tab
@@ -409,7 +405,7 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
     return;
   }
 
-  micBtn.addEventListener('click', () => {
+  micBtn.addEventListener('click', async () => {
     // If this mic is active — stop it
     if (activeMicBtn === micBtn && activeMicRecognition) {
       activeMicRecognition.stop();
@@ -420,8 +416,17 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
       activeMicRecognition.stop();
     }
 
-    // Start recognition directly — no permission pre-check.
-    // If permission is missing, onerror fires with 'not-allowed'.
+    // Check if mic permission was ever successfully granted at this origin.
+    // If not, skip recognition.start() entirely and go straight to bootstrap.
+    const stored = await chrome.storage.local.get([MIC_PERM_KEY]);
+    if (!stored[MIC_PERM_KEY]) {
+      openMicPermissionPage();
+      const root = document.getElementById('sp-root');
+      if (root) showToast(root, 'Grant microphone access in the popup, then click mic again.');
+      return;
+    }
+
+    // Permission was granted before — start recognition with timeout guard.
     const recognition = new SR();
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -429,8 +434,26 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
 
     let finalTranscript = '';
     const existingText = input.value;
+    let started = false;
+
+    // Timeout guard: if onstart hasn't fired within 1500ms, Chrome silently
+    // swallowed the request (permission revoked, or browser cleared it).
+    // Reset the flag and open bootstrap page.
+    const startTimeout = setTimeout(() => {
+      if (!started) {
+        chrome.storage.local.remove(MIC_PERM_KEY);
+        openMicPermissionPage();
+        const root = document.getElementById('sp-root');
+        if (root) showToast(root, 'Microphone permission expired. Grant access in the popup, then try again.');
+        micBtn.classList.remove('mic-active');
+        activeMicRecognition = null;
+        activeMicBtn = null;
+      }
+    }, 1500);
 
     recognition.onstart = () => {
+      started = true;
+      clearTimeout(startTimeout);
       activeMicRecognition = recognition;
       activeMicBtn = micBtn;
       micBtn.classList.add('mic-active');
@@ -451,8 +474,10 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
     };
 
     recognition.onerror = (event: any) => {
+      clearTimeout(startTimeout);
       if (event.error === 'aborted' || event.error === 'no-speech') return;
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        chrome.storage.local.remove(MIC_PERM_KEY);
         openMicPermissionPage();
         const root = document.getElementById('sp-root');
         if (root) showToast(root, 'Grant microphone access, then click mic again.');
@@ -466,6 +491,7 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
     };
 
     recognition.onend = () => {
+      clearTimeout(startTimeout);
       micBtn.classList.remove('mic-active');
       activeMicRecognition = null;
       activeMicBtn = null;
@@ -474,7 +500,8 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
     try {
       recognition.start();
     } catch (e: any) {
-      // start() can throw synchronously if permission is blocked
+      clearTimeout(startTimeout);
+      chrome.storage.local.remove(MIC_PERM_KEY);
       openMicPermissionPage();
       const root = document.getElementById('sp-root');
       if (root) showToast(root, 'Grant microphone access, then click mic again.');
