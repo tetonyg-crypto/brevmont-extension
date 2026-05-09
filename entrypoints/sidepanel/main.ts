@@ -610,11 +610,36 @@ async function doCoach(root: HTMLElement): Promise<void> {
   const output = root.querySelector('#o8-coach-output') as HTMLElement;
   output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Thinking...</div>';
   try {
-    const resp = await safeSend({ type: 'COACH_ME', payload: { objection: input, platform: currentPlatform.platform } });
+    const resp = await safeSend({ type: 'COACH_ME', payload: { situation: input, platform: currentPlatform.platform } });
     output.innerHTML = `<div class="tool-result">${esc(resp?.coaching || resp?.text || 'No response')}</div>`;
   } catch (e: any) {
     output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
   }
+}
+
+// ─── Alert Time Parser (ported from content.ts) ─────────────────────────────
+function parseAlertTime(text: string): number {
+  const now = Date.now();
+  const inMin = text.match(/in\s+(\d+)\s*min/i);
+  if (inMin) return now + parseInt(inMin[1]) * 60000;
+  const inHr = text.match(/in\s+(\d+)\s*hour/i);
+  if (inHr) return now + parseInt(inHr[1]) * 3600000;
+  if (/\bnoon\b/i.test(text)) { const d = new Date(); d.setHours(12, 0, 0, 0); if (d.getTime() < now) d.setDate(d.getDate() + 1); return d.getTime(); }
+  if (/\b(eod|end of day|close of business|cob)\b/i.test(text)) { const d = new Date(); d.setHours(17, 0, 0, 0); if (d.getTime() < now) d.setDate(d.getDate() + 1); return d.getTime(); }
+  const isTomorrow = /\btomorrow\b/i.test(text);
+  const byTime = text.match(/(?:by|at)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+  if (byTime) {
+    let h = parseInt(byTime[1]); const m = byTime[2] ? parseInt(byTime[2]) : 0;
+    const ampm = (byTime[3] || '').toLowerCase();
+    if (ampm === 'pm' && h < 12) h += 12;
+    if (ampm === 'am' && h === 12) h = 0;
+    if (!ampm && h < 7) h += 12;
+    const d = new Date(); d.setHours(h, m, 0, 0);
+    if (isTomorrow) d.setDate(d.getDate() + 1);
+    else if (d.getTime() < now) d.setDate(d.getDate() + 1);
+    return d.getTime();
+  }
+  return now + 30 * 60000;
 }
 
 // ─── Set Alert ───────────────────────────────────────────────────────────────
@@ -622,7 +647,7 @@ async function doSetAlert(root: HTMLElement): Promise<void> {
   const input = (root.querySelector('#o8-alert-input') as HTMLInputElement)?.value.trim();
   if (!input) return;
   try {
-    await safeSend({ type: 'SET_ALERT', payload: { text: input } });
+    await safeSend({ type: 'SET_ALERT', payload: { task: input, alertTime: parseAlertTime(input) } });
     (root.querySelector('#o8-alert-input') as HTMLInputElement).value = '';
     showToast(root, 'Alert set');
     loadAlerts(root);

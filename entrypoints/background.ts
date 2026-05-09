@@ -22,6 +22,16 @@ import { hasCompleteActivation } from './lib/activationState';
 initSentry();
 
 export default defineBackground(() => {
+  // ── Side Panel: clicking the toolbar icon opens the side panel ──
+  // Replaces the popup as the primary UI surface (Phase 1 of Side Panel migration).
+  // The popup entrypoint is retained for fallback but is NOT wired as default_popup.
+  try {
+    (chrome.sidePanel as any).setPanelBehavior({ openPanelOnActionClick: true });
+  } catch (e) {
+    // sidePanel API not available (older Chrome < 114) — falls back to no-op.
+    console.warn('[Brevmont] sidePanel.setPanelBehavior not available:', e);
+  }
+
   // Telegram-via-API ping on install/update so the founder gets a
   // confirmation message every time Chrome loads or reloads the extension.
   // No more guessing which version is actually running.
@@ -179,7 +189,7 @@ export default defineBackground(() => {
           const result = await handleGenerate(msg.payload);
           addBreadcrumb('generation', 'API response received', { queued: !!(result as any)?.queued });
           const apiUrl = await getResolvedApiUrl();
-          await processQueue(apiUrl).catch(() => {});
+          void processQueue(apiUrl).catch(() => {});
           if ((result as any)?.queued) {
             sendResponse({
               queued: true,
@@ -532,6 +542,54 @@ export default defineBackground(() => {
           sendResponse({ ok: false });
         }
       });
+      return true;
+    }
+
+    // ===== Side Panel: honest event logging (no direct import from extension page) =====
+    if (msg.type === 'LOG_HONEST_EVENT') {
+      (async () => {
+        try {
+          const settings = await browser.storage.sync.get(['dealer_token']);
+          const local = await browser.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']);
+          const token = settings.dealer_token || local.dealer_token;
+          const repToken = local.rep_auth_token || local.brevmont_rep_auth_token;
+          const version = chrome.runtime.getManifest()?.version || 'unknown';
+          const payload = { ...msg.payload, ext_version: version };
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          if (repToken) headers['X-Rep-Token'] = repToken;
+          await fetch(`${PROXY_URL}/api/v1/events`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+          });
+          sendResponse({ ok: true });
+        } catch (e: any) {
+          sendResponse({ ok: false, error: e.message });
+        }
+      })();
+      return true;
+    }
+
+    // ===== Side Panel: rep stats (content.ts does direct fetch; Side Panel goes through background) =====
+    if (msg.type === 'GET_REP_STATS') {
+      (async () => {
+        try {
+          const syncSettings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
+          const localSettings = await browser.storage.local.get(['dealer_token', 'rep_name']);
+          const dealerToken = syncSettings.dealer_token || localSettings.dealer_token;
+          const repName = syncSettings.rep_name || localSettings.rep_name;
+          if (!dealerToken || !repName) { sendResponse({ error: 'no_token' }); return; }
+          const resp = await fetch(`${PROXY_URL}/v1/rep/stats?rep_name=${encodeURIComponent(repName)}`, {
+            headers: { 'Authorization': `Bearer ${dealerToken}` },
+          });
+          if (!resp.ok) throw new Error(`Stats API returned ${resp.status}`);
+          const data = await resp.json();
+          sendResponse(data);
+        } catch (e: any) {
+          sendResponse({ error: e.message });
+        }
+      })();
       return true;
     }
 
@@ -1685,9 +1743,9 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
 }
 
 function parseSections(text: string) {
-  const textMatch = text.match(/(?:^|\n)TEXT(?:\s*MESSAGE)?\s*\n([\s\S]*?)(?=\n(?:EMAIL|CRM)|$)/i);
-  const emailMatch = text.match(/(?:^|\n)EMAIL(?:\s*REPLY)?\s*\n([\s\S]*?)(?=\n(?:TEXT|CRM)|$)/i);
-  const crmMatch = text.match(/(?:^|\n)CRM(?: NOTE)?\s*\n([\s\S]*)$/i);
+  const textMatch = text.match(/(?:^|\n)TEXT(?:\s*MESSAGE)?[:\s\-]*\n([\s\S]*?)(?=\n(?:EMAIL|CRM)|$)/i);
+  const emailMatch = text.match(/(?:^|\n)EMAIL(?:\s*REPLY)?[:\s\-]*\n([\s\S]*?)(?=\n(?:TEXT|CRM)|$)/i);
+  const crmMatch = text.match(/(?:^|\n)CRM(?: NOTE)?[:\s\-]*\n([\s\S]*)$/i);
 
   return {
     text: textMatch?.[1]?.trim() || '',
