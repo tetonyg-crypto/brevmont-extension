@@ -354,71 +354,109 @@ function updatePlatformBadge(root: HTMLElement): void {
   }
 }
 
-// ─── Mic (Web Speech API) ────────────────────────────────────────────────────
-function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLElement): void {
-  let recognition: any = null;
-  let active = false;
-  let finalText = '';
+// ─── Mic (Direct SpeechRecognition in Side Panel) ───────────────────────────
+// SpeechRecognition works natively in chrome-extension:// side panel pages.
+// The only issue is Chrome blocks the permission PROMPT from firing in a side
+// panel. Solution: a one-time permission bootstrap via mic-permission.html
+// opened as a tab. Once permission is granted at the extension origin,
+// the side panel inherits it permanently.
+let activeMicRecognition: any = null;
+let activeMicBtn: HTMLElement | null = null;
 
-  function cleanupRecognition() {
-    active = false;
-    micBtn.classList.remove('mic-active');
-    if (recognition) {
-      recognition.onend = null;
-      recognition.onerror = null;
-      recognition.onresult = null;
-      try { recognition.stop(); } catch {}
-      recognition = null;
-    }
+function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLElement): void {
+  const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  if (!SR) {
+    micBtn.style.display = 'none';
+    return;
   }
 
-  micBtn.addEventListener('click', () => {
-    if (active) {
-      cleanupRecognition();
+  micBtn.addEventListener('click', async () => {
+    // If this mic is active — stop it
+    if (activeMicBtn === micBtn && activeMicRecognition) {
+      activeMicRecognition.stop();
       return;
     }
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) {
+    // If another mic is active — stop that one first
+    if (activeMicRecognition) {
+      activeMicRecognition.stop();
+    }
+
+    // Check mic permission via getUserMedia probe
+    try {
+      const testStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      testStream.getTracks().forEach(t => t.stop());
+    } catch (err: any) {
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        // No permission — open the bootstrap page
+        chrome.tabs.create({ url: chrome.runtime.getURL('mic-permission.html') });
+        const root = document.getElementById('sp-root');
+        if (root) showToast(root, 'Grant microphone access in the new tab, then try again.');
+        return;
+      }
+      // Hardware or other error
       const root = document.getElementById('sp-root');
-      if (root) showToast(root, 'Voice not available in this browser.');
+      if (root) showToast(root, 'Microphone unavailable: ' + (err.message || err.name));
       return;
     }
-    recognition = new SR();
+
+    // Permission confirmed — start recognition directly in side panel
+    const recognition = new SR();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
-    finalText = input.value;
 
-    recognition.onresult = (e: any) => {
-      let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalText += e.results[i][0].transcript + ' ';
-        else interim += e.results[i][0].transcript;
-      }
-      input.value = finalText + interim;
+    let finalTranscript = '';
+    const existingText = input.value;
+
+    recognition.onstart = () => {
+      activeMicRecognition = recognition;
+      activeMicBtn = micBtn;
+      micBtn.classList.add('mic-active');
     };
-    recognition.onend = () => { if (active) try { recognition.start(); } catch { cleanupRecognition(); } };
-    recognition.onerror = (e: any) => {
-      if (e.error === 'aborted') return;
-      const root = document.getElementById('sp-root');
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-        if (root) showToast(root, 'Mic permission denied. Enable in Chrome site settings.');
-      } else if (e.error === 'audio-capture') {
-        if (root) showToast(root, 'Mic in use by another tab or app.');
-      } else {
-        if (root) showToast(root, 'Mic error. Type your message.');
+
+    recognition.onresult = (event: any) => {
+      let interimTranscript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript + ' ';
+        } else {
+          interimTranscript += transcript;
+        }
       }
-      cleanupRecognition();
+      input.value = existingText + finalTranscript + interimTranscript;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    recognition.onerror = (event: any) => {
+      if (event.error === 'aborted' || event.error === 'no-speech') return;
+      if (event.error === 'not-allowed') {
+        chrome.tabs.create({ url: chrome.runtime.getURL('mic-permission.html') });
+        const root = document.getElementById('sp-root');
+        if (root) showToast(root, 'Microphone permission needed. Grant access in the new tab.');
+      } else {
+        const root = document.getElementById('sp-root');
+        if (root) showToast(root, 'Mic error: ' + event.error);
+      }
+      micBtn.classList.remove('mic-active');
+      activeMicRecognition = null;
+      activeMicBtn = null;
+    };
+
+    recognition.onend = () => {
+      micBtn.classList.remove('mic-active');
+      activeMicRecognition = null;
+      activeMicBtn = null;
     };
 
     try {
       recognition.start();
-      active = true;
-      micBtn.classList.add('mic-active');
-    } catch (e) {
-      cleanupRecognition();
+    } catch (e: any) {
       const root = document.getElementById('sp-root');
-      if (root) showToast(root, 'Voice not available. Type your message.');
+      if (root) showToast(root, 'Mic failed to start: ' + (e.message || 'unknown'));
+      micBtn.classList.remove('mic-active');
+      activeMicRecognition = null;
+      activeMicBtn = null;
     }
   });
 }

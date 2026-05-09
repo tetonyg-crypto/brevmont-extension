@@ -47,7 +47,14 @@ export default defineConfig({
         description: 'Open Brevmont Command Mode'
       }
     },
-    permissions: ['activeTab', 'storage', 'alarms', 'cookies', 'tabs'],
+    permissions: ['activeTab', 'storage', 'alarms', 'cookies', 'tabs', 'sidePanel'],
+    // Side Panel: clicking the toolbar icon opens the side panel instead of the popup.
+    // The popup entrypoint is retained for fallback / Phase 6 migration but is NOT
+    // wired as default_popup so chrome.action.onClicked fires.
+    action: {},
+    side_panel: {
+      default_path: 'sidepanel/index.html',
+    },
     web_accessible_resources: [
       {
         resources: ['voice.html', 'brevmont-intercept.js'],

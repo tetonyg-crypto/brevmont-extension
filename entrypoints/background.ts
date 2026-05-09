@@ -124,6 +124,7 @@ export default defineBackground(() => {
     // Health check — content script pings to verify service worker is alive
     if (msg.type === 'PING') { sendResponse({ pong: true }); return false; }
 
+
     if (msg.type === 'GET_SYNC_QUEUE_COUNT') {
       getDexieQueueCount().then((count) => sendResponse({ count })).catch(() => sendResponse({ count: 0 }));
       return true;
