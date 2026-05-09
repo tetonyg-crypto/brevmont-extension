@@ -412,7 +412,7 @@ try {
 } catch { /* side panel may not support onChanged — non-critical */ }
 
 function openMicPermissionPage(): void {
-  const url = chrome.runtime.getURL('mic-permission.html');
+  const url = chrome.runtime.getURL('permission.html');
   // Cascade: background message → chrome.tabs.create → window.open
   // Each level catches the previous failure.
   try {

@@ -47,7 +47,7 @@ export default defineConfig({
         description: 'Open Brevmont Command Mode'
       }
     },
-    permissions: ['activeTab', 'storage', 'alarms', 'cookies', 'tabs', 'sidePanel'],
+    permissions: ['sidePanel', 'activeTab', 'storage', 'alarms', 'tabs', 'notifications'],
     // Side Panel: clicking the toolbar icon opens the side panel instead of the popup.
     // The popup entrypoint is retained for fallback / Phase 6 migration but is NOT
     // wired as default_popup so chrome.action.onClicked fires.

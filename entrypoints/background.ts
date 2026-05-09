@@ -309,10 +309,10 @@ export default defineBackground(() => {
 
     if (msg.type === 'OPEN_MIC_PERMISSION') {
       browser.windows.create({
-        url: browser.runtime.getURL('mic-permission.html'),
+        url: browser.runtime.getURL('permission.html'),
         type: 'popup', width: 420, height: 340, focused: true,
       }).catch(() => {
-        browser.tabs.create({ url: browser.runtime.getURL('mic-permission.html') }).catch(() => {});
+        browser.tabs.create({ url: browser.runtime.getURL('permission.html') }).catch(() => {});
       });
       return false;
     }
@@ -621,6 +621,45 @@ export default defineBackground(() => {
         }
       });
       return true;
+    }
+
+    // ===== CONTENT_SCRIPT_READY — content script loaded on a platform =====
+    if (msg.type === 'CONTENT_SCRIPT_READY') {
+      dlog('[Brevmont] Content script ready on', msg.payload?.platform, 'tab', sender?.tab?.id);
+      return false;
+    }
+
+    // ===== CAPTURE_SCREENSHOT — side panel requests visible tab capture =====
+    if (msg.type === 'CAPTURE_SCREENSHOT') {
+      (async () => {
+        try {
+          const dataUrl = await chrome.tabs.captureVisibleTab(undefined as any, { format: 'png' });
+          sendResponse({ image: dataUrl });
+        } catch (e: any) {
+          sendResponse({ error: e.message || 'Screenshot capture failed' });
+        }
+      })();
+      return true;
+    }
+
+    // ===== OPEN_MIC_SETUP — side panel requests mic permission bootstrap =====
+    if (msg.type === 'OPEN_MIC_SETUP') {
+      browser.windows.create({
+        url: browser.runtime.getURL('permission.html'),
+        type: 'popup', width: 420, height: 340, focused: true,
+      }).catch(() => {
+        browser.tabs.create({ url: browser.runtime.getURL('permission.html') }).catch(() => {});
+      });
+      sendResponse({ ok: true });
+      return false;
+    }
+
+    // ===== MIC_PERMISSION_GRANTED — permission page notifies grant =====
+    if (msg.type === 'MIC_PERMISSION_GRANTED') {
+      // Storage flag already set by permission page; this message lets
+      // the side panel react immediately via onMessage listener.
+      dlog('[Brevmont] Mic permission granted');
+      return false;
     }
   });
 
