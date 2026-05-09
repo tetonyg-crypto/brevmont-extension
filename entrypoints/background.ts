@@ -18,6 +18,9 @@ import { dlog } from './lib/dev';
 import { initSentry, setSentryContext, captureError, addBreadcrumb } from '../lib/sentry';
 import { fetchRemoteConfig, getResolvedApiUrl, applyConfig } from '../lib/remoteConfig';
 import { hasCompleteActivation } from './lib/activationState';
+import { leadDb } from '../lib/leadDb';
+import { syncPendingLeads, getSyncStats } from '../lib/leadSync';
+import type { LocalLead } from '../lib/types/lead';
 
 initSentry();
 
@@ -566,16 +569,101 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'PARSE_LEAD') {
-      browser.storage.sync.get(['dealer_token']).then(async (settings) => {
-        if (!settings.dealer_token) { sendResponse({ error: 'No dealer_token' }); return; }
+      (async () => {
         try {
+          const settings = await browser.storage.sync.get(['dealer_token']);
+          if (!settings.dealer_token) { sendResponse({ error: 'No dealer_token' }); return; }
+
           const resp = await signedFetch(`${PROXY_URL}/api/parse-lead`, {
-            dealer_token: settings.dealer_token, raw_text: msg.payload.raw_text, platform: msg.payload.platform || 'unknown'
+            dealer_token: settings.dealer_token,
+            raw_text: msg.payload.raw_text,
+            platform: msg.payload.platform || 'unknown',
           });
           const data = await resp.json();
+
+          // Save parsed lead locally in Dexie for Lead Inbox
+          if (data.lead && data.lead.customer_name) {
+            const localLead: LocalLead = {
+              id: crypto.randomUUID(),
+              customer_name: data.lead.customer_name,
+              phone: data.lead.phone || null,
+              email: data.lead.email || null,
+              vehicle_interest: data.lead.vehicle_interest || null,
+              source_platform: msg.payload.platform || 'unknown',
+              source_raw_text: (msg.payload.raw_text || '').slice(0, 5000),
+              status: 'captured',
+              captured_at: Date.now(),
+              sync_status: 'pending',
+              updated_at: Date.now(),
+            };
+            await leadDb.captured_leads.put(localLead);
+            // Fire-and-forget background sync
+            syncPendingLeads().catch((e) => console.warn('[leadSync] bg sync failed:', e));
+          }
+
           sendResponse(data);
-        } catch(e: any) { telemetry.trackError(e, { flow: 'parse_lead' }); sendResponse({ error: e.message }); }
-      });
+        } catch (e: any) {
+          telemetry.trackError(e, { flow: 'parse_lead' });
+          sendResponse({ error: e.message });
+        }
+      })();
+      return true;
+    }
+
+    // ── Lead Inbox: GET_LOCAL_LEADS — return all local leads from Dexie ──
+    if (msg.type === 'GET_LOCAL_LEADS') {
+      (async () => {
+        try {
+          const leads = await leadDb.captured_leads
+            .orderBy('captured_at')
+            .reverse()
+            .limit(100)
+            .toArray();
+          const stats = await getSyncStats();
+          sendResponse({ leads, stats });
+        } catch (e: any) {
+          sendResponse({ leads: [], stats: { pending: 0, synced: 0, error: 0 }, error: e.message });
+        }
+      })();
+      return true;
+    }
+
+    // ── Lead Inbox: UPDATE_LEAD_STATUS — update local lead status + sync ──
+    if (msg.type === 'UPDATE_LEAD_STATUS') {
+      (async () => {
+        try {
+          const { leadId, status } = msg.payload;
+          if (!leadId || !status) { sendResponse({ error: 'Missing leadId or status' }); return; }
+
+          await leadDb.captured_leads.update(leadId, {
+            status,
+            sync_status: 'pending',
+            updated_at: Date.now(),
+            ...(status === 'logged_to_crm' ? { logged_at: Date.now() } : {}),
+            ...(status === 'enriched' ? { enriched_at: Date.now() } : {}),
+          });
+
+          // Sync immediately
+          syncPendingLeads().catch((e) => console.warn('[leadSync] status sync failed:', e));
+
+          sendResponse({ success: true });
+        } catch (e: any) {
+          sendResponse({ error: e.message });
+        }
+      })();
+      return true;
+    }
+
+    // ── Lead Inbox: SYNC_LEADS — manual sync trigger ──
+    if (msg.type === 'SYNC_LEADS') {
+      (async () => {
+        try {
+          const result = await syncPendingLeads();
+          sendResponse(result);
+        } catch (e: any) {
+          sendResponse({ synced: 0, failed: 0, error: e.message });
+        }
+      })();
       return true;
     }
 
