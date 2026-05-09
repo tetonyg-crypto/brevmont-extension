@@ -387,14 +387,23 @@ let activeMicBtn: HTMLElement | null = null;
 const MIC_PERM_KEY = 'brevmont_mic_granted';
 
 function openMicPermissionPage(): void {
-  // Try popup window first, fall back to tab
+  // Route through background service worker — most reliable context for
+  // opening windows. chrome.windows.create is async and silently fails
+  // in side panels without proper promise handling.
   try {
-    chrome.windows.create({
-      url: chrome.runtime.getURL('mic-permission.html'),
-      type: 'popup', width: 420, height: 340, focused: true,
+    chrome.runtime.sendMessage({ type: 'OPEN_MIC_PERMISSION' }, () => {
+      // If sendMessage itself failed, try direct approaches
+      if (chrome.runtime.lastError) {
+        chrome.tabs.create({ url: chrome.runtime.getURL('mic-permission.html') }).catch(() => {
+          window.open(chrome.runtime.getURL('mic-permission.html'), '_blank',
+            'width=420,height=340,popup=yes');
+        });
+      }
     });
   } catch {
-    chrome.tabs.create({ url: chrome.runtime.getURL('mic-permission.html') });
+    // Last resort
+    window.open(chrome.runtime.getURL('mic-permission.html'), '_blank',
+      'width=420,height=340,popup=yes');
   }
 }
 

@@ -307,6 +307,16 @@ export default defineBackground(() => {
       return false;
     }
 
+    if (msg.type === 'OPEN_MIC_PERMISSION') {
+      browser.windows.create({
+        url: browser.runtime.getURL('mic-permission.html'),
+        type: 'popup', width: 420, height: 340, focused: true,
+      }).catch(() => {
+        browser.tabs.create({ url: browser.runtime.getURL('mic-permission.html') }).catch(() => {});
+      });
+      return false;
+    }
+
     if (msg.type === 'OPEN_URL') {
       // Content scripts route outbound link opens through here so popup
       // blockers and mixed-content rules on CRM hosts don't swallow the
