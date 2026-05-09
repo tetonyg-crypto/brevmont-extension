@@ -58,9 +58,16 @@ function esc(s: string) {
 }
 
 // ─── Send message to background and get response ─────────────────────────────
-async function safeSend(msg: any): Promise<any> {
+// 30-second timeout ensures the user always gets feedback, even if the MV3
+// service worker is killed mid-flight.
+function safeSend(msg: any): Promise<any> {
   return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Request timed out — please try again.'));
+    }, 30_000);
+
     chrome.runtime.sendMessage(msg, (response) => {
+      clearTimeout(timeout);
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message || 'Message send failed'));
         return;

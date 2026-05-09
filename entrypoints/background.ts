@@ -378,42 +378,75 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'COACH_ME') {
-      handleCoach(msg.payload)
-        .then(sendResponse)
-        .catch(err => {
-          reportError('API_ERROR', `Coach: ${err.message}`).catch(() => {});
-          sendResponse({ error: err.message });
-        });
+      (async () => {
+        try {
+          addBreadcrumb('coaching', 'User requested coaching', { situation: msg.payload?.situation });
+          const result = await handleCoach(msg.payload);
+          addBreadcrumb('coaching', 'Coaching response received');
+          sendResponse(result);
+        } catch (err: any) {
+          const errType = err.message?.includes('License') ? 'AUTH_ERROR'
+            : err.message?.includes('429') ? 'API_ERROR' : 'UNKNOWN';
+          captureError(err instanceof Error ? err : new Error(String(err?.message || err)), { flow: 'COACH_ME', errType });
+          reportError(errType, err.message).catch(() => {});
+          sendResponse({ error: err.message || 'Coach unavailable. Try again.' });
+        }
+      })();
       return true;
     }
 
     if (msg.type === 'EXECUTE_COMMAND') {
-      handleCommand(msg.payload)
-        .then(sendResponse)
-        .catch(err => {
-          reportError('API_ERROR', `Command: ${err.message}`).catch(() => {});
-          sendResponse({ error: err.message });
-        });
+      (async () => {
+        try {
+          addBreadcrumb('command', 'User requested command', { command: msg.payload?.command });
+          const result = await handleCommand(msg.payload);
+          addBreadcrumb('command', 'Command response received');
+          sendResponse(result);
+        } catch (err: any) {
+          const errType = err.message?.includes('License') ? 'AUTH_ERROR'
+            : err.message?.includes('429') ? 'API_ERROR' : 'UNKNOWN';
+          captureError(err instanceof Error ? err : new Error(String(err?.message || err)), { flow: 'EXECUTE_COMMAND', errType });
+          reportError(errType, err.message).catch(() => {});
+          sendResponse({ error: err.message || 'Command unavailable. Try again.' });
+        }
+      })();
       return true;
     }
 
     if (msg.type === 'CONTEXT_REPLY') {
-      handleContextReply(msg.payload)
-        .then(sendResponse)
-        .catch(err => {
-          reportError('API_ERROR', `ContextReply: ${err.message}`).catch(() => {});
-          sendResponse({ error: err.message });
-        });
+      (async () => {
+        try {
+          addBreadcrumb('context_reply', 'User requested screenshot reply');
+          const result = await handleContextReply(msg.payload);
+          addBreadcrumb('context_reply', 'Screenshot reply received');
+          sendResponse(result);
+        } catch (err: any) {
+          const errType = err.message?.includes('License') ? 'AUTH_ERROR'
+            : err.message?.includes('413') ? 'PAYLOAD_ERROR'
+            : err.message?.includes('429') ? 'API_ERROR' : 'UNKNOWN';
+          captureError(err instanceof Error ? err : new Error(String(err?.message || err)), { flow: 'CONTEXT_REPLY', errType });
+          reportError(errType, err.message).catch(() => {});
+          sendResponse({ error: err.message || 'Screenshot reply unavailable. Try again.' });
+        }
+      })();
       return true;
     }
 
     if (msg.type === 'VOICE_REPLY') {
-      handleVoiceReply(msg.payload)
-        .then(sendResponse)
-        .catch(err => {
-          reportError('API_ERROR', `VoiceReply: ${err.message}`).catch(() => {});
-          sendResponse({ error: err.message });
-        });
+      (async () => {
+        try {
+          addBreadcrumb('voice_reply', 'User requested voice reply');
+          const result = await handleVoiceReply(msg.payload);
+          addBreadcrumb('voice_reply', 'Voice reply received');
+          sendResponse(result);
+        } catch (err: any) {
+          const errType = err.message?.includes('License') ? 'AUTH_ERROR'
+            : err.message?.includes('429') ? 'API_ERROR' : 'UNKNOWN';
+          captureError(err instanceof Error ? err : new Error(String(err?.message || err)), { flow: 'VOICE_REPLY', errType });
+          reportError(errType, err.message).catch(() => {});
+          sendResponse({ error: err.message || 'Voice reply unavailable. Try again.' });
+        }
+      })();
       return true;
     }
 
