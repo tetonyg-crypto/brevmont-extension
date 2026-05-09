@@ -1466,6 +1466,7 @@ async function handleGenerate(payload: {
     vehicle_model: payload.metadata?.vehicle_model || null,
     vehicle_of_interest: payload.metadata?.vehicle_of_interest || null,
     generation_id: generationId,
+    lead_id: payload.lead_id || payload.metadata?.lead_id || null,
   };
 
   const apiBase = await getResolvedApiUrl();
@@ -1523,6 +1524,7 @@ function buildGenerateProxyBody(
     vehicle_model?: string | null;
     vehicle_of_interest?: string | null;
     generation_id?: string | null;
+    lead_id?: string | null;
   }
 ) {
   return {
@@ -1541,6 +1543,7 @@ function buildGenerateProxyBody(
     vehicle_model: metadata?.vehicle_model ?? null,
     vehicle_of_interest: metadata?.vehicle_of_interest ?? null,
     generation_id: metadata?.generation_id ?? null,
+    lead_id: metadata?.lead_id ?? null,
   };
 }
 

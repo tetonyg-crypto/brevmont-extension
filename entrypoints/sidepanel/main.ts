@@ -601,6 +601,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     vehicle_of_interest: leadContext.vehicleOfInterest || leadContext.vehicle || null,
     lead_source: leadContext.source || null,
     generation_id: _generationId,
+    lead_id: (root as any).__pendingLeadId || null,
   };
 
   try {
@@ -610,8 +611,11 @@ async function doGenerate(root: HTMLElement): Promise<void> {
         type, leadContext, repInput: input + (leadContext.vehicle ? '' : '\n[SYSTEM: No vehicle of interest detected. Do not mention or invent a vehicle in the response.]'),
         repName: '', dealership: '', platform: currentPlatform.platform, tone, goal,
         metadata: _meta,
+        lead_id: (root as any).__pendingLeadId || null,
       },
     });
+    // Clear pending lead_id after sending
+    (root as any).__pendingLeadId = null;
 
     if (response?.queued) {
       showToast(root, response.message || 'Saved. Will sync when online.');
@@ -915,22 +919,104 @@ function wireContextTool(root: HTMLElement): void {
 function showLeadResult(root: HTMLElement, lead: any): void {
   const result = root.querySelector('#o8-lead-result') as HTMLElement;
   if (!result || !lead) return;
-  const name = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.name || 'Unknown';
+  const name = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.name || lead.customer_name || 'Unknown';
+  const vehicle = lead.vehicle_of_interest || lead.vehicle_interest || '';
+  const rawText = lead.source_raw_text || '';
+  const leadId = lead.id || null;
   result.style.display = 'block';
   result.innerHTML = `<div class="tool-result">
     <strong>${esc(name)}</strong>
     ${lead.phone ? '<br/>' + esc(lead.phone) : ''}
     ${lead.email ? '<br/>' + esc(lead.email) : ''}
-    ${lead.vehicle_of_interest ? '<br/><span style="color:#2563eb;font-size:11px">' + esc(lead.vehicle_of_interest) + '</span>' : ''}
-    <div style="margin-top:8px"><button class="out-action out-primary" id="o8-lead-copy">Copy</button></div>
+    ${vehicle ? '<br/><span style="color:#2563eb;font-size:11px">' + esc(vehicle) + '</span>' : ''}
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="out-action out-primary" id="o8-lead-copy">Copy</button>
+      <button class="out-action" id="o8-lead-followup" style="background:#0D6E6E;color:#fff">Generate Follow-Up</button>
+      <button class="out-action" id="o8-lead-log-crm" style="background:#1E3A5F;color:#fff">Log to CRM</button>
+    </div>
   </div>`;
+
+  // Copy button
   const copyBtn = result.querySelector('#o8-lead-copy');
   if (copyBtn) {
     copyBtn.addEventListener('click', async () => {
-      const text = [name, lead.phone, lead.email, lead.vehicle_of_interest].filter(Boolean).join('\n');
+      const text = [name, lead.phone, lead.email, vehicle].filter(Boolean).join('\n');
       await navigator.clipboard.writeText(text);
       (copyBtn as HTMLElement).textContent = 'Copied';
       setTimeout(() => { (copyBtn as HTMLElement).textContent = 'Copy'; }, 2000);
+    });
+  }
+
+  // Feature 2: Generate Follow-Up — pre-fill main input with lead context + pass lead_id
+  const followUpBtn = result.querySelector('#o8-lead-followup');
+  if (followUpBtn) {
+    followUpBtn.addEventListener('click', () => {
+      const mainInput = root.querySelector('#o8-input') as HTMLTextAreaElement;
+      if (mainInput) {
+        mainInput.value = `Follow up with ${name}. ` +
+          (vehicle ? `Vehicle interest: ${vehicle}. ` : '') +
+          (lead.source_platform ? `Source: ${lead.source_platform}. ` : '') +
+          (lead.phone ? `Phone: ${lead.phone}. ` : '') +
+          (rawText ? `Original context: ${rawText.substring(0, 200)}` : '');
+      }
+      // Store lead_id for doGenerate to include in payload
+      if (leadId) (root as any).__pendingLeadId = leadId;
+      // Switch to Generate view
+      const leadPanel = root.querySelector('#o8-lead-panel') as HTMLElement;
+      if (leadPanel) leadPanel.style.display = 'none';
+      root.querySelector('#o8-quick')!.setAttribute('style', 'display:flex');
+      if (mainInput) mainInput.focus();
+    });
+  }
+
+  // Feature 3: Log to CRM — inject into active field or clipboard fallback
+  const logCrmBtn = result.querySelector('#o8-lead-log-crm') as HTMLButtonElement;
+  if (logCrmBtn) {
+    logCrmBtn.addEventListener('click', async () => {
+      const noteText = [
+        `[Brevmont Lead Capture]`,
+        `Source: ${lead.source_platform || 'Extension'}`,
+        `Name: ${name}`,
+        lead.phone ? `Phone: ${lead.phone}` : null,
+        lead.email ? `Email: ${lead.email}` : null,
+        vehicle ? `Vehicle Interest: ${vehicle}` : null,
+        `Captured: ${lead.captured_at ? new Date(lead.captured_at).toLocaleDateString() : 'Now'}`,
+        ``,
+        `--- Original Context ---`,
+        rawText?.substring(0, 500) || 'No additional context',
+      ].filter(Boolean).join('\n');
+
+      // Try injecting into active CRM field
+      let injected = false;
+      try {
+        const resp = await sendToContent({ type: 'INJECT_CONTENT', payload: { content: noteText, outputType: 'crm' } });
+        injected = !!resp?.ok;
+      } catch { /* content script unavailable */ }
+
+      if (!injected) {
+        // Clipboard fallback
+        try {
+          await navigator.clipboard.writeText(noteText);
+          showToast(root, 'Copied to clipboard — paste into CRM notes');
+        } catch {
+          showToast(root, 'Could not copy. Try manually.');
+          return;
+        }
+      } else {
+        showToast(root, 'Lead logged to CRM');
+      }
+
+      // Update status to logged_to_crm
+      if (leadId) {
+        try {
+          await safeSend({ type: 'UPDATE_LEAD_STATUS', payload: { leadId, status: 'logged_to_crm' } });
+        } catch { /* non-fatal */ }
+      }
+
+      // Update button state
+      logCrmBtn.textContent = 'Logged ✓';
+      logCrmBtn.disabled = true;
+      logCrmBtn.style.background = '#065F46';
     });
   }
 }
@@ -993,7 +1079,22 @@ function wireLeadCapture(root: HTMLElement): void {
   // Voice mic for lead
   const leadVoiceInput = root.querySelector('#o8-lead-voice-input') as HTMLTextAreaElement;
   const leadVoiceMic = root.querySelector('#o8-lead-voice-mic') as HTMLElement;
-  if (leadVoiceInput && leadVoiceMic) attachMic(leadVoiceInput, leadVoiceMic);
+  if (leadVoiceInput && leadVoiceMic) {
+    attachMic(leadVoiceInput, leadVoiceMic);
+
+    // Auto-trigger parse when mic stops and there's text (one-click voice capture)
+    const micObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+          if (!leadVoiceMic.classList.contains('mic-active') && leadVoiceInput.value.trim()) {
+            const vParseBtn = root.querySelector('#o8-lead-voice-parse') as HTMLButtonElement;
+            if (vParseBtn && !vParseBtn.disabled) vParseBtn.click();
+          }
+        }
+      }
+    });
+    micObserver.observe(leadVoiceMic, { attributes: true });
+  }
 
   // Voice parse button
   const voiceParseBtn = root.querySelector('#o8-lead-voice-parse') as HTMLButtonElement;
