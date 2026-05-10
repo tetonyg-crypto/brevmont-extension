@@ -292,7 +292,19 @@ function wireHandlers(root: HTMLElement): void {
   const toolsPanel = el('o8-tools-panel');
   const toolsBack = el('o8-tools-back');
   const toolsBtnInline = el('o8-tools-btn-inline');
-  if (toolsBtnInline) toolsBtnInline.onclick = () => { el('o8-quick')!.style.display = 'none'; if (toolsPanel) toolsPanel.style.display = 'flex'; };
+  if (toolsBtnInline) {
+    toolsBtnInline.onclick = () => {
+      el('o8-quick')!.style.display = 'none';
+      if (toolsPanel) toolsPanel.style.display = 'flex';
+      const coachInput = root.querySelector('#o8-coach-input') as HTMLTextAreaElement;
+      if (coachInput) {
+        setTimeout(() => {
+          coachInput.focus();
+          coachInput.placeholder = 'Describe the sales scenario, then click Coach Me below ↓';
+        }, 100);
+      }
+    };
+  }
   if (toolsBack) toolsBack.onclick = () => { toolsPanel!.style.display = 'none'; el('o8-quick')!.style.display = 'flex'; };
 
   // Tool tab switching
@@ -743,8 +755,16 @@ function showToast(root: HTMLElement, msg: string): void {
 // ─── Coach ────────────────────────────────────────────────────────────────────
 async function doCoach(root: HTMLElement): Promise<void> {
   const input = (root.querySelector('#o8-coach-input') as HTMLTextAreaElement)?.value.trim();
-  if (!input) return;
+  if (!input) {
+    showToast(root, 'Type a sales scenario first, then click Coach Me.');
+    return;
+  }
   const output = root.querySelector('#o8-coach-output') as HTMLElement;
+  const coachBtn = root.querySelector('#o8-coach-btn') as HTMLButtonElement | null;
+  if (coachBtn) {
+    coachBtn.disabled = true;
+    coachBtn.textContent = 'Thinking...';
+  }
   output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Thinking...</div>';
   try {
     await requireToken();
@@ -757,6 +777,11 @@ async function doCoach(root: HTMLElement): Promise<void> {
     output.innerHTML = `<div class="tool-result">${esc(text)}</div>`;
   } catch (e: any) {
     output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
+  } finally {
+    if (coachBtn) {
+      coachBtn.disabled = false;
+      coachBtn.textContent = 'Coach Me';
+    }
   }
 }
 
