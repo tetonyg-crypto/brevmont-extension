@@ -27,6 +27,25 @@ import * as storage from '../../lib/storage';
 
 const PROXY_URL = 'https://api.brevmont.com';
 
+/**
+ * Retry wrapper with linear backoff. Retries on network errors and 5xx
+ * responses. Returns the Response on success or throws after exhausting
+ * attempts. Prevents onboarding from permanently failing on a transient
+ * WiFi blip during the install-token validate call.
+ */
+async function fetchWithRetry(url: string, opts: RequestInit, attempts = 3): Promise<Response> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, opts);
+      if (res.ok || res.status < 500) return res; // 4xx = caller handles, don't retry
+    } catch (e) {
+      if (i === attempts - 1) throw e;
+    }
+    await new Promise(r => setTimeout(r, 1000 * (i + 1))); // 1s, 2s, 3s
+  }
+  throw new Error('fetch failed after retries');
+}
+
 let currentStep = 1;
 // Which auth path the user is on: 'manager' (license key, one per dealership)
 // or 'rep' (rep token, one per rep). Defaults to manager for back-compat.
@@ -147,7 +166,7 @@ let profileData = {
  */
 async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
   try {
-    const resp = await fetch(`${PROXY_URL}/v1/install-tokens/validate`, {
+    const resp = await fetchWithRetry(`${PROXY_URL}/v1/install-tokens/validate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),

@@ -11,6 +11,23 @@
 
 const PROXY_URL = 'https://api.brevmont.com';
 
+/**
+ * Retry wrapper with linear backoff for transient network failures.
+ * Returns the Response on success (<500) or throws after exhausting attempts.
+ */
+async function fetchWithRetry(url: string, opts: RequestInit, attempts = 3): Promise<Response> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, opts);
+      if (res.ok || res.status < 500) return res;
+    } catch (e) {
+      if (i === attempts - 1) throw e;
+    }
+    await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+  }
+  throw new Error('fetch failed after retries');
+}
+
 import { signedFetch, signedPatch, signedGet } from '../lib/authSigning';
 import { enqueue, processQueue, getQueueCount as getDexieQueueCount } from '../lib/retryQueue';
 import { telemetry } from './lib/telemetry';
@@ -1149,7 +1166,7 @@ export default defineBackground(() => {
       if (!cookie?.value) return false;
 
       const repAuthToken = cookie.value;
-      const resp = await fetch(`${PROXY_URL}/api/session/to-license`, {
+      const resp = await fetchWithRetry(`${PROXY_URL}/api/session/to-license`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${repAuthToken}` },
       });
