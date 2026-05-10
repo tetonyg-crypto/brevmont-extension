@@ -48,6 +48,12 @@ export default defineConfig({
       }
     },
     permissions: ['sidePanel', 'activeTab', 'storage', 'alarms', 'tabs', 'notifications'],
+    // Options page: Profile Settings (rep identity, communication style, customers).
+    // Opens as a full tab via chrome.runtime.openOptionsPage().
+    options_ui: {
+      page: 'options-legacy/index.html',
+      open_in_tab: true,
+    },
     // Side Panel: clicking the toolbar icon opens the side panel instead of the popup.
     // The popup entrypoint is retained for fallback / Phase 6 migration but is NOT
     // wired as default_popup so chrome.action.onClicked fires.
