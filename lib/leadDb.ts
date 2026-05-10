@@ -13,6 +13,9 @@ export class BrevmontLeadDB extends Dexie {
     this.version(1).stores({
       captured_leads: "id, status, sync_status, captured_at",
     });
+    this.version(2).stores({
+      captured_leads: "id, status, sync_status, captured_at, pipeline_stage",
+    });
   }
 }
 

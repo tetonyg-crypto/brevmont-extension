@@ -598,6 +598,12 @@ export default defineBackground(() => {
               captured_at: Date.now(),
               sync_status: 'pending',
               updated_at: Date.now(),
+              has_trade_in: data.lead.has_trade_in || false,
+              finance_intent: data.lead.finance_intent || false,
+              extracted_trade_in: data.lead.extracted_trade_in || null,
+              extracted_urgency: data.lead.extracted_urgency || null,
+              pipeline_stage: 'captured',
+              heat_score: 0, // Server computes real score on sync
             };
             await leadDb.captured_leads.put(localLead);
             // Fire-and-forget background sync

@@ -12,6 +12,12 @@ export interface CapturedLead {
   captured_at: number; // Epoch ms (local), converted to ISO on sync
   enriched_at?: number;
   logged_at?: number;
+  has_trade_in?: boolean;
+  finance_intent?: boolean;
+  extracted_trade_in?: string | null;
+  extracted_urgency?: string | null;
+  pipeline_stage?: string;
+  heat_score?: number;
   metadata?: Record<string, any>;
 }
 
