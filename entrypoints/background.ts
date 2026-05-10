@@ -243,6 +243,9 @@ export default defineBackground(() => {
       return true;
     }
 
+    // Note: LOG_ACTION and LOG_COPY are legacy fire-and-forget handlers.
+    // No callers exist in the extension as of v1.16.4 (verified 2026-05-09).
+    // sendResponse is intentionally not called. return false = synchronous.
     if (msg.type === 'LOG_ACTION') {
       const p = msg.payload;
       browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token', 'rep_id', 'dealer_token']).then(async (local) => {
