@@ -11,7 +11,7 @@
 
 const PROXY_URL = 'https://api.brevmont.com';
 
-import { signedFetch, signedGet } from '../lib/authSigning';
+import { signedFetch, signedPatch, signedGet } from '../lib/authSigning';
 import { enqueue, processQueue, getQueueCount as getDexieQueueCount } from '../lib/retryQueue';
 import { telemetry } from './lib/telemetry';
 import { dlog } from './lib/dev';
@@ -670,11 +670,7 @@ export default defineBackground(() => {
           const { leadId, stage } = msg.payload;
           if (!leadId || !stage) { sendResponse({ error: 'Missing leadId or stage' }); return; }
 
-          const resp = await signedFetch(`${PROXY_URL}/api/v1/leads/${leadId}/stage`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stage }),
-          });
+          const resp = await signedPatch(`${PROXY_URL}/api/v1/leads/${leadId}/stage`, { stage });
 
           if (!resp.ok) {
             const err = await resp.json().catch(() => ({ error: resp.statusText }));

@@ -54,6 +54,23 @@ export async function signedFetch(
   });
 }
 
+export async function signedPatch(
+  url: string,
+  body: unknown,
+  extraHeaders?: Record<string, string>,
+): Promise<Response> {
+  const auth = await buildAuthHeaders();
+  return fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...auth,
+      ...extraHeaders,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function signedGet(
   url: string,
   extraHeaders?: Record<string, string>,
