@@ -940,6 +940,37 @@ function wireContextTool(root: HTMLElement): void {
   if (ctxMic && directionInput) attachMic(directionInput, ctxMic);
 }
 
+// ─── Pipeline stage helpers ──────────────────────────────────────────────────
+const PIPELINE_STAGES = ['captured', 'contacted', 'appointment_set', 'showed', 'sold', 'lost'] as const;
+type PipelineStage = typeof PIPELINE_STAGES[number];
+
+function stageLabelMap(stage: string): string {
+  const map: Record<string, string> = {
+    captured: 'Captured', contacted: 'Contacted', appointment_set: 'Appt Set',
+    showed: 'Showed', sold: 'Sold', lost: 'Lost',
+  };
+  return map[stage] || stage;
+}
+
+function stageBadgeStyle(stage: string): string {
+  const map: Record<string, string> = {
+    captured: 'background:#F1F5F9;color:#475569;',
+    contacted: 'background:#EFF6FF;color:#1D4ED8;',
+    appointment_set: 'background:#F5F3FF;color:#7C3AED;',
+    showed: 'background:#F0FDFA;color:#0F766E;',
+    sold: 'background:#F0FDF4;color:#166534;',
+    lost: 'background:#FEF2F2;color:#991B1B;',
+  };
+  return map[stage] || 'background:#F1F5F9;color:#475569;';
+}
+
+function getNextStage(current: string): PipelineStage | null {
+  const mainFlow: PipelineStage[] = ['captured', 'contacted', 'appointment_set', 'showed', 'sold'];
+  const idx = mainFlow.indexOf(current as PipelineStage);
+  if (idx >= 0 && idx < mainFlow.length - 1) return mainFlow[idx + 1];
+  return null;
+}
+
 // ─── Show parsed lead result ─────────────────────────────────────────────────
 function showLeadResult(root: HTMLElement, lead: any): void {
   const result = root.querySelector('#o8-lead-result') as HTMLElement;
@@ -948,17 +979,33 @@ function showLeadResult(root: HTMLElement, lead: any): void {
   const vehicle = lead.vehicle_of_interest || lead.vehicle_interest || '';
   const rawText = lead.source_raw_text || '';
   const leadId = lead.id || null;
+  const pipelineStage = lead.pipeline_stage || 'captured';
+  const heatScore = lead.heat_score ?? null;
+  const hasTrade = lead.has_trade_in || false;
+  const hasFinance = lead.finance_intent || false;
+  const nextStage = getNextStage(pipelineStage);
+
   result.style.display = 'block';
   result.innerHTML = `<div class="tool-result">
     <strong>${esc(name)}</strong>
     ${lead.phone ? '<br/>' + esc(lead.phone) : ''}
     ${lead.email ? '<br/>' + esc(lead.email) : ''}
     ${vehicle ? '<br/><span style="color:#2563eb;font-size:11px">' + esc(vehicle) + '</span>' : ''}
+    <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+      <span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:600;${stageBadgeStyle(pipelineStage)}">${esc(stageLabelMap(pipelineStage))}</span>
+      ${heatScore !== null ? `<span style="display:inline-flex;align-items:center;gap:2px;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;${heatScore >= 70 ? 'background:#FEF2F2;color:#DC2626' : heatScore >= 40 ? 'background:#FFF7ED;color:#EA580C' : 'background:#F1F5F9;color:#64748B'}">🔥 ${heatScore}</span>` : ''}
+      ${hasTrade ? '<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:500;background:#FFFBEB;color:#92400E">Trade-in</span>' : ''}
+      ${hasFinance ? '<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:500;background:#EEF2FF;color:#4338CA">Finance</span>' : ''}
+    </div>
     <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
       <button class="out-action out-primary" id="o8-lead-copy">Copy</button>
       <button class="out-action" id="o8-lead-followup" style="background:#0D6E6E;color:#fff">Generate Follow-Up</button>
       <button class="out-action" id="o8-lead-log-crm" style="background:#1E3A5F;color:#fff">Log to CRM</button>
     </div>
+    ${leadId && nextStage && pipelineStage !== 'sold' && pipelineStage !== 'lost' ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #E5E7EB;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="out-action" id="o8-lead-advance" style="background:#0D6E6E;color:#fff;font-size:11px">→ ${esc(stageLabelMap(nextStage))}</button>
+      <button class="out-action" id="o8-lead-lost" style="background:#fff;color:#DC2626;border:1px solid #FECACA;font-size:11px">Mark Lost</button>
+    </div>` : ''}
   </div>`;
 
   // Copy button
@@ -1042,6 +1089,43 @@ function showLeadResult(root: HTMLElement, lead: any): void {
       logCrmBtn.textContent = 'Logged ✓';
       logCrmBtn.disabled = true;
       logCrmBtn.style.background = '#065F46';
+    });
+  }
+
+  // Feature 4: Pipeline stage advancement
+  const advanceBtn = result.querySelector('#o8-lead-advance') as HTMLButtonElement;
+  if (advanceBtn && leadId && nextStage) {
+    advanceBtn.addEventListener('click', async () => {
+      advanceBtn.disabled = true;
+      advanceBtn.textContent = '...';
+      try {
+        await safeSend({ type: 'CHANGE_LEAD_STAGE', payload: { leadId, stage: nextStage } });
+        lead.pipeline_stage = nextStage;
+        showLeadResult(root, lead);
+        showToast(root, `Advanced to ${stageLabelMap(nextStage)}`);
+      } catch (e: any) {
+        showToast(root, e.message || 'Stage change failed');
+        advanceBtn.disabled = false;
+        advanceBtn.textContent = `→ ${stageLabelMap(nextStage)}`;
+      }
+    });
+  }
+
+  const lostBtn = result.querySelector('#o8-lead-lost') as HTMLButtonElement;
+  if (lostBtn && leadId) {
+    lostBtn.addEventListener('click', async () => {
+      lostBtn.disabled = true;
+      lostBtn.textContent = '...';
+      try {
+        await safeSend({ type: 'CHANGE_LEAD_STAGE', payload: { leadId, stage: 'lost' } });
+        lead.pipeline_stage = 'lost';
+        showLeadResult(root, lead);
+        showToast(root, 'Marked as lost');
+      } catch (e: any) {
+        showToast(root, e.message || 'Stage change failed');
+        lostBtn.disabled = false;
+        lostBtn.textContent = 'Mark Lost';
+      }
     });
   }
 }

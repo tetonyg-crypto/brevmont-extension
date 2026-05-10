@@ -657,6 +657,44 @@ export default defineBackground(() => {
       return true;
     }
 
+    // ── Lead Intelligence: CHANGE_LEAD_STAGE — advance/regress pipeline stage via API ──
+    if (msg.type === 'CHANGE_LEAD_STAGE') {
+      (async () => {
+        try {
+          const { leadId, stage } = msg.payload;
+          if (!leadId || !stage) { sendResponse({ error: 'Missing leadId or stage' }); return; }
+
+          const resp = await signedFetch(`${PROXY_URL}/api/v1/leads/${leadId}/stage`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stage }),
+          });
+
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ error: resp.statusText }));
+            sendResponse({ error: err.error || `HTTP ${resp.status}` });
+            return;
+          }
+
+          const data = await resp.json();
+
+          // Update local DB if lead exists there
+          try {
+            await leadDb.captured_leads.update(leadId, {
+              pipeline_stage: stage,
+              sync_status: 'synced',
+              updated_at: Date.now(),
+            });
+          } catch { /* lead may not be in local DB — that's fine */ }
+
+          sendResponse({ success: true, lead: data.lead });
+        } catch (e: any) {
+          sendResponse({ error: e.message });
+        }
+      })();
+      return true;
+    }
+
     // ── Lead Inbox: SYNC_LEADS — manual sync trigger ──
     if (msg.type === 'SYNC_LEADS') {
       (async () => {
@@ -1379,6 +1417,14 @@ async function buildRepContext(): Promise<{ repName: string; dealership: string;
   return { repName, dealership, contextBlock: ctx };
 }
 
+/** Dealer license: sync first, then local — must match side panel `requireToken()` and onboarding dual-write. */
+async function resolveDealerToken(): Promise<string> {
+  const sync = await browser.storage.sync.get(['dealer_token']);
+  if (sync.dealer_token) return String(sync.dealer_token);
+  const local = await browser.storage.local.get(['dealer_token']);
+  return String(local.dealer_token || '');
+}
+
 async function handleGenerate(payload: {
   type: string;
   leadContext: any;
@@ -1390,12 +1436,12 @@ async function handleGenerate(payload: {
 }) {
   // Phase T7: block generation outright if license is revoked
   await assertNotRevoked();
-  const settings = await browser.storage.sync.get(['dealer_token', 'rep_auth_token']);
+  const settings = await browser.storage.sync.get(['rep_auth_token']);
+  const dealerToken = await resolveDealerToken();
   const { repName, dealership, contextBlock } = await buildRepContext();
 
   const finalRepName = payload.repName || repName;
   const finalDealership = payload.dealership || dealership;
-  const dealerToken = settings.dealer_token || '';
   // Rep token (per-rep attribution). When present the background attaches
   // X-Rep-Token to every /v1/generate call so the proxy can resolve rep_id
   // deterministically instead of string-matching on rep_name. Legacy rep_name
@@ -1640,9 +1686,9 @@ async function pollForResult(jobId: string, maxWait = 30000, apiBase: string = P
 // Generate button. The proxy's system prompt handles automotive coaching
 // context; we just wrap the objection in an instruction prefix.
 async function handleCoach(payload: { situation: string; vehicleContext?: string }) {
-  const settings = await browser.storage.sync.get(['dealer_token', 'rep_auth_token']);
+  const settings = await browser.storage.sync.get(['rep_auth_token']);
+  const dealerToken = await resolveDealerToken();
   const { repName, dealership, contextBlock } = await buildRepContext();
-  const dealerToken = settings.dealer_token || '';
   if (!dealerToken) throw new Error('No license key found. Complete onboarding at brevmont.com.');
 
   let repAuthToken: string = (settings.rep_auth_token as string | undefined) || '';
@@ -1687,9 +1733,9 @@ Keep it practical and direct — this rep is on the floor right now.`;
 
 // --- Ask Anything (Command Mode) via /v1/generate ---
 async function handleCommand(payload: { command: string; currentUrl?: string; vehicleContext?: string }) {
-  const settings = await browser.storage.sync.get(['dealer_token', 'rep_auth_token']);
+  const settings = await browser.storage.sync.get(['rep_auth_token']);
+  const dealerToken = await resolveDealerToken();
   const { repName, dealership, contextBlock } = await buildRepContext();
-  const dealerToken = settings.dealer_token || '';
   if (!dealerToken) throw new Error('No license key found. Complete onboarding at brevmont.com.');
 
   let repAuthToken: string = (settings.rep_auth_token as string | undefined) || '';
@@ -1727,8 +1773,8 @@ Provide a direct, actionable answer. Keep it concise (2-4 sentences). If the que
 
 // ===== CONTEXT REPLY (screenshot vision) =====
 async function handleContextReply(payload: { image: string; direction: string }) {
-  const settings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'rep_auth_token']);
-  const dealerToken = settings.dealer_token || '';
+  const settings = await browser.storage.sync.get(['rep_name', 'rep_auth_token']);
+  const dealerToken = await resolveDealerToken();
   if (!dealerToken) throw new Error('No license key found.');
 
   // Rep-token resolution — mirrors handleGenerate.
@@ -1784,9 +1830,9 @@ async function handleContextReply(payload: { image: string; direction: string })
 
 // ===== VOICE REPLY (transcription → generate) =====
 async function handleVoiceReply(payload: { transcription: string }) {
-  const settings = await browser.storage.sync.get(['dealer_token', 'rep_auth_token']);
+  const settings = await browser.storage.sync.get(['rep_auth_token']);
+  const dealerToken = await resolveDealerToken();
   const { repName, dealership, contextBlock } = await buildRepContext();
-  const dealerToken = settings.dealer_token || '';
   if (!dealerToken) throw new Error('No license key found.');
 
   // Same rep-token resolution as handleGenerate: sync first, then local dual-write.
