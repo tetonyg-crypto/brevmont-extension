@@ -157,12 +157,12 @@ async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
       return false;
     }
     const data = await resp.json();
-    if (!data?.license_key || !data?.license_secret) {
+    if (!data?.license_key) {
       return false;
     }
     await storage.setCredentialsFromInstallToken({
       license_key: data.license_key,
-      license_secret: data.license_secret,
+      license_secret: data.license_secret || '',
       dealer_token: data.dealer_token || data.license_key,
       dealership_id: data.dealership_id,
       dealership_name: data.dealership_name,

@@ -1167,7 +1167,7 @@ export default defineBackground(() => {
         rep_email?: string;
         rep_name?: string;
       };
-      if (!data.license_key || !data.license_secret) return false;
+      if (!data.license_key) return false;
 
       // Sync storage holds the values authSigning + heartbeat read from.
       await browser.storage.sync.set({
@@ -1177,8 +1177,8 @@ export default defineBackground(() => {
       });
       // Local storage holds the secret + rep_auth_token used by signedFetch.
       await browser.storage.local.set({
-        brevmont_license_secret: data.license_secret,
-        license_secret: data.license_secret,
+        brevmont_license_secret: data.license_secret || '',
+        license_secret: data.license_secret || '',
         rep_auth_token: data.rep_auth_token || repAuthToken,
         brevmont_rep_auth_token: data.rep_auth_token || repAuthToken,
         dealership_id: data.dealership_id || '',

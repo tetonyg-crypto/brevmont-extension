@@ -296,7 +296,7 @@ export async function getCredentials() {
 
 export async function setCredentialsFromInstallToken(payload: {
   license_key: string;
-  license_secret: string;
+  license_secret?: string;
   dealer_token: string;
   dealership_id: string;
   dealership_name: string;
@@ -309,8 +309,8 @@ export async function setCredentialsFromInstallToken(payload: {
   // writes never sees half-state.
   const updates: Partial<BrevmontStorage> = {
     license_key: payload.license_key,
-    license_secret: payload.license_secret,
-    brevmont_license_secret: payload.license_secret,
+    license_secret: payload.license_secret || '',
+    brevmont_license_secret: payload.license_secret || '',
     dealer_token: payload.dealer_token,
     dealership_id: payload.dealership_id || null,
     dealership: payload.dealership_name || null,
