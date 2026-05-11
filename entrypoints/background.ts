@@ -1602,17 +1602,17 @@ async function handleGenerate(payload: {
         // Update stored usage so the counter refreshes immediately
         await browser.storage.local.set({
           brevmont_usage: {
-            generations_used: data.used || data.limit || 30,
-            generations_limit: data.limit || 30,
+            generations_used: data.used || data.limit || 500,
+            generations_limit: data.limit || 500,
             generations_remaining: 0,
             resets_at: data.resets_at || null,
           },
         });
         return {
           generation_limit_reached: true,
-          message: data.message || `You've used all ${data.limit || 30} free generations this month.`,
-          limit: data.limit || 30,
-          used: data.used || data.limit || 30,
+          message: data.message || `You've used all ${data.limit || 500} free generations this month.`,
+          limit: data.limit || 500,
+          used: data.used || data.limit || 500,
           resets_at: data.resets_at || null,
           upgrade_url: data.upgrade_url || 'https://brevmont.com',
         };
@@ -2070,7 +2070,7 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
 
   if (payload.type === 'all') {
     msg += `REP VOICE/TYPED INPUT:\n${payload.repInput}\n\n`;
-    msg += 'Generate ALL THREE outputs. You MUST produce all three labeled sections:\n';
+    msg += 'Generate ALL THREE generations. You MUST produce all three labeled sections:\n';
     msg += '1. TEXT (2-3 sentences max, no exclamation points, end with a question)\n';
     msg += '2. EMAIL (subject + 3-4 sentence body + signature)\n';
     msg += '3. CRM NOTE (plain text: date, contact type, summary, vehicle, intent, action, next step, notes)\n';
