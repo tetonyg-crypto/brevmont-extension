@@ -608,7 +608,7 @@ export default defineBackground(() => {
               customer_name: data.lead.customer_name,
               phone: data.lead.phone || null,
               email: data.lead.email || null,
-              vehicle_interest: data.lead.vehicle_interest || null,
+              vehicle_interest: data.lead.vehicle_interest || data.lead.vehicle_of_interest || null,
               source_platform: msg.payload.platform || 'unknown',
               source_raw_text: (msg.payload.raw_text || '').slice(0, 5000),
               status: 'captured',
@@ -617,8 +617,8 @@ export default defineBackground(() => {
               updated_at: Date.now(),
               has_trade_in: data.lead.has_trade_in || false,
               finance_intent: data.lead.finance_intent || false,
-              extracted_trade_in: data.lead.extracted_trade_in || null,
-              extracted_urgency: data.lead.extracted_urgency || null,
+              extracted_trade_in: data.lead.extracted_trade_in || data.lead.trade_in_vehicle || null,
+              extracted_urgency: data.lead.extracted_urgency || data.lead.urgency || null,
               pipeline_stage: 'captured',
               heat_score: 0, // Server computes real score on sync
             };
@@ -1602,17 +1602,17 @@ async function handleGenerate(payload: {
         // Update stored usage so the counter refreshes immediately
         await browser.storage.local.set({
           brevmont_usage: {
-            generations_used: data.used || data.limit || 30,
-            generations_limit: data.limit || 30,
+            generations_used: data.used || data.limit || 500,
+            generations_limit: data.limit || 500,
             generations_remaining: 0,
             resets_at: data.resets_at || null,
           },
         });
         return {
           generation_limit_reached: true,
-          message: data.message || `You've used all ${data.limit || 30} free generations this month.`,
-          limit: data.limit || 30,
-          used: data.used || data.limit || 30,
+          message: data.message || `You've used all ${data.limit || 500} free generations this month.`,
+          limit: data.limit || 500,
+          used: data.used || data.limit || 500,
           resets_at: data.resets_at || null,
           upgrade_url: data.upgrade_url || 'https://brevmont.com',
         };
@@ -2070,7 +2070,7 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
 
   if (payload.type === 'all') {
     msg += `REP VOICE/TYPED INPUT:\n${payload.repInput}\n\n`;
-    msg += 'Generate ALL THREE outputs. You MUST produce all three labeled sections:\n';
+    msg += 'Generate ALL THREE generations. You MUST produce all three labeled sections:\n';
     msg += '1. TEXT (2-3 sentences max, no exclamation points, end with a question)\n';
     msg += '2. EMAIL (subject + 3-4 sentence body + signature)\n';
     msg += '3. CRM NOTE (plain text: date, contact type, summary, vehicle, intent, action, next step, notes)\n';

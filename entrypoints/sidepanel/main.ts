@@ -143,7 +143,7 @@ function updateUsageCounter(root: HTMLElement): void {
     }
 
     const used = usage.generations_used || 0;
-    const limit = usage.generations_limit || 30;
+    const limit = usage.generations_limit || 500;
     const remaining = Math.max(0, limit - used);
     const pct = Math.min(100, Math.round((used / limit) * 100));
 
@@ -719,7 +719,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
           const u = data.brevmont_usage as { generations_used?: number; generations_limit?: number };
           const newUsed = (u.generations_used || 0) + 1;
           chrome.storage.local.set({
-            brevmont_usage: { ...u, generations_used: newUsed, generations_remaining: Math.max(0, (u.generations_limit || 30) - newUsed) },
+            brevmont_usage: { ...u, generations_used: newUsed, generations_remaining: Math.max(0, (u.generations_limit || 500) - newUsed) },
           });
         }
       }).catch(() => {});
