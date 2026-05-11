@@ -57,7 +57,7 @@ export const copy = {
       authManagerLabel: 'I have the dealership license key',
       authRepLabel: 'My manager invited me',
       licenseLabel: 'License key',
-      licenseHint: 'Looks like BRVMT-XXXXXXXX. Your manager has it.',
+      licenseHint: 'Starts with BREV- or BRV-. You can also paste an inst_ activation code.',
       licenseFoundOk: 'License recognised. You are activated.',
       licenseInvalid: 'That key did not match. Double-check with your manager.',
       repTokenLabel: 'Rep token',

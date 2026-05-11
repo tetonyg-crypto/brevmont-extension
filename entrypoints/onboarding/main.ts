@@ -27,6 +27,25 @@ import * as storage from '../../lib/storage';
 
 const PROXY_URL = 'https://api.brevmont.com';
 
+const INSTALL_TOKEN_RE = /^inst_[A-Za-z0-9_-]{16,}$/i;
+const REP_TOKEN_RE = /^BRVMT-REP-[A-Za-z0-9_-]{8,}$/i;
+const HUMAN_LICENSE_RE = /^(?:BREV|BRV)(?:-FREE)?-[A-Z0-9]{3,12}(?:-[A-Z0-9]{3,12}){1,3}$/i;
+const LEGACY_LICENSE_RE = /^[A-Za-z0-9_-]{16,96}$/;
+
+function normalizeManualToken(value: string): string {
+  const trimmed = value.trim();
+  return /^(?:brev|brv)/i.test(trimmed) ? trimmed.toUpperCase() : trimmed;
+}
+
+function looksLikeSupportedManualToken(value: string): boolean {
+  return (
+    HUMAN_LICENSE_RE.test(value) ||
+    LEGACY_LICENSE_RE.test(value) ||
+    INSTALL_TOKEN_RE.test(value) ||
+    REP_TOKEN_RE.test(value)
+  );
+}
+
 /**
  * Retry wrapper with linear backoff. Retries on network errors and 5xx
  * responses. Returns the Response on success or throws after exhausting
@@ -384,6 +403,7 @@ function next(from: number) {
 function prev(from: number) { collectCurrentStep(); saveProgress(); goToStep(from - 1); }
 
 async function validateLicense(key: string) {
+  const normalizedKey = normalizeManualToken(key);
   const errEl = document.getElementById('s2-license-err');
   const okEl = document.getElementById('s2-license-ok');
   function showError(msg: string) {
@@ -393,11 +413,32 @@ async function validateLicense(key: string) {
     }
     if (okEl) okEl.style.display = 'none';
   }
+  if (!looksLikeSupportedManualToken(normalizedKey)) {
+    showError('Enter a license key that starts with BREV- or BRV-, an inst_ activation code, or a BRVMT-REP- rep token.');
+    return false;
+  }
   try {
+    if (INSTALL_TOKEN_RE.test(normalizedKey)) {
+      const ok = await tryAutoConfigFromInstallToken(normalizedKey);
+      if (!ok) {
+        showError('Activation code is invalid, expired, or already used. Ask your manager for a fresh link.');
+        return false;
+      }
+      if (okEl) okEl.style.display = 'block';
+      if (errEl) errEl.style.display = 'none';
+      return true;
+    }
+
+    if (REP_TOKEN_RE.test(normalizedKey)) {
+      setAuthRole('rep');
+      profileData.dealership.repToken = normalizedKey;
+      return validateRepToken(normalizedKey);
+    }
+
     const resp = await fetch(`${PROXY_URL}/v1/license/validate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ license_key: key }),
+      body: JSON.stringify({ license_key: normalizedKey }),
     });
 
     if (resp.status === 400) {
@@ -462,7 +503,7 @@ async function validateLicense(key: string) {
     // the 15s bootstrap fetcher runs — and Phase 2 rejects every unsigned
     // generate in that window with 401 signature_required.
     const toStore: Record<string, any> = {
-      license_key: key,
+      license_key: normalizedKey,
       activated_at: Date.now(),
       license_revoked: false,
     };
