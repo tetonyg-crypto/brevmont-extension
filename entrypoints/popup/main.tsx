@@ -246,11 +246,20 @@ function App() {
   if (!authenticated) {
     return (
       <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', background: PALETTE.bone }}>
-        <div style={{ fontWeight: 700, fontSize: 15, color: PALETTE.charcoal }}>brevmont</div>
-        <p style={{ fontSize: 13, color: PALETTE.textMuted }}>Sign in from onboarding to activate.</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: `1px solid ${PALETTE.border}` }}>
+          <div style={{ width: 28, height: 28, borderRadius: 6, background: PALETTE.deepTeal, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ color: PALETTE.bone, fontWeight: 700, fontSize: 12 }}>b</span>
+          </div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: PALETTE.charcoal, letterSpacing: '-0.02em' }}>brevmont</div>
+        </div>
+        <p style={{ fontSize: 13, color: PALETTE.textBody, lineHeight: '1.5', margin: 0 }}>Not activated yet.</p>
+        <p style={{ fontSize: 12, color: PALETTE.textMuted, lineHeight: '1.5', margin: 0 }}>Ask your manager to send you an activation link, or open the activation page below.</p>
         <button
           type="button"
-          onClick={() => browser.runtime.openOptionsPage()}
+          onClick={() => {
+            void browser.tabs.create({ url: 'https://app.brevmont.com/install' });
+            window.close();
+          }}
           style={{
             padding: '10px',
             borderRadius: 8,
@@ -259,10 +268,17 @@ function App() {
             color: '#fff',
             fontWeight: 600,
             cursor: 'pointer',
+            fontSize: 13,
           }}
         >
-          Open setup
+          Open Activation Page
         </button>
+        <a
+          href="mailto:founder@brevmont.com"
+          style={{ fontSize: 11, color: PALETTE.textFaint, textDecoration: 'none', textAlign: 'center' }}
+        >
+          Need help? founder@brevmont.com
+        </a>
       </div>
     );
   }

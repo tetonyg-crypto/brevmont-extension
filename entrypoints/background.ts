@@ -1158,23 +1158,21 @@ export default defineBackground(() => {
       const existingSync = await browser.storage.sync.get(['dealer_token']);
       if (existingSync.dealer_token) return false;
 
-      // Read the cookie set by /join/:id/complete on app.brevmont.com.
+      // Read the cookie set by /join/:id/complete OR /activate/:token on app.brevmont.com.
       const cookie = await browser.cookies.get({
         url: 'https://app.brevmont.com',
         name: 'brevmont_rep_session',
       });
       if (!cookie?.value) return false;
 
-      const repAuthToken = cookie.value;
-      const resp = await fetchWithRetry(`${PROXY_URL}/api/session/to-license`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${repAuthToken}` },
-      });
-      if (!resp.ok) {
-        console.warn('[Brevmont] auto-config bridge returned', resp.status);
-        return false;
-      }
-      const data = await resp.json() as {
+      const cookieValue = cookie.value;
+
+      // Two paths converge here:
+      // 1. Install token (from /activate page): value starts with "inst_"
+      //    → call POST /v1/install-tokens/validate (consumes the token)
+      // 2. Rep auth token (from /join/:id/complete): any other value
+      //    → call GET /api/session/to-license with Bearer auth
+      let data: {
         license_key?: string;
         license_secret?: string;
         dealer_token?: string;
@@ -1183,7 +1181,34 @@ export default defineBackground(() => {
         dealership_name?: string;
         rep_email?: string;
         rep_name?: string;
+        rep_id?: string;
       };
+
+      if (cookieValue.startsWith('inst_')) {
+        // Install token path — one-click activation from /activate page
+        const resp = await fetchWithRetry(`${PROXY_URL}/v1/install-tokens/validate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: cookieValue }),
+        });
+        if (!resp.ok) {
+          console.warn('[Brevmont] install-token validate returned', resp.status);
+          return false;
+        }
+        data = await resp.json() as typeof data;
+      } else {
+        // Legacy rep auth token path
+        const resp = await fetchWithRetry(`${PROXY_URL}/api/session/to-license`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${cookieValue}` },
+        });
+        if (!resp.ok) {
+          console.warn('[Brevmont] auto-config bridge returned', resp.status);
+          return false;
+        }
+        data = await resp.json() as typeof data;
+      }
+
       if (!data.license_key) return false;
 
       // Sync storage holds the values authSigning + heartbeat read from.
@@ -1196,11 +1221,22 @@ export default defineBackground(() => {
       await browser.storage.local.set({
         brevmont_license_secret: data.license_secret || '',
         license_secret: data.license_secret || '',
-        rep_auth_token: data.rep_auth_token || repAuthToken,
-        brevmont_rep_auth_token: data.rep_auth_token || repAuthToken,
+        rep_auth_token: data.rep_auth_token || cookieValue,
+        brevmont_rep_auth_token: data.rep_auth_token || cookieValue,
         dealership_id: data.dealership_id || '',
         rep_email: data.rep_email || '',
       });
+
+      // Clear the cookie after successful activation — one-time use.
+      try {
+        await browser.cookies.remove({
+          url: 'https://app.brevmont.com',
+          name: 'brevmont_rep_session',
+        });
+      } catch {
+        // Non-fatal if cookie removal fails
+      }
+
       dlog('[Brevmont] auto-config from cookie share complete:', data.dealership_name);
       return true;
     } catch (err) {
