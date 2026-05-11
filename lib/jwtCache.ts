@@ -21,6 +21,23 @@ interface JwtCacheEntry {
 let memoryCache: JwtCacheEntry | null = null;
 let inflight: Promise<string | null> | null = null;
 
+async function markRepAccessEnded(errorCode: string): Promise<void> {
+  memoryCache = null;
+  try {
+    await browser.storage.local.remove(STORAGE_KEY);
+    await browser.storage.local.set({
+      license_revoked: true,
+      license_revoked_at: Date.now(),
+      license_revoked_message:
+        'Your access at this dealership has ended. Been invited to a new store? Reconnect below.',
+      brevmont_last_error: errorCode,
+      brevmont_last_error_at: new Date().toISOString(),
+    });
+  } catch {
+    // Non-blocking; callers still get null and fall back to local handling.
+  }
+}
+
 function decodeExp(jwt: string): number | null {
   try {
     const parts = jwt.split('.');
@@ -75,7 +92,21 @@ async function fetchFreshJwt(repToken: string, apiBase: string): Promise<JwtCach
       },
       body: '{}',
     });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      let body: { error?: string } = {};
+      try {
+        body = await resp.json();
+      } catch {
+        body = {};
+      }
+      if (
+        resp.status === 401 &&
+        ['rep_token_revoked', 'rep_token_expired', 'invalid_rep_token'].includes(String(body.error || ''))
+      ) {
+        await markRepAccessEnded(String(body.error));
+      }
+      return null;
+    }
     const data = (await resp.json()) as { token?: string };
     if (!data?.token) return null;
     const exp = decodeExp(data.token);

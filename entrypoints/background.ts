@@ -1437,8 +1437,11 @@ async function handleRevocationResponse(resp: Response): Promise<void> {
     // Clone so downstream consumers can still read the body
     body = await resp.clone().json();
   } catch {}
-  if (body?.error === 'license_revoked') {
-    const msg = body?.message || body?.error_message || 'Your Brevmont license has been revoked. Contact support.';
+  if (body?.error === 'license_revoked' || body?.error === 'rep_token_revoked' || body?.error === 'rep_token_expired') {
+    const msg = body?.message || body?.error_message ||
+      (body?.error === 'license_revoked'
+        ? 'Your Brevmont license has been revoked. Contact support.'
+        : 'Your access at this dealership has ended. Been invited to a new store? Reconnect below.');
     try {
       await browser.storage.local.set({
         license_revoked: true,

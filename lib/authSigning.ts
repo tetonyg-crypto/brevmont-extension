@@ -26,7 +26,8 @@ async function buildAuthHeaders(): Promise<Record<string, string>> {
   // for any extension that hasn't yet acquired a JWT. Used only on the very
   // first call after install; getJWT() succeeds on subsequent calls.
   try {
-    const local = await browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token']);
+    const local = await browser.storage.local.get(['license_revoked', 'rep_auth_token', 'brevmont_rep_auth_token']);
+    if (local.license_revoked) return {};
     const token =
       (local.rep_auth_token as string | undefined) ||
       (local.brevmont_rep_auth_token as string | undefined);

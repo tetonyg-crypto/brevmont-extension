@@ -90,11 +90,18 @@ function safeSend(msg: any): Promise<any> {
 }
 
 // ─── Token check helper — avoids sending API calls destined to 401 ──────────
+function accessEndedMessage(message?: string): string {
+  return message || 'Your access at this dealership has ended. Been invited to a new store? Open Settings and reconnect.';
+}
+
 async function requireToken(): Promise<string> {
   const [sync, local] = await Promise.all([
     chrome.storage.sync.get(['dealer_token', 'rep_auth_token']),
-    chrome.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']),
+    chrome.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'license_revoked', 'license_revoked_message']),
   ]);
+  if (local.license_revoked) {
+    throw new Error(accessEndedMessage(local.license_revoked_message as string | undefined));
+  }
   const token = (
     sync.dealer_token ||
     local.dealer_token ||
@@ -219,6 +226,37 @@ function renderPanel(): void {
   // Show free tier usage counter if applicable
   updateUsageCounter(root);
   applyFeatureGates(root);
+  showAccessEndedBanner(root);
+}
+
+async function showAccessEndedBanner(root: HTMLElement): Promise<void> {
+  const local = await chrome.storage.local.get(['license_revoked', 'license_revoked_message', 'dealership']);
+  const existing = root.querySelector('#o8-access-ended-banner');
+  if (existing) existing.remove();
+  if (!local.license_revoked) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'o8-access-ended-banner';
+  banner.style.cssText = 'margin:8px 12px 0;padding:10px;border:1px solid #FCA5A5;border-radius:8px;background:#FEF2F2;color:#991B1B;font-size:12px;line-height:1.45;';
+  banner.innerHTML = `
+    <div style="font-weight:700;margin-bottom:4px;">Access ended${local.dealership ? ` at ${esc(String(local.dealership))}` : ''}</div>
+    <div>${esc(accessEndedMessage(local.license_revoked_message as string | undefined))}</div>
+    <button id="o8-access-reconnect" style="margin-top:8px;border:0;border-radius:6px;background:#0D6E6E;color:#fff;font-size:12px;font-weight:700;padding:7px 10px;cursor:pointer;">Reconnect</button>
+  `;
+  const header = root.querySelector('.header');
+  if (header) header.insertAdjacentElement('afterend', banner);
+  else root.prepend(banner);
+
+  const reconnect = banner.querySelector('#o8-access-reconnect') as HTMLButtonElement | null;
+  if (reconnect) {
+    reconnect.onclick = () => {
+      chrome.runtime.sendMessage({ type: 'OPEN_ONBOARDING' }, () => {
+        if (chrome.runtime.lastError) {
+          try { chrome.tabs.create({ url: chrome.runtime.getURL('onboarding.html') }); } catch {}
+        }
+      });
+    };
+  }
 }
 
 // ─── Load account info into Settings panel (migrated from popup) ────────────
