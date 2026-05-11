@@ -33,7 +33,7 @@ export const copy = {
   // ---------------------------------------------------------------------------
   onboarding: {
     title: 'Set up Brevmont',
-    subtitle: "Four short questions. Two minutes. Then you're inside VinSolutions writing pitches.",
+    subtitle: "Four short questions. Two minutes. Then you're inside your CRM writing pitches.",
 
     // Step 1 — identity
     step1: {
@@ -115,7 +115,7 @@ export const copy = {
     // Completion screen
     complete: {
       heading: "You're in.",
-      body: 'Brevmont is configured for your dealership. Open VinSolutions and click any lead. The Brevmont panel appears on the right.',
+      body: 'Brevmont is configured for your dealership. Open your CRM and click any lead. The Brevmont panel appears on the right.',
     },
 
     // Error states
@@ -131,13 +131,13 @@ export const copy = {
   // Popup
   // ---------------------------------------------------------------------------
   popup: {
-    notActivated: 'Not activated yet. Open VinSolutions to start, or click below.',
+    notActivated: 'Not activated yet. Open your CRM to start, or click below.',
     setupCta: 'Run setup',
     activatedHeading: 'Brevmont is on.',
-    activatedBody: 'Open VinSolutions and click any lead. The Brevmont panel appears on the right.',
+    activatedBody: 'Open your CRM and click any lead. The Brevmont panel appears on the right.',
     revokedHeading: 'Access ended.',
     revokedBody: 'Your access at this dealership has ended. Been invited to a new store? Reconnect below.',
-    contactFounder: 'Text the founder direct',
+    contactFounder: 'Text the team',
     openDashboard: 'Open dashboard',
     runSetup: 'Run setup',
   },
