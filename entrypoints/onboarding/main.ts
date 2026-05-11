@@ -32,6 +32,7 @@ const REP_TOKEN_RE = /^BRVMT-REP-[A-Za-z0-9_-]{8,}$/i;
 const INVITE_TOKEN_RE = /^[A-Za-z0-9_-]{24,128}$/;
 const HUMAN_LICENSE_RE = /^(?:BREV|BRV)(?:-FREE)?-[A-Z0-9]{3,12}(?:-[A-Z0-9]{3,12}){1,3}$/i;
 const LEGACY_LICENSE_RE = /^[A-Za-z0-9_-]{16,96}$/;
+const SETUP_KEY = 'brevmont_setup_complete';
 
 function normalizeManualToken(value: string): string {
   const trimmed = value.trim();
@@ -220,6 +221,18 @@ async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
       profile_onboarded: true,
       profile_onboarding: null,
     });
+    try {
+      await chrome.storage.local.set({ [SETUP_KEY]: true });
+      await chrome.storage.sync.set({
+        dealer_token: data.dealer_token || data.license_key,
+        rep_auth_token: data.rep_auth_token || null,
+        rep_name: data.rep_name || data.rep_email || 'Rep',
+        dealership: data.dealership_name || '',
+        dealership_id: data.dealership_id || '',
+        profile_onboarded: true,
+        brevmont_extension_role: (data.rep_id || data.rep_auth_token) ? 'rep' : 'manager',
+      });
+    } catch (_) { /* noop */ }
     return true;
   } catch (e: any) {
     telemetry.trackError(e instanceof Error ? e : new Error(String(e)), { flow: 'install_token_validate' });
@@ -258,28 +271,46 @@ async function tryAutoConfigFromCookie(): Promise<boolean> {
     const data = await resp.json();
     if (!data?.license_key) return false;
 
+    const dealerToken = data.dealer_token || data.license_key;
+    const repAuthToken = data.rep_auth_token || cookieVal;
+    const repName = data.rep_name || data.rep_email || 'Rep';
+    const dealershipName = data.dealership_name || '';
     const toStore: Record<string, any> = {
       license_key: data.license_key,
-      dealer_token: data.dealer_token || data.license_key,
+      dealer_token: dealerToken,
       activated_at: Date.now(),
       license_revoked: false,
       profile_onboarded: true,
       profile_onboarding: null,
+      brevmont_extension_role: 'rep',
+      [SETUP_KEY]: true,
     };
     if (data.license_secret) {
       toStore.license_secret = data.license_secret;
       toStore.brevmont_license_secret = data.license_secret;
     }
-    if (data.dealership_name) toStore.dealership = data.dealership_name;
+    if (dealershipName) toStore.dealership = dealershipName;
     if (data.dealership_id) toStore.dealership_id = data.dealership_id;
-    if (data.rep_name) toStore.rep_name = data.rep_name;
+    if (repName) toStore.rep_name = repName;
     if (data.rep_email) toStore.rep_email = data.rep_email;
     if (data.rep_id) toStore.rep_id = data.rep_id;
-    if (data.rep_auth_token) toStore.rep_auth_token = data.rep_auth_token;
-    toStore.brevmont_extension_role = 'rep';
+    if (repAuthToken) {
+      toStore.rep_auth_token = repAuthToken;
+      toStore.brevmont_rep_auth_token = repAuthToken;
+    }
 
     await chrome.storage.local.set(toStore);
     await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
+    await chrome.storage.sync.set({
+      dealer_token: dealerToken,
+      rep_auth_token: repAuthToken,
+      rep_name: repName,
+      dealership: dealershipName,
+      dealership_id: data.dealership_id || '',
+      profile_onboarded: true,
+      brevmont_extension_role: 'rep',
+    });
+    await chrome.storage.sync.remove('profile_onboarding');
     try { chrome.action?.setBadgeText?.({ text: '' }); } catch {}
     return true;
   } catch (e: any) {
@@ -379,17 +410,16 @@ function next(from: number) {
   collectCurrentStep();
   if (from === 1) {
     if (!profileData.identity.firstName || !profileData.identity.lastName) { alert('Name is required.'); return; }
-    if (!profileData.identity.jobTitle) { alert('Select your job title.'); return; }
   } else if (from === 2) {
-    if (!profileData.dealership.name || !profileData.dealership.city || !profileData.dealership.state) { alert('Dealership info is required.'); return; }
     if (authRole === 'rep') {
       if (!profileData.dealership.repToken) { alert('Setup code is required.'); return; }
       validateRepToken(profileData.dealership.repToken).then(valid => {
-        if (valid) { saveProgress(); goToStep(3); }
+        if (valid) { finish().catch(() => {}); }
         else { document.getElementById('s2-reptoken-err')!.style.display = 'block'; document.getElementById('s2-reptoken-ok')!.style.display = 'none'; }
       });
       return;
     }
+    if (!profileData.dealership.name || !profileData.dealership.city || !profileData.dealership.state) { alert('Dealership info is required.'); return; }
     if (!profileData.dealership.licenseKey) { alert('License key is required.'); return; }
     validateLicense(profileData.dealership.licenseKey).then(valid => {
       if (valid) { saveProgress(); goToStep(3); }
@@ -548,6 +578,22 @@ function setAuthRole(role: 'manager' | 'rep') {
   const repWrap = document.getElementById('s2-reptoken-wrap');
   if (licWrap) licWrap.style.display = role === 'manager' ? '' : 'none';
   if (repWrap) repWrap.style.display = role === 'rep' ? '' : 'none';
+  document.querySelectorAll('.manager-only').forEach((el) => {
+    (el as HTMLElement).style.display = role === 'manager' ? '' : 'none';
+  });
+  document.querySelectorAll('.rep-only').forEach((el) => {
+    (el as HTMLElement).style.display = role === 'rep' ? '' : 'none';
+  });
+  const heading = document.querySelector('#screen-2 h1');
+  const sub = document.querySelector('#screen-2 .sub');
+  if (heading) heading.textContent = role === 'rep' ? 'Paste your setup code.' : 'Tell us about your dealership.';
+  if (sub) {
+    sub.textContent = role === 'rep'
+      ? 'Brevmont will connect you to the store that invited you. No dealership settings needed.'
+      : 'Brevmont uses this to make every generation local and accurate.';
+  }
+  const nextButton = document.getElementById('btn-next-2');
+  if (nextButton) nextButton.textContent = role === 'rep' ? 'Finish Setup' : 'Continue';
 }
 
 async function validateRepToken(token: string) {
@@ -621,6 +667,9 @@ async function validateRepToken(token: string) {
       rep_auth_token: resolvedRepToken,
       activated_at: Date.now(),
       license_revoked: false,
+      profile_onboarded: true,
+      profile_onboarding: null,
+      [SETUP_KEY]: true,
     };
     if (data.license_key) toStore.license_key = data.license_key;
     if (data.dealer_token) toStore.dealer_token = data.dealer_token;
@@ -637,6 +686,16 @@ async function validateRepToken(token: string) {
     try {
       await chrome.storage.local.set(toStore);
       await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
+      await chrome.storage.sync.set({
+        dealer_token: data.dealer_token || data.license_key || '',
+        rep_auth_token: resolvedRepToken,
+        rep_name: data.rep_name || typedName || 'Rep',
+        dealership: repSession.dealership_name || '',
+        dealership_id: data.dealership_id || '',
+        profile_onboarded: true,
+        brevmont_extension_role: 'rep',
+      });
+      await chrome.storage.sync.remove('profile_onboarding');
     } catch {}
     try { chrome.action?.setBadgeText?.({ text: '' }); } catch {}
 
@@ -721,12 +780,14 @@ async function finish() {
   }
   try {
     await chrome.storage.local.set(payload);
+    await chrome.storage.local.set({ [SETUP_KEY]: true });
   } catch (_) { /* noop */ }
   chrome.storage.sync.set(payload, () => {
     chrome.storage.sync.remove('profile_onboarding');
     chrome.storage.local.remove('profile_onboarding');
     document.getElementById('comp-name')!.textContent = profileData.identity.firstName + ' ' + profileData.identity.lastName;
-    document.getElementById('comp-dealer')!.textContent = profileData.dealership.name + ' — ' + profileData.dealership.city + ', ' + profileData.dealership.state;
+    const location = [profileData.dealership.city, profileData.dealership.state].filter(Boolean).join(', ');
+    document.getElementById('comp-dealer')!.textContent = [profileData.dealership.name, location].filter(Boolean).join(' — ');
     document.getElementById('comp-tone')!.textContent = profileData.voice.tone.charAt(0).toUpperCase() + profileData.voice.tone.slice(1);
     goToStep(5);
     syncProfileToSupabase(profile).catch((e: any) => {

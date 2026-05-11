@@ -139,6 +139,20 @@ export default defineBackground(() => {
       }
       return false;
     }
+    if ((message as { type?: string })?.type === 'BREVMONT_REP_SESSION_READY') {
+      try {
+        void tryCookieShareAutoConfig()
+          .then((configured) => {
+            if (configured) sendHeartbeat().catch(() => {});
+            sendResponse({ ok: configured, version: chrome.runtime.getManifest().version });
+          })
+          .catch(() => sendResponse({ ok: false, version: chrome.runtime.getManifest().version }));
+        return true;
+      } catch {
+        sendResponse({ ok: false });
+        return false;
+      }
+    }
     return false;
   });
 
@@ -1200,10 +1214,6 @@ export default defineBackground(() => {
       const flagState = await browser.storage.local.get(['BREVMONT_AUTO_CONFIG_ENABLED']);
       if (flagState.BREVMONT_AUTO_CONFIG_ENABLED === false) return false;
 
-      // Existing rep with credentials? Don't disturb them.
-      const existingSync = await browser.storage.sync.get(['dealer_token']);
-      if (existingSync.dealer_token) return false;
-
       // Read the cookie set by /join/:id/complete OR /activate/:token on app.brevmont.com.
       const cookie = await browser.cookies.get({
         url: 'https://app.brevmont.com',
@@ -1257,21 +1267,47 @@ export default defineBackground(() => {
 
       if (!data.license_key) return false;
 
-      // Sync storage holds the values authSigning + heartbeat read from.
-      await browser.storage.sync.set({
-        dealer_token: data.dealer_token || data.license_key,
-        rep_name: data.rep_name || data.rep_email || 'Rep',
-        dealership: data.dealership_name || '',
-      });
-      // Local storage holds the secret + rep_auth_token used by signedFetch.
+      const dealerToken = data.dealer_token || data.license_key;
+      const repAuthToken = data.rep_auth_token || cookieValue;
+      const repName = data.rep_name || data.rep_email || 'Rep';
+      const dealershipName = data.dealership_name || '';
+
+      // Local storage is the activation gate used by the install screen,
+      // toolbar click, side panel, and onboarding fallback. If these keys are
+      // missing, the rep gets sent into the owner wizard even though the
+      // cookie handoff worked.
       await browser.storage.local.set({
+        license_key: data.license_key,
+        dealer_token: dealerToken,
         brevmont_license_secret: data.license_secret || '',
         license_secret: data.license_secret || '',
-        rep_auth_token: data.rep_auth_token || cookieValue,
-        brevmont_rep_auth_token: data.rep_auth_token || cookieValue,
+        rep_auth_token: repAuthToken,
+        brevmont_rep_auth_token: repAuthToken,
         dealership_id: data.dealership_id || '',
+        dealership: dealershipName,
         rep_email: data.rep_email || '',
+        rep_name: repName,
+        rep_id: data.rep_id || '',
+        profile_onboarded: true,
+        profile_onboarding: null,
+        activated_at: Date.now(),
+        license_revoked: false,
+        brevmont_extension_role: 'rep',
+        [SETUP_KEY]: true,
       });
+      await browser.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
+
+      // Sync mirror for legacy readers and hasCompleteActivation repair.
+      await browser.storage.sync.set({
+        dealer_token: dealerToken,
+        rep_auth_token: repAuthToken,
+        rep_name: repName,
+        dealership: dealershipName,
+        dealership_id: data.dealership_id || '',
+        profile_onboarded: true,
+        brevmont_extension_role: 'rep',
+      });
+      await browser.storage.sync.remove(['profile_onboarding']);
 
       // Clear the cookie after successful activation — one-time use.
       try {
