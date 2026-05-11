@@ -127,6 +127,44 @@ async function refreshPlatform(): Promise<void> {
   }
 }
 
+// ─── Free tier usage counter ────────────────────────────────────────────────
+function updateUsageCounter(root: HTMLElement): void {
+  chrome.storage.local.get(['brevmont_tier', 'brevmont_usage']).then(data => {
+    const counter = root.querySelector('#o8-usage-counter') as HTMLElement;
+    if (!counter) return;
+
+    const tier = data.brevmont_tier || '';
+    const usage = data.brevmont_usage as { generations_used?: number; generations_limit?: number; generations_remaining?: number } | undefined;
+
+    // Only show counter for free tier
+    if (tier !== 'free' || !usage) {
+      counter.style.display = 'none';
+      return;
+    }
+
+    const used = usage.generations_used || 0;
+    const limit = usage.generations_limit || 30;
+    const remaining = Math.max(0, limit - used);
+    const pct = Math.min(100, Math.round((used / limit) * 100));
+
+    counter.style.display = 'block';
+    counter.className = 'usage-counter' + (pct >= 90 ? ' usage-critical' : pct >= 70 ? ' usage-warning' : '');
+    counter.innerHTML = `<span>${used}/${limit} free generations used this month</span><div class="usage-bar"><div class="usage-fill" style="width:${pct}%"></div></div>`;
+  }).catch(() => {});
+}
+
+function showUpgradePrompt(root: HTMLElement, message: string, upgradeUrl?: string): void {
+  const prompt = root.querySelector('#o8-upgrade-prompt') as HTMLElement;
+  if (!prompt) return;
+  prompt.style.display = 'block';
+  prompt.innerHTML = `
+    <div class="upgrade-title">Free Limit Reached</div>
+    <div class="upgrade-msg">${esc(message)}</div>
+    <a class="upgrade-btn" href="${upgradeUrl || 'https://brevmont.com'}" target="_blank">Upgrade Now</a>
+    <div class="upgrade-phone">Or call the founder: 307-690-0291</div>
+  `;
+}
+
 // ─── Build panel DOM ─────────────────────────────────────────────────────────
 function renderPanel(): void {
   const root = document.getElementById('sp-root')!;
@@ -146,6 +184,9 @@ function renderPanel(): void {
 
   // Wire event handlers
   wireHandlers(root);
+
+  // Show free tier usage counter if applicable
+  updateUsageCounter(root);
 }
 
 // ─── Load account info into Settings panel (migrated from popup) ────────────
@@ -629,7 +670,10 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     // Clear pending lead_id after sending
     (root as any).__pendingLeadId = null;
 
-    if (response?.queued) {
+    if (response?.generation_limit_reached) {
+      showUpgradePrompt(root, response.message || 'You\'ve used all your free generations this month.', response.upgrade_url);
+      updateUsageCounter(root);
+    } else if (response?.queued) {
       showToast(root, response.message || 'Saved. Will sync when online.');
     } else if (response?.error) {
       addOutput(root, 'Error', response.error);
@@ -668,6 +712,18 @@ async function doGenerate(root: HTMLElement): Promise<void> {
           }).catch(() => {});
         }
       } catch {}
+
+      // Increment local usage counter for immediate UI feedback (free tier)
+      chrome.storage.local.get(['brevmont_tier', 'brevmont_usage']).then(data => {
+        if (data.brevmont_tier === 'free' && data.brevmont_usage) {
+          const u = data.brevmont_usage as { generations_used?: number; generations_limit?: number };
+          const newUsed = (u.generations_used || 0) + 1;
+          chrome.storage.local.set({
+            brevmont_usage: { ...u, generations_used: newUsed, generations_remaining: Math.max(0, (u.generations_limit || 30) - newUsed) },
+          });
+        }
+      }).catch(() => {});
+      updateUsageCounter(root);
     }
   } catch (e: any) {
     addOutput(root, 'Error', e.message || 'Generation failed');

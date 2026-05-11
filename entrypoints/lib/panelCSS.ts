@@ -62,6 +62,17 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .gen-btn:hover { background:#0A5555; } .gen-btn:disabled { background:#94a3b8; cursor:wait; }
 .gen-spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:gen-spin 0.6s linear infinite; vertical-align:middle; margin-right:4px; }
 @keyframes gen-spin { to { transform:rotate(360deg); } }
+.usage-counter { text-align:center; font-size:11px; color:#64748b; margin-top:6px; padding:4px 8px; background:#f8fafc; border-radius:6px; border:1px solid #e2e8f0; }
+.usage-counter .usage-bar { height:3px; background:#e2e8f0; border-radius:2px; margin-top:4px; overflow:hidden; }
+.usage-counter .usage-fill { height:100%; background:#0D6E6E; border-radius:2px; transition:width 0.3s ease; }
+.usage-counter.usage-warning .usage-fill { background:#f59e0b; }
+.usage-counter.usage-critical .usage-fill { background:#ef4444; }
+.upgrade-prompt { margin-top:8px; padding:12px; background:#fef3c7; border:1px solid #fcd34d; border-radius:8px; text-align:center; }
+.upgrade-prompt .upgrade-title { font-size:12px; font-weight:700; color:#92400e; margin-bottom:4px; }
+.upgrade-prompt .upgrade-msg { font-size:11px; color:#78350f; line-height:1.4; margin-bottom:8px; }
+.upgrade-prompt .upgrade-btn { display:inline-block; padding:8px 16px; background:#0D6E6E; color:#fff; border-radius:6px; font-size:12px; font-weight:600; text-decoration:none; cursor:pointer; border:none; }
+.upgrade-prompt .upgrade-btn:hover { background:#0A5555; }
+.upgrade-prompt .upgrade-phone { font-size:11px; color:#78350f; margin-top:6px; }
 .outputs { padding:0 14px; overflow-y:auto; flex:0 0 auto; }
 .outputs:not(:empty) { padding:8px 14px; flex:1 1 auto; min-height:0; }
 .out-card { background:#fff; border:1px solid #E5E7EB; border-radius:12px; padding:10px 12px; margin-bottom:8px; }

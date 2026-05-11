@@ -987,11 +987,16 @@ export default defineBackground(() => {
       if (resp.ok) {
         const data = await resp.json();
         const tier = data.tier || 'floor';
-        await browser.storage.local.set({
+        const storageUpdate: Record<string, any> = {
           brevmont_tier: tier,
           brevmont_features: data.features || getTierFeatures(tier),
           brevmont_last_heartbeat: Date.now(),
-        });
+        };
+        // Store usage data for free tier counter display
+        if (data.usage) {
+          storageUpdate.brevmont_usage = data.usage;
+        }
+        await browser.storage.local.set(storageUpdate);
         const qSize = await getDexieQueueCount();
         if (qSize > 0) {
           await processQueue(apiUrl).catch(() => {});
@@ -1589,6 +1594,31 @@ async function handleGenerate(payload: {
     return { text: result.text, sections };
   } catch (err: any) {
     const m = String(err?.message || err);
+
+    // Free tier generation limit reached — return structured response for upgrade prompt
+    if (m.startsWith('GENERATION_LIMIT:')) {
+      try {
+        const data = JSON.parse(m.slice('GENERATION_LIMIT:'.length));
+        // Update stored usage so the counter refreshes immediately
+        await browser.storage.local.set({
+          brevmont_usage: {
+            generations_used: data.used || data.limit || 30,
+            generations_limit: data.limit || 30,
+            generations_remaining: 0,
+            resets_at: data.resets_at || null,
+          },
+        });
+        return {
+          generation_limit_reached: true,
+          message: data.message || `You've used all ${data.limit || 30} free generations this month.`,
+          limit: data.limit || 30,
+          used: data.used || data.limit || 30,
+          resets_at: data.resets_at || null,
+          upgrade_url: data.upgrade_url || 'https://brevmont.com',
+        };
+      } catch { /* fall through to re-throw */ }
+    }
+
     const shouldQueue =
       (err instanceof TypeError && m.includes('fetch')) ||
       /Failed to fetch|NetworkError/i.test(m) ||
@@ -1696,6 +1726,9 @@ async function generateViaProxy(
   if (resp.status === 401) throw new Error('License invalid or expired. Contact support to renew your Brevmont subscription.');
   if (resp.status === 429) {
     const body429 = await resp.json().catch(() => ({}));
+    if (body429.error === 'generation_limit_reached') {
+      throw new Error(`GENERATION_LIMIT:${JSON.stringify(body429)}`);
+    }
     if (body429.error === 'daily_limit_reached') {
       throw new Error(body429.message || "You've hit your daily generation limit. This resets tomorrow morning.");
     }
