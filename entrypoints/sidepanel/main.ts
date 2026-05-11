@@ -175,6 +175,28 @@ function showUpgradePrompt(root: HTMLElement, message: string, upgradeUrl?: stri
 }
 
 // ─── Build panel DOM ─────────────────────────────────────────────────────────
+function applyFeatureGates(root: HTMLElement): void {
+  chrome.storage.local.get(['brevmont_tier', 'brevmont_features']).then(data => {
+    const tier = String(data.brevmont_tier || 'free');
+    const features = (data.brevmont_features || {}) as Record<string, boolean>;
+    const gates = [
+      { selector: '[data-tool="context"]', content: '#tool-context', allowed: tier !== 'free' && features.context_reply === true },
+      { selector: '[data-tool="command"]', content: '#tool-command', allowed: tier !== 'free' && features.command_mode === true },
+    ];
+    for (const gate of gates) {
+      const tab = root.querySelector(gate.selector) as HTMLElement | null;
+      const content = root.querySelector(gate.content) as HTMLElement | null;
+      if (tab) tab.style.display = gate.allowed ? '' : 'none';
+      if (content && !gate.allowed) content.style.display = 'none';
+    }
+  }).catch(() => {
+    for (const selector of ['[data-tool="context"]', '[data-tool="command"]', '#tool-context', '#tool-command']) {
+      const node = root.querySelector(selector) as HTMLElement | null;
+      if (node) node.style.display = 'none';
+    }
+  });
+}
+
 function renderPanel(): void {
   const root = document.getElementById('sp-root')!;
   const loading = document.getElementById('sp-loading');
@@ -196,6 +218,7 @@ function renderPanel(): void {
 
   // Show free tier usage counter if applicable
   updateUsageCounter(root);
+  applyFeatureGates(root);
 }
 
 // ─── Load account info into Settings panel (migrated from popup) ────────────

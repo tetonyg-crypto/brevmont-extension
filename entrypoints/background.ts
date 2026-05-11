@@ -248,9 +248,9 @@ export default defineBackground(() => {
     if (msg.type === 'CHECK_FEATURES') {
       browser.storage.local.get(['brevmont_tier', 'brevmont_features', 'brevmont_last_heartbeat']).then(data => {
         const stale = !data.brevmont_last_heartbeat || (Date.now() - data.brevmont_last_heartbeat > 30 * 60 * 1000);
-        const tier = stale ? 'floor' : (data.brevmont_tier || 'floor');
+        const tier = stale ? (data.brevmont_tier || 'free') : (data.brevmont_tier || 'free');
         sendResponse({ tier, features: data.brevmont_features || getTierFeatures(tier) });
-      }).catch(() => sendResponse({ tier: 'floor', features: getTierFeatures('floor') }));
+      }).catch(() => sendResponse({ tier: 'free', features: getTierFeatures('free') }));
       return true;
     }
 
@@ -421,6 +421,7 @@ export default defineBackground(() => {
     if (msg.type === 'EXECUTE_COMMAND') {
       (async () => {
         try {
+          await requireFeature('command_mode', 'Ask Anything');
           addBreadcrumb('command', 'User requested command', { command: msg.payload?.command });
           const result = await handleCommand(msg.payload);
           addBreadcrumb('command', 'Command response received');
@@ -439,6 +440,7 @@ export default defineBackground(() => {
     if (msg.type === 'CONTEXT_REPLY') {
       (async () => {
         try {
+          await requireFeature('context_reply', 'Screenshot Reply');
           addBreadcrumb('context_reply', 'User requested screenshot reply');
           const result = await handleContextReply(msg.payload);
           addBreadcrumb('context_reply', 'Screenshot reply received');
@@ -1829,7 +1831,7 @@ async function handleCoach(payload: { situation: string; vehicleContext?: string
   }
 
   const vehicleCtx = payload.vehicleContext ? `\nVehicle context: ${payload.vehicleContext}` : '';
-  const coachMessage = `[COACHING MODE — Do NOT generate a customer message. Instead, coach the sales rep on how to handle this situation.]
+  const coachMessage = `[COACHING MODE — Do NOT generate customer-facing copy. Instead, coach the sales rep on how to handle this situation.]
 
 Rep: ${repName}
 Dealership: ${dealership}
@@ -1841,7 +1843,7 @@ Provide a concise coaching response (3-5 sentences max):
 1. Acknowledge the objection
 2. Explain the best approach to handle it
 3. Give an example of what the rep should say back
-4. If relevant, suggest a follow-up action
+4. If relevant, suggest a next action
 
 Keep it practical and direct — this rep is on the floor right now.`;
 
@@ -2075,6 +2077,15 @@ function getTierFeatures(tier: string) {
   }
 
   return base;
+}
+
+async function requireFeature(feature: 'command_mode' | 'context_reply', label: string): Promise<void> {
+  const data = await browser.storage.local.get(['brevmont_tier', 'brevmont_features']);
+  const tier = String(data.brevmont_tier || 'free');
+  const features = (data.brevmont_features || getTierFeatures(tier)) as Record<string, boolean>;
+  if (tier === 'free' || features[feature] !== true) {
+    throw new Error(`${label} is available on paid Brevmont plans.`);
+  }
 }
 
 function buildUserMessage(payload: any, repName: string, dealership: string, repContext: string = ''): string {
