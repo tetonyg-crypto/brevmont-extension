@@ -11,7 +11,7 @@
  *      /api/session/to-license; this onboarding page is rarely hit on this
  *      path but if it IS hit (manual open from chrome://extensions), restore
  *      from chrome.storage.local saved progress.
- *   3. Manual — typed license key OR rep token. Legacy 4-step wizard.
+ *   3. Manual — typed license key, install token, invite setup code, or rep token.
  *
  * Sticky persistence: every keystroke in steps 1-4 debounces into
  * chrome.storage.local via lib/storage.debouncedPatch. The profile_onboarding
@@ -29,6 +29,7 @@ const PROXY_URL = 'https://api.brevmont.com';
 
 const INSTALL_TOKEN_RE = /^inst_[A-Za-z0-9_-]{16,}$/i;
 const REP_TOKEN_RE = /^BRVMT-REP-[A-Za-z0-9_-]{8,}$/i;
+const INVITE_TOKEN_RE = /^[A-Za-z0-9_-]{24,128}$/;
 const HUMAN_LICENSE_RE = /^(?:BREV|BRV)(?:-FREE)?-[A-Z0-9]{3,12}(?:-[A-Z0-9]{3,12}){1,3}$/i;
 const LEGACY_LICENSE_RE = /^[A-Za-z0-9_-]{16,96}$/;
 
@@ -67,7 +68,7 @@ async function fetchWithRetry(url: string, opts: RequestInit, attempts = 3): Pro
 
 let currentStep = 1;
 // Which auth path the user is on: 'manager' (license key, one per dealership)
-// or 'rep' (rep token, one per rep). Defaults to manager for back-compat.
+// or 'rep' (invite setup code / rep token, one per rep). Defaults to manager for back-compat.
 let authRole: 'manager' | 'rep' = 'manager';
 // Populated by /v1/rep/validate-token on successful rep-token validation.
 let repSession: {
@@ -382,7 +383,7 @@ function next(from: number) {
   } else if (from === 2) {
     if (!profileData.dealership.name || !profileData.dealership.city || !profileData.dealership.state) { alert('Dealership info is required.'); return; }
     if (authRole === 'rep') {
-      if (!profileData.dealership.repToken) { alert('Rep token is required.'); return; }
+      if (!profileData.dealership.repToken) { alert('Setup code is required.'); return; }
       validateRepToken(profileData.dealership.repToken).then(valid => {
         if (valid) { saveProgress(); goToStep(3); }
         else { document.getElementById('s2-reptoken-err')!.style.display = 'block'; document.getElementById('s2-reptoken-ok')!.style.display = 'none'; }
@@ -414,7 +415,7 @@ async function validateLicense(key: string) {
     if (okEl) okEl.style.display = 'none';
   }
   if (!looksLikeSupportedManualToken(normalizedKey)) {
-    showError('Enter a license key that starts with BREV- or BRV-, an inst_ activation code, or a BRVMT-REP- rep token.');
+    showError('Enter a license key that starts with BREV- or BRV-, an inst_ activation code, or a rep setup code.');
     return false;
   }
   try {
@@ -550,48 +551,65 @@ function setAuthRole(role: 'manager' | 'rep') {
 }
 
 async function validateRepToken(token: string) {
+  const normalizedToken = token.trim();
   const errEl = document.getElementById('s2-reptoken-err');
   const okEl = document.getElementById('s2-reptoken-ok');
   function showError(msg: string) {
     if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
     if (okEl) okEl.style.display = 'none';
   }
-  // Cheap client-side format gate before burning a proxy call.
-  if (!/^BRVMT-REP-/i.test(token)) {
-    showError('Rep token must start with BRVMT-REP-');
+
+  if (INSTALL_TOKEN_RE.test(normalizedToken)) {
+    const ok = await tryAutoConfigFromInstallToken(normalizedToken);
+    if (!ok) {
+      showError('Activation code is invalid, expired, or already used. Ask your manager for a fresh invite.');
+      return false;
+    }
+    if (okEl) okEl.style.display = 'block';
+    if (errEl) errEl.style.display = 'none';
+    return true;
+  }
+
+  const isRepAuthToken = REP_TOKEN_RE.test(normalizedToken);
+  const isInviteCode = INVITE_TOKEN_RE.test(normalizedToken);
+  if (!isRepAuthToken && !isInviteCode) {
+    showError('Paste the setup code from your invitation email.');
     return false;
   }
+
   try {
-    const resp = await fetch(`${PROXY_URL}/v1/rep/validate-token`, {
+    const typedName = `${profileData.identity.firstName} ${profileData.identity.lastName}`.trim();
+    const resp = await fetch(`${PROXY_URL}${isRepAuthToken ? '/v1/rep/validate-token' : '/api/extension/claim-invite'}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify(isRepAuthToken ? { token: normalizedToken } : { token: normalizedToken, name: typedName }),
     });
 
     if (resp.status === 400 || resp.status === 401 || resp.status === 403) {
       let body: any = {};
       try { body = await resp.json(); } catch {}
-      showError(body?.error || 'Rep token is invalid or expired. Check with your manager.');
-      telemetry.trackError(new Error(body?.error || 'rep_token_invalid'), { flow: 'rep_token_validation', status: resp.status });
+      showError(body?.message || body?.error || 'Setup code is invalid or expired. Check with your manager.');
+      telemetry.trackError(new Error(body?.error || 'rep_setup_code_invalid'), { flow: 'rep_token_validation', status: resp.status, code_type: isRepAuthToken ? 'rep_auth_token' : 'invite_code' });
       return false;
     }
     if (!resp.ok) {
-      showError(`Rep token check failed (${resp.status}). Try again in a moment.`);
-      telemetry.trackError(new Error('rep_token_http_' + resp.status), { flow: 'rep_token_validation', status: resp.status });
+      showError(`Setup code check failed (${resp.status}). Try again in a moment.`);
+      telemetry.trackError(new Error('rep_setup_code_http_' + resp.status), { flow: 'rep_token_validation', status: resp.status, code_type: isRepAuthToken ? 'rep_auth_token' : 'invite_code' });
       return false;
     }
 
     const data = await resp.json();
-    if (!data?.valid) {
-      showError(data?.error || 'Rep token not recognized.');
-      telemetry.trackError(new Error(data?.error || 'rep_token_invalid'), { flow: 'rep_token_validation' });
+    if (!data?.valid || !data?.rep_auth_token) {
+      showError(data?.error || 'Setup code not recognized.');
+      telemetry.trackError(new Error(data?.error || 'rep_setup_code_invalid'), { flow: 'rep_token_validation', code_type: isRepAuthToken ? 'rep_auth_token' : 'invite_code' });
       return false;
     }
+    const resolvedRepToken = data.rep_auth_token || normalizedToken;
 
     // Cache validated payload for finish() to persist. The endpoint now returns
     // full credentials (license_key, license_secret, dealer_token) plus identity.
     repSession = {
-      rep_auth_token: token,
+      rep_auth_token: resolvedRepToken,
       rep_id: data.rep_id || '',
       rep_name: data.rep_name || '',
       dealership_id: data.dealership_id || '',
@@ -600,7 +618,7 @@ async function validateRepToken(token: string) {
 
     // Persist license credentials so the extension can sign requests immediately
     const toStore: Record<string, any> = {
-      rep_auth_token: token,
+      rep_auth_token: resolvedRepToken,
       activated_at: Date.now(),
       license_revoked: false,
     };
@@ -635,9 +653,9 @@ async function validateRepToken(token: string) {
     if (errEl) errEl.style.display = 'none';
     return true;
   } catch (e: any) {
-    showError('Network error validating rep token. Check your connection and try again.');
+    showError('Network error validating setup code. Check your connection and try again.');
     telemetry.trackError(e instanceof Error ? e : new Error(String(e)), { flow: 'rep_token_validation' });
-    try { chrome.runtime.sendMessage({ type: 'REPORT_ERROR', payload: { error_type: 'AUTH_ERROR', error_message: e?.message || 'Rep token validation failed', context: 'onboarding_step2_rep' } }); } catch (_) {}
+    try { chrome.runtime.sendMessage({ type: 'REPORT_ERROR', payload: { error_type: 'AUTH_ERROR', error_message: e?.message || 'Setup code validation failed', context: 'onboarding_step2_rep' } }); } catch (_) {}
     return false;
   }
 }

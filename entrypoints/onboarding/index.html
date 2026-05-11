@@ -133,12 +133,12 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
   <h1>Tell us about your dealership.</h1>
   <div class="sub">Brevmont uses this to make every message local and accurate.</div>
 
-  <!-- Role toggle — manager (license key) vs rep (rep token) -->
+  <!-- Role toggle — manager (license key) vs rep (invite setup code) -->
   <div class="field">
     <label>Who is installing this?</label>
     <div class="tone-grid" id="s2-role" style="grid-template-columns:1fr 1fr">
       <div class="tone-card selected" data-role="manager"><div class="tc-name">I'm the dealership owner/manager</div><div class="tc-ex">I have a license key</div></div>
-      <div class="tone-card" data-role="rep"><div class="tc-name">I'm a sales rep who was invited</div><div class="tc-ex">I have a rep token (BRVMT-REP-...)</div></div>
+      <div class="tone-card" data-role="rep"><div class="tc-name">I'm a sales rep who was invited</div><div class="tc-ex">I have the setup code from my invite email</div></div>
     </div>
   </div>
 
@@ -158,13 +158,13 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
     <div class="error" id="s2-license-err">Invalid license key</div>
   </div>
 
-  <!-- Rep path — rep token -->
+  <!-- Rep path — invite setup code or rep token -->
   <div class="field" id="s2-reptoken-wrap" style="display:none">
-    <label>Rep Token <span class="req">*</span></label>
-    <input id="s2-reptoken" placeholder="BRVMT-REP-XXXXXXXX">
-    <div class="hint">Sent to you in your invite email. Starts with BRVMT-REP-</div>
-    <div class="valid" id="s2-reptoken-ok">Rep token validated</div>
-    <div class="error" id="s2-reptoken-err">Invalid rep token</div>
+    <label>Setup Code <span class="req">*</span></label>
+    <input id="s2-reptoken" placeholder="Paste the code from your invite email">
+    <div class="hint">Paste the setup code from your invitation email. BRVMT-REP tokens still work too.</div>
+    <div class="valid" id="s2-reptoken-ok">Setup code validated</div>
+    <div class="error" id="s2-reptoken-err">Invalid setup code</div>
   </div>
 
   <div class="field">
