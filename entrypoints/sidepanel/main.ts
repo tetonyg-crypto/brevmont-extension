@@ -143,7 +143,7 @@ function updateUsageCounter(root: HTMLElement): void {
     }
 
     const used = usage.generations_used || 0;
-    const limit = usage.generations_limit || 30;
+    const limit = usage.generations_limit || 500;
     const remaining = Math.max(0, limit - used);
     const pct = Math.min(100, Math.round((used / limit) * 100));
 
@@ -685,7 +685,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
         if (sec.crm.trim() === 'NO_NEW_NOTE') showToast(root, 'Nothing new to log. Last note covers this.');
         else addOutput(root, 'CRM NOTE', sec.crm, 'crm');
       }
-      if (!sec?.text && !sec?.email && !sec?.crm) addOutput(root, 'OUTPUT', response.text || 'Generation returned empty.');
+      if (!sec?.text && !sec?.email && !sec?.crm) addOutput(root, 'GENERATION', response.text || 'Generation returned empty.');
 
       // Auto-activate first tab
       const tabOrder: Array<'text' | 'email' | 'crm'> = ['text', 'email', 'crm'];
@@ -719,7 +719,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
           const u = data.brevmont_usage as { generations_used?: number; generations_limit?: number };
           const newUsed = (u.generations_used || 0) + 1;
           chrome.storage.local.set({
-            brevmont_usage: { ...u, generations_used: newUsed, generations_remaining: Math.max(0, (u.generations_limit || 30) - newUsed) },
+            brevmont_usage: { ...u, generations_used: newUsed, generations_remaining: Math.max(0, (u.generations_limit || 500) - newUsed) },
           });
         }
       }).catch(() => {});
@@ -1055,7 +1055,7 @@ function showLeadResult(root: HTMLElement, lead: any): void {
     </div>
     <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
       <button class="out-action out-primary" id="o8-lead-copy">Copy</button>
-      <button class="out-action" id="o8-lead-followup" style="background:#0D6E6E;color:#fff">Generate Follow-Up</button>
+      <button class="out-action" id="o8-lead-followup" style="background:#0D6E6E;color:#fff">Generate Reply</button>
       <button class="out-action" id="o8-lead-log-crm" style="background:#1E3A5F;color:#fff">Log to CRM</button>
     </div>
     ${leadId && nextStage && pipelineStage !== 'sold' && pipelineStage !== 'lost' ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #E5E7EB;display:flex;gap:6px;flex-wrap:wrap">
