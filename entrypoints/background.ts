@@ -591,40 +591,79 @@ export default defineBackground(() => {
     if (msg.type === 'PARSE_LEAD') {
       (async () => {
         try {
-          const settings = await browser.storage.sync.get(['dealer_token']);
-          if (!settings.dealer_token) { sendResponse({ error: 'No dealer_token' }); return; }
+          const dealerToken = await resolveDealerToken();
+          if (!dealerToken && !msg.payload?.customer_name && !msg.payload?.name) {
+            sendResponse({ error: 'No dealer_token' });
+            return;
+          }
 
-          const resp = await signedFetch(`${PROXY_URL}/api/parse-lead`, {
-            dealer_token: settings.dealer_token,
-            raw_text: msg.payload.raw_text,
-            platform: msg.payload.platform || 'unknown',
-          });
-          const data = await resp.json();
+          let data: any = {};
+          if (dealerToken && msg.payload?.raw_text) {
+            const resp = await signedFetch(`${PROXY_URL}/api/parse-lead`, {
+              dealer_token: dealerToken,
+              raw_text: msg.payload.raw_text,
+              platform: msg.payload.platform || 'unknown',
+            });
+            data = await resp.json().catch(() => ({}));
+            if (!resp.ok && !msg.payload?.customer_name && !msg.payload?.name) {
+              sendResponse({ error: data?.error || `Lead parse failed (${resp.status})` });
+              return;
+            }
+          }
 
           // Save parsed lead locally in Dexie for Lead Inbox
-          if (data.lead && data.lead.customer_name) {
+          const parsedLead = data.lead || {};
+          const fallbackName =
+            msg.payload?.customer_name ||
+            msg.payload?.customerName ||
+            msg.payload?.name ||
+            null;
+          const customerName = parsedLead.customer_name || fallbackName;
+
+          if (customerName) {
+            const leadId = crypto.randomUUID();
             const localLead: LocalLead = {
-              id: crypto.randomUUID(),
-              customer_name: data.lead.customer_name,
-              phone: data.lead.phone || null,
-              email: data.lead.email || null,
-              vehicle_interest: data.lead.vehicle_interest || null,
+              id: leadId,
+              customer_name: customerName,
+              phone: parsedLead.phone || msg.payload?.phone || null,
+              email: parsedLead.email || msg.payload?.email || null,
+              vehicle_interest: parsedLead.vehicle_interest || msg.payload?.vehicle_interest || msg.payload?.vehicle || null,
               source_platform: msg.payload.platform || 'unknown',
               source_raw_text: (msg.payload.raw_text || '').slice(0, 5000),
               status: 'captured',
               captured_at: Date.now(),
               sync_status: 'pending',
               updated_at: Date.now(),
-              has_trade_in: data.lead.has_trade_in || false,
-              finance_intent: data.lead.finance_intent || false,
-              extracted_trade_in: data.lead.extracted_trade_in || null,
-              extracted_urgency: data.lead.extracted_urgency || null,
+              has_trade_in: parsedLead.has_trade_in || false,
+              finance_intent: parsedLead.finance_intent || false,
+              extracted_trade_in: parsedLead.extracted_trade_in || parsedLead.trade_in_vehicle || null,
+              extracted_urgency: parsedLead.extracted_urgency || parsedLead.urgency || null,
               pipeline_stage: 'captured',
               heat_score: 0, // Server computes real score on sync
             };
             await leadDb.captured_leads.put(localLead);
             // Fire-and-forget background sync
             syncPendingLeads().catch((e) => console.warn('[leadSync] bg sync failed:', e));
+            data = {
+              ...data,
+              lead: {
+                ...parsedLead,
+                id: leadId,
+                customer_name: customerName,
+                phone: localLead.phone,
+                email: localLead.email,
+                vehicle_interest: localLead.vehicle_interest,
+                source_platform: localLead.source_platform,
+                source_raw_text: localLead.source_raw_text,
+                status: localLead.status,
+                pipeline_stage: localLead.pipeline_stage,
+                heat_score: localLead.heat_score,
+                has_trade_in: localLead.has_trade_in,
+                finance_intent: localLead.finance_intent,
+                extracted_trade_in: localLead.extracted_trade_in,
+                extracted_urgency: localLead.extracted_urgency,
+              },
+            };
           }
 
           sendResponse(data);

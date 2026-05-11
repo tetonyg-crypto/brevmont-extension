@@ -16,7 +16,7 @@
 import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
-import { extractContactName as extractContactNameForPlatform } from './lib/leadContextScan';
+import { extractContactName as extractContactNameForPlatform, gatherAllText } from './lib/leadContextScan';
 
 type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
 
@@ -1077,10 +1077,45 @@ export default defineContentScript({
 
       if (msg.type === 'SCAN_LEAD') {
         try {
-          const name = safeExtractContactName();
-          sendResponse({ name: name || null, phone: leadData?.phone || null, email: leadData?.email || null });
+          let rawText = '';
+          if (isFacebook) {
+            const main = document.querySelector('[role="main"]') as HTMLElement | null;
+            rawText = main?.innerText || document.body?.innerText || '';
+          } else if (isLinkedIn) {
+            const thread = document.querySelector('.msg-s-message-list-content, [class*="msg-thread"], [class*="message-list"], .msg-conversations-container__thread-view, [class*="scaffold-layout__detail"]') as HTMLElement | null;
+            rawText = thread?.innerText || document.body?.innerText || '';
+          } else if (isGmail) {
+            const msgEl = document.querySelector('.h7, [role="list"], .a3s') as HTMLElement | null;
+            rawText = msgEl?.innerText || document.body?.innerText || '';
+          } else if (isInstagram) {
+            const thread = document.querySelector('[role="main"]') as HTMLElement | null;
+            rawText = thread?.innerText || document.body?.innerText || '';
+          } else {
+            rawText = gatherAllText();
+          }
+          rawText = (rawText || '').slice(0, 5000);
+          const scanned = isVinSolutions ? scanText(rawText) : {};
+          const name = scanned.customerName || leadData?.customerName || safeExtractContactName();
+          const phone = scanned.phone || leadData?.phone || null;
+          const email = scanned.email || leadData?.email || null;
+          const vehicle = scanned.vehicle || leadData?.vehicle || leadData?.vehicleOfInterest || null;
+          sendResponse({
+            name: name || null,
+            customerName: name || null,
+            customer_name: name || null,
+            phone,
+            email,
+            vehicle,
+            vehicle_interest: vehicle,
+            source: scanned.source || leadData?.source || null,
+            status: scanned.status || leadData?.status || null,
+            lastContact: scanned.lastContact || leadData?.lastContact || null,
+            platform: PLATFORM,
+            raw_text: rawText,
+            source_raw_text: rawText,
+          });
         } catch {
-          sendResponse({ name: null });
+          sendResponse({ name: null, customerName: null, platform: PLATFORM });
         }
         return false;
       }

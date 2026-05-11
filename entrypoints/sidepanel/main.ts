@@ -91,10 +91,19 @@ function safeSend(msg: any): Promise<any> {
 
 // ─── Token check helper — avoids sending API calls destined to 401 ──────────
 async function requireToken(): Promise<string> {
-  const sync = await chrome.storage.sync.get(['dealer_token']);
-  const local = await chrome.storage.local.get(['dealer_token']);
-  const token = (sync.dealer_token || local.dealer_token || '') as string;
-  if (!token) throw new Error('No license key configured. Open Settings and enter your Brevmont license key.');
+  const [sync, local] = await Promise.all([
+    chrome.storage.sync.get(['dealer_token', 'rep_auth_token']),
+    chrome.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']),
+  ]);
+  const token = (
+    sync.dealer_token ||
+    local.dealer_token ||
+    sync.rep_auth_token ||
+    local.rep_auth_token ||
+    local.brevmont_rep_auth_token ||
+    ''
+  ) as string;
+  if (!token) throw new Error('Brevmont is not activated. Open Settings and activate your rep account.');
   return token;
 }
 
@@ -379,6 +388,7 @@ function wireHandlers(root: HTMLElement): void {
     chip.addEventListener('click', () => {
       const input = el('o8-coach-input') as HTMLTextAreaElement;
       if (input) input.value = (chip as HTMLElement).textContent || '';
+      void doCoach(root);
     });
   });
 
@@ -927,6 +937,7 @@ function wireContextTool(root: HTMLElement): void {
   const preview = root.querySelector('#o8-ctx-preview') as HTMLElement;
   const img = root.querySelector('#o8-ctx-img') as HTMLImageElement;
   const removeBtn = root.querySelector('#o8-ctx-remove') as HTMLElement;
+  const captureBtn = root.querySelector('#o8-ctx-capture') as HTMLButtonElement | null;
   const genBtn = root.querySelector('#o8-ctx-generate') as HTMLButtonElement;
   const directionInput = root.querySelector('#o8-ctx-direction') as HTMLTextAreaElement;
   const output = root.querySelector('#o8-ctx-output') as HTMLElement;
@@ -934,8 +945,19 @@ function wireContextTool(root: HTMLElement): void {
 
   if (!dropzone) return;
 
+  const setScreenshot = (dataUrl: string) => {
+    screenshotData = dataUrl;
+    if (img) img.src = screenshotData;
+    if (preview) preview.style.display = 'block';
+    if (dropzone) dropzone.style.display = 'none';
+    if (genBtn) genBtn.disabled = false;
+  };
+
+  dropzone.tabIndex = 0;
+  dropzone.addEventListener('click', () => dropzone.focus());
+
   // Paste handler
-  document.addEventListener('paste', (e) => {
+  const handlePaste = (e: ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
     for (const item of items) {
@@ -944,18 +966,35 @@ function wireContextTool(root: HTMLElement): void {
         if (blob) {
           const reader = new FileReader();
           reader.onload = () => {
-            screenshotData = reader.result as string;
-            if (img) img.src = screenshotData;
-            if (preview) preview.style.display = 'block';
-            if (dropzone) dropzone.style.display = 'none';
-            if (genBtn) genBtn.disabled = false;
+            setScreenshot(reader.result as string);
           };
           reader.readAsDataURL(blob);
         }
+        e.preventDefault();
         break;
       }
     }
-  });
+  };
+  document.addEventListener('paste', handlePaste);
+  dropzone.addEventListener('paste', handlePaste);
+
+  if (captureBtn) {
+    captureBtn.onclick = async () => {
+      captureBtn.disabled = true;
+      captureBtn.textContent = 'Capturing...';
+      try {
+        await requireToken();
+        const resp = await safeSend({ type: 'CAPTURE_SCREENSHOT' });
+        if (!resp?.image) throw new Error(resp?.error || 'Screenshot capture failed');
+        setScreenshot(resp.image);
+      } catch (e: any) {
+        output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message || 'Screenshot capture failed')}</div>`;
+      } finally {
+        captureBtn.disabled = false;
+        captureBtn.textContent = 'Capture Current Tab';
+      }
+    };
+  }
 
   if (removeBtn) {
     removeBtn.onclick = () => {
@@ -1227,14 +1266,33 @@ function wireLeadCapture(root: HTMLElement): void {
       if (emptyMsg) emptyMsg.style.display = 'none';
       try {
         const ctx = await sendToContent({ type: 'SCAN_LEAD' });
-        const result = root.querySelector('#o8-lead-result') as HTMLElement;
-        if (result && ctx && (ctx.name || ctx.phone || ctx.email)) {
-          result.style.display = 'block';
-          result.innerHTML = `<div class="tool-result"><strong>${esc(ctx.name || 'Unknown')}</strong><br/>${esc(ctx.phone || '')} ${esc(ctx.email || '')}</div>`;
+        const detectedName = ctx?.customerName || ctx?.customer_name || ctx?.name || '';
+        if (ctx && (detectedName || ctx.phone || ctx.email || ctx.raw_text || ctx.source_raw_text)) {
+          await requireToken();
+          const rawText = ctx.raw_text || ctx.source_raw_text || [
+            detectedName ? `Name: ${detectedName}` : '',
+            ctx.phone ? `Phone: ${ctx.phone}` : '',
+            ctx.email ? `Email: ${ctx.email}` : '',
+            ctx.vehicle || ctx.vehicle_interest ? `Vehicle: ${ctx.vehicle || ctx.vehicle_interest}` : '',
+          ].filter(Boolean).join('\n');
+          const resp = await safeSend({
+            type: 'PARSE_LEAD',
+            payload: {
+              raw_text: rawText,
+              platform: ctx.platform || currentPlatform.platform,
+              customer_name: detectedName || null,
+              name: detectedName || null,
+              phone: ctx.phone || null,
+              email: ctx.email || null,
+              vehicle_interest: ctx.vehicle_interest || ctx.vehicle || null,
+            },
+          });
+          showLeadResult(root, resp?.lead || resp || ctx);
         } else if (emptyMsg) {
           emptyMsg.style.display = 'block';
         }
-      } catch {
+      } catch (e: any) {
+        showToast(root, e.message || 'Scan failed');
         if (emptyMsg) emptyMsg.style.display = 'block';
       }
       scanBtn.textContent = 'Scan This Page';
