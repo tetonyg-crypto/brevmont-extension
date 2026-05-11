@@ -161,7 +161,7 @@ export const copy = {
       'Your message has been received. We respond to every inquiry directly. Urgent issues are addressed within hours. Other requests within one business day.',
 
     errorSubmit:
-      'The message did not send. Please try again. If the problem continues, contact us at founder@brevmont.com or 307-690-0291.',
+      'The message did not send. Please try again. If the problem continues, contact us at team@brevmont.com or 307-690-0291.',
     errorScreenshot:
       'The screenshot could not be attached. Your message was sent successfully.',
   },

@@ -274,10 +274,10 @@ function App() {
           Open Activation Page
         </button>
         <a
-          href="mailto:founder@brevmont.com"
+          href="mailto:team@brevmont.com"
           style={{ fontSize: 11, color: PALETTE.textFaint, textDecoration: 'none', textAlign: 'center' }}
         >
-          Need help? founder@brevmont.com
+          Need help? team@brevmont.com
         </a>
       </div>
     );
@@ -460,8 +460,8 @@ function App() {
         >
           Report issue
         </button>
-        <a href="mailto:founder@brevmont.com" style={{ fontSize: 12, color: PALETTE.textMuted, textDecoration: 'none' }}>
-          Or email founder@brevmont.com
+        <a href="mailto:team@brevmont.com" style={{ fontSize: 12, color: PALETTE.textMuted, textDecoration: 'none' }}>
+          Or email team@brevmont.com
         </a>
       </div>
 

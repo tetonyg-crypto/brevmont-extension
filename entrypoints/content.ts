@@ -90,7 +90,7 @@ export default defineContentScript({
             <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#0D6E6E;margin-bottom:12px;font-weight:700;">BREVMONT UPDATE REQUIRED</div>
             <h2 style="font-size:22px;font-weight:800;margin:0 0 10px;line-height:1.25;">Please update the extension</h2>
             <p style="font-size:14px;line-height:1.55;margin:0 0 18px;color:#3A3F43;">${status.message || 'This version of Brevmont is no longer supported.'}</p>
-            <p style="font-size:12px;line-height:1.5;margin:0 0 20px;color:#5A6066;">Head to the Chrome Web Store or contact <a href="mailto:founder@brevmont.com" style="color:#0D6E6E;">founder@brevmont.com</a> for the current build.</p>
+            <p style="font-size:12px;line-height:1.5;margin:0 0 20px;color:#5A6066;">Head to the Chrome Web Store or contact <a href="mailto:team@brevmont.com" style="color:#0D6E6E;">team@brevmont.com</a> for the current build.</p>
             <button id="brevmont-version-lock-dismiss" style="background:transparent;border:1px solid #D3CFC5;color:#3A3F43;padding:8px 14px;border-radius:8px;font-size:12px;cursor:pointer;">Dismiss for this tab</button>
           </div>
         `;

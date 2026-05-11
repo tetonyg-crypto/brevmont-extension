@@ -11,6 +11,8 @@
 
 import { getPanelHTML } from '../lib/panelUI';
 import { getPanelCSS } from '../lib/panelCSS';
+import { clearJwtCache } from '../../lib/jwtCache';
+import { clearAuth } from '../../lib/storage';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
@@ -24,6 +26,36 @@ interface PlatformContext {
 // ─── State ───────────────────────────────────────────────────────────────────
 let currentPlatform: PlatformContext = { platform: 'unknown', tabId: -1, url: '' };
 let isGenerating = false;
+
+const AUTH_SYNC_KEYS = [
+  'license_key',
+  'license_secret',
+  'brevmont_license_secret',
+  'dealer_token',
+  'rep_auth_token',
+  'brevmont_rep_auth_token',
+  'rep_id',
+  'rep_name',
+  'dealership_id',
+  'dealership',
+  'profile_onboarded',
+  'profile',
+  'install_token',
+];
+
+async function clearCredentialsForReconnect(): Promise<void> {
+  await Promise.allSettled([
+    clearJwtCache(),
+    clearAuth(),
+    chrome.storage.sync.remove(AUTH_SYNC_KEYS),
+    chrome.storage.local.remove([
+      'license_revoked',
+      'license_revoked_at',
+      'license_revoked_message',
+      'brevmont_jwt_cache',
+    ]),
+  ]);
+}
 
 // ─── Platform detection from URL (no DOM access needed) ──────────────────────
 function detectPlatformFromURL(url: string): Platform {
@@ -249,7 +281,10 @@ async function showAccessEndedBanner(root: HTMLElement): Promise<void> {
 
   const reconnect = banner.querySelector('#o8-access-reconnect') as HTMLButtonElement | null;
   if (reconnect) {
-    reconnect.onclick = () => {
+    reconnect.onclick = async () => {
+      reconnect.disabled = true;
+      reconnect.textContent = 'Opening setup...';
+      await clearCredentialsForReconnect();
       chrome.runtime.sendMessage({ type: 'OPEN_ONBOARDING' }, () => {
         if (chrome.runtime.lastError) {
           try { chrome.tabs.create({ url: chrome.runtime.getURL('onboarding.html') }); } catch {}
@@ -396,7 +431,7 @@ function wireHandlers(root: HTMLElement): void {
   }
   const helpBtn = root.querySelector('#sp-link-help') as HTMLButtonElement;
   if (helpBtn) {
-    helpBtn.onclick = () => { chrome.tabs.create({ url: 'mailto:founder@brevmont.com' }); };
+    helpBtn.onclick = () => { chrome.tabs.create({ url: 'mailto:team@brevmont.com' }); };
   }
 
   // Tools panel
