@@ -840,10 +840,10 @@ async function openBrevmont() {
     await openRepPostInstallDestination();
   } else {
     try {
-      chrome.tabs.create({ url: 'https://app.brevmont.com/dashboard' });
+      chrome.tabs.create({ url: 'https://app.brevmont.com/manager/team' });
       window.close();
     } catch {
-      window.location.href = 'https://app.brevmont.com/dashboard';
+      window.location.href = 'https://app.brevmont.com/manager/team';
     }
   }
 }

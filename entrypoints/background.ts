@@ -1828,7 +1828,7 @@ async function generateViaProxy(
     return { text, usage: result.usage || {} };
   }
 
-  if (resp.status === 401) throw new Error('License invalid or expired. Contact support to renew your Brevmont subscription.');
+  if (resp.status === 401) throw new Error('Your Brevmont access expired or needs to be refreshed. Ask your manager to resend the invite, or text us at 307-690-0291.');
   if (resp.status === 429) {
     const body429 = await resp.json().catch(() => ({}));
     if (body429.error === 'generation_limit_reached') {

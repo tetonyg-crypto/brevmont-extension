@@ -221,7 +221,7 @@ function showUpgradePrompt(root: HTMLElement, message: string, upgradeUrl?: stri
     <div class="upgrade-title">Free Limit Reached</div>
     <div class="upgrade-msg">${esc(message)}</div>
     <a class="upgrade-btn" href="${upgradeUrl || 'https://brevmont.com'}" target="_blank">Upgrade Now</a>
-    <div class="upgrade-phone">Or call the founder: 307-690-0291</div>
+    <div class="upgrade-phone">Or text us: 307-690-0291</div>
   `;
 }
 
