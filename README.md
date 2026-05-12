@@ -16,6 +16,7 @@ npm install
 npm run dev          # WXT dev server with live reload
 npm run build        # Production build into .output/chrome-mv3/
 npm run build:release # build + zip into .output/brevmont-extension-<version>-chrome.zip
+npm test             # Playwright extension tests
 ```
 
 Load `.output/chrome-mv3/` as an unpacked extension at `chrome://extensions` (Developer mode on).
@@ -34,6 +35,10 @@ Charcoal `#0F1419`, Deep Teal `#0D6E6E`, Bone `#F8F6F1`. Inter for body, Instrum
 ## Distribution
 
 Sideloaded via the served zip at `https://api.brevmont.com/api/extension-download`. Chrome Web Store submission deferred until customer 5 (Constitution ADR-15).
+
+## Environment
+
+The extension talks to the API through the proxy URL configured in source constants and packaged at build time. Reps should use invited setup whenever possible so `rep_auth_token` and `dealership_id` are stored by onboarding instead of typed manually.
 
 ## Versioning
 
