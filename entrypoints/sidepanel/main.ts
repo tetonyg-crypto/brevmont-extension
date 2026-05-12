@@ -38,6 +38,7 @@ interface VersionStatus {
 let currentPlatform: PlatformContext = { platform: 'unknown', tabId: -1, url: '' };
 let isGenerating = false;
 const FIRST_GENERATION_KEY = 'first_generation_completed';
+const ONBOARDING_BANNER_DISMISSED_KEY = 'onboarding_banner_dismissed';
 const FIRST_GENERATION_EXAMPLE = 'Follow up with John about the Silverado, he wanted to think about the payment';
 
 const AUTH_SYNC_KEYS = [
@@ -301,18 +302,45 @@ function setDisplay(root: HTMLElement, selector: string, visible: boolean): void
   if (node) node.style.display = visible ? '' : 'none';
 }
 
+function toolLabel(tool: string | null): string {
+  switch (tool) {
+    case 'coach': return 'Coach';
+    case 'alerts': return 'Reminders';
+    case 'context': return 'Screenshot Reply';
+    case 'command': return 'Ask Anything';
+    default: return 'Tools';
+  }
+}
+
+function setActiveToolSection(root: HTMLElement, activeTool: string | null): void {
+  const toolsPanel = root.querySelector('#o8-tools-panel') as HTMLElement | null;
+  if (!toolsPanel) return;
+
+  toolsPanel.querySelectorAll<HTMLElement>('.tool-tab-btn').forEach((button) => {
+    const isActive = !!activeTool && button.dataset.tool === activeTool;
+    button.classList.toggle('active', isActive);
+  });
+
+  toolsPanel.querySelectorAll<HTMLElement>('.tool-content').forEach((content) => {
+    content.style.display = activeTool && content.id === `tool-${activeTool}` ? 'block' : 'none';
+  });
+
+  const title = toolsPanel.querySelector('.tools-title') as HTMLElement | null;
+  if (title) title.textContent = toolLabel(activeTool);
+}
+
 function applyFeatureGates(root: HTMLElement): void {
   getFeatureAccess().then(access => {
     setDisplay(root, '#o8-lead-btn', access.addLead);
-    setDisplay(root, '#o8-lead-panel', access.addLead);
+    if (!access.addLead) setDisplay(root, '#o8-lead-panel', false);
     setDisplay(root, '#o8-outcome-section', access.markOutcome);
     setDisplay(root, '.inline-links', access.coachMe || access.stats || access.settings);
     setDisplay(root, '#o8-tools-btn-inline', access.coachMe);
-    setDisplay(root, '#o8-tools-panel', access.coachMe || access.notifications || access.screenshotCapture || access.commandMode);
+    if (!(access.coachMe || access.notifications || access.screenshotCapture || access.commandMode)) setDisplay(root, '#o8-tools-panel', false);
     setDisplay(root, '#o8-stats-btn-inline', access.stats);
-    setDisplay(root, '#o8-stats-panel', access.stats);
+    if (!access.stats) setDisplay(root, '#o8-stats-panel', false);
     setDisplay(root, '#o8-settings-btn-inline', access.settings);
-    setDisplay(root, '#o8-settings-panel', access.settings);
+    if (!access.settings) setDisplay(root, '#o8-settings-panel', false);
 
     const gates = [
       { tab: '[data-tool="coach"]', content: '#tool-coach', allowed: access.coachMe },
@@ -323,13 +351,16 @@ function applyFeatureGates(root: HTMLElement): void {
 
     for (const gate of gates) {
       setDisplay(root, gate.tab, gate.allowed);
-      setDisplay(root, gate.content, gate.allowed);
+      if (!gate.allowed) setDisplay(root, gate.content, false);
     }
 
     if (!access.coachMe && !access.notifications && !access.screenshotCapture && !access.commandMode) {
       const toolsPanel = root.querySelector('#o8-tools-panel') as HTMLElement | null;
       if (toolsPanel) toolsPanel.style.display = 'none';
     }
+
+    const activeTab = root.querySelector('#o8-tools-panel .tool-tab-btn.active') as HTMLElement | null;
+    if (activeTab && activeTab.style.display === 'none') setActiveToolSection(root, null);
   }).catch(() => {
     for (const selector of [
       '#o8-lead-btn',
@@ -385,10 +416,18 @@ async function applyFirstUseGuide(root: HTMLElement): Promise<void> {
   const input = root.querySelector('#o8-input') as HTMLTextAreaElement | null;
   if (!card) return;
 
-  const state = await chrome.storage.local.get([FIRST_GENERATION_KEY, 'rep_name']);
-  if (state[FIRST_GENERATION_KEY]) {
+  const state = await chrome.storage.local.get([FIRST_GENERATION_KEY, ONBOARDING_BANNER_DISMISSED_KEY, 'rep_name']);
+  if (state[FIRST_GENERATION_KEY] || state[ONBOARDING_BANNER_DISMISSED_KEY]) {
     card.style.display = 'none';
     return;
+  }
+
+  const dismissButton = card.querySelector('#o8-first-use-dismiss') as HTMLButtonElement | null;
+  if (dismissButton) {
+    dismissButton.onclick = async () => {
+      await chrome.storage.local.set({ [ONBOARDING_BANNER_DISMISSED_KEY]: true });
+      card.style.display = 'none';
+    };
   }
 
   const repName = String(state.rep_name || '').trim();
@@ -401,19 +440,13 @@ async function applyFirstUseGuide(root: HTMLElement): Promise<void> {
 }
 
 async function markFirstGenerationComplete(root: HTMLElement): Promise<void> {
-  await chrome.storage.local.set({ [FIRST_GENERATION_KEY]: true });
+  await chrome.storage.local.set({
+    [FIRST_GENERATION_KEY]: true,
+    [ONBOARDING_BANNER_DISMISSED_KEY]: true,
+  });
   const card = root.querySelector('#o8-first-use') as HTMLElement | null;
   if (!card) return;
-  card.classList.add('done');
-  card.style.display = 'block';
-  card.innerHTML = `
-    <div class="first-use-eyebrow">Nice.</div>
-    <div class="first-use-title">That is your first follow-up.</div>
-    <div class="first-use-copy">Your text, email, and CRM note are ready to review. Copy any of them into your CRM, text thread, or email. You decide what gets sent. Brevmont does the typing.</div>
-  `;
-  window.setTimeout(() => {
-    card.style.display = 'none';
-  }, 9000);
+  card.style.display = 'none';
 }
 
 async function showAccessEndedBanner(root: HTMLElement): Promise<void> {
@@ -607,26 +640,27 @@ function wireHandlers(root: HTMLElement): void {
     toolsBtnInline.onclick = () => {
       el('o8-quick')!.style.display = 'none';
       if (toolsPanel) toolsPanel.style.display = 'flex';
-      const coachInput = root.querySelector('#o8-coach-input') as HTMLTextAreaElement;
-      if (coachInput) {
-        setTimeout(() => {
-          coachInput.focus();
-          coachInput.placeholder = 'Tell Brevmont what the customer said, then click Coach Me below ↓';
-        }, 100);
-      }
+      setActiveToolSection(root, null);
     };
   }
-  if (toolsBack) toolsBack.onclick = () => { toolsPanel!.style.display = 'none'; el('o8-quick')!.style.display = 'flex'; };
+  if (toolsBack) toolsBack.onclick = () => { setActiveToolSection(root, null); toolsPanel!.style.display = 'none'; el('o8-quick')!.style.display = 'flex'; };
 
   // Tool tab switching
   root.querySelectorAll('.tool-tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      root.querySelectorAll('.tool-tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      root.querySelectorAll('.tool-content').forEach(c => (c as HTMLElement).style.display = 'none');
       const tool = (btn as HTMLElement).dataset.tool;
-      const target = root.querySelector(`#tool-${tool}`) as HTMLElement;
-      if (target) target.style.display = 'block';
+      const target = root.querySelector(`#tool-${tool}`) as HTMLElement | null;
+      const isOpen = btn.classList.contains('active') && target?.style.display !== 'none';
+      setActiveToolSection(root, isOpen ? null : tool || null);
+      if (!isOpen && tool === 'coach') {
+        const coachInput = root.querySelector('#o8-coach-input') as HTMLTextAreaElement | null;
+        if (coachInput) {
+          setTimeout(() => {
+            coachInput.focus();
+            coachInput.placeholder = 'Tell Brevmont what the customer said, then click Coach Me below.';
+          }, 100);
+        }
+      }
     });
   });
 
