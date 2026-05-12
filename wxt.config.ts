@@ -57,7 +57,7 @@ export default defineConfig({
         description: 'Open Brevmont Command Mode'
       }
     },
-    permissions: ['sidePanel', 'activeTab', 'storage', 'alarms', 'tabs', 'notifications', 'cookies'],
+    permissions: ['sidePanel', 'activeTab', 'scripting', 'storage', 'alarms', 'tabs', 'notifications', 'cookies'],
     // Options page: rep-only preferences (name, tone, goal).
     // Opens as a full tab via chrome.runtime.openOptionsPage().
     options_ui: {

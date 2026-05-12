@@ -168,11 +168,23 @@ async function requireToken(): Promise<string> {
   return token;
 }
 
-// ─── Send message to content script in active tab ────────────────────────────
-async function sendToContent(msg: any): Promise<any> {
-  if (currentPlatform.tabId < 0) return null;
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isContentScriptMissing(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /receiving end does not exist|could not establish connection|no tab with id/i.test(message);
+}
+
+function canInjectIntoUrl(url?: string): boolean {
+  if (!url) return false;
+  return /^https?:\/\/(mail\.google\.com|[^/]+\.vinsolutions\.com|vinsolutions\.app\.coxautoinc\.com|[^/]+\.facebook\.com|www\.facebook\.com|[^/]+\.messenger\.com|www\.messenger\.com|[^/]+\.linkedin\.com|www\.linkedin\.com|[^/]+\.instagram\.com|www\.instagram\.com|web\.whatsapp\.com)\//i.test(url);
+}
+
+function tabMessage(tabId: number, msg: any): Promise<any> {
   return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(currentPlatform.tabId, msg, (response) => {
+    chrome.tabs.sendMessage(tabId, msg, (response) => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message || 'Content message failed'));
         return;
@@ -180,6 +192,41 @@ async function sendToContent(msg: any): Promise<any> {
       resolve(response);
     });
   });
+}
+
+async function ensureContentScript(tabId: number): Promise<void> {
+  const tab = await chrome.tabs.get(tabId);
+  if (!canInjectIntoUrl(tab.url)) {
+    throw new Error('Open Gmail, VinSolutions, or a supported sales page, then try Inject again.');
+  }
+
+  if (!chrome.scripting?.executeScript) {
+    throw new Error('Reload the extension and this page, then try Inject again.');
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      files: ['content-scripts/content.js'],
+    });
+    await sleep(150);
+  } catch (error: any) {
+    throw new Error(error?.message || 'Could not connect Brevmont to this page. Reload the page and try again.');
+  }
+}
+
+// ─── Send message to content script in active tab ────────────────────────────
+async function sendToContent(msg: any): Promise<any> {
+  await refreshPlatform();
+  if (currentPlatform.tabId < 0) return null;
+
+  try {
+    return await tabMessage(currentPlatform.tabId, msg);
+  } catch (error) {
+    if (!isContentScriptMissing(error)) throw error;
+    await ensureContentScript(currentPlatform.tabId);
+    return await tabMessage(currentPlatform.tabId, msg);
+  }
 }
 
 // ─── Detect active tab platform ─────────────────────────────────────────────

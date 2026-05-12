@@ -387,6 +387,7 @@ export default defineContentScript({
     }
 
     function safeInjectText(target: HTMLElement, text: string) {
+      target.focus();
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
         const proto = Object.getPrototypeOf(target);
         const desc = Object.getOwnPropertyDescriptor(proto, 'value') ||
@@ -394,12 +395,27 @@ export default defineContentScript({
                      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
         desc?.set?.call(target, text);
       } else if ((target as any).isContentEditable) {
-        target.textContent = text;
         const range = document.createRange();
         range.selectNodeContents(target);
-        range.collapse(false);
-        window.getSelection()?.removeAllRanges();
-        window.getSelection()?.addRange(range);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        let inserted = false;
+        try {
+          inserted = document.execCommand('insertText', false, text);
+        } catch {
+          inserted = false;
+        }
+        const rendered = (target.textContent || '').trim();
+        const expectedStart = text.trim().slice(0, 24);
+        if (!inserted || (expectedStart && !rendered.includes(expectedStart))) {
+          target.textContent = text;
+        }
+        const endRange = document.createRange();
+        endRange.selectNodeContents(target);
+        endRange.collapse(false);
+        selection?.removeAllRanges();
+        selection?.addRange(endRange);
       } else {
         target.textContent = text;
       }
@@ -1086,14 +1102,80 @@ export default defineContentScript({
     }
 
     // ===== INJECT CONTENT (Side Panel → host page DOM) =====
-    function injectContent(parsed: any): boolean {
+    function isVisibleElement(el: Element | null): el is HTMLElement {
+      if (!(el instanceof HTMLElement)) return false;
+      const style = window.getComputedStyle(el);
+      return style.display !== 'none' && style.visibility !== 'hidden' && el.getClientRects().length > 0;
+    }
+
+    function firstVisible(selectors: string[]): HTMLElement | null {
+      for (const selector of selectors) {
+        for (const el of Array.from(document.querySelectorAll(selector))) {
+          if (isVisibleElement(el)) return el;
+        }
+      }
+      return null;
+    }
+
+    function findGmailComposeBody(): HTMLElement | null {
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.isContentEditable) {
+        const label = (active.getAttribute('aria-label') || '').toLowerCase();
+        if (label.includes('message') || active.matches('.Am.Al.editable, div[role="textbox"]')) return active;
+      }
+
+      return firstVisible([
+        'div[aria-label="Message Body"][contenteditable="true"]',
+        'div[aria-label="Message Body"]',
+        'div[role="textbox"][g_editable="true"]',
+        'div[role="textbox"][contenteditable="true"]',
+        '.Am.Al.editable[contenteditable="true"]',
+        '.Am.Al.editable',
+        '[g_editable="true"][contenteditable="true"]',
+      ]);
+    }
+
+    function findGmailSubjectInput(): HTMLInputElement | null {
+      const subject = firstVisible([
+        'input[name="subjectbox"]',
+        'input[aria-label="Subject"]',
+        'input[placeholder="Subject"]',
+      ]);
+      return subject instanceof HTMLInputElement ? subject : null;
+    }
+
+    function splitGeneratedEmail(content: string, explicitSubject?: string): { subject: string; body: string } {
+      let subject = explicitSubject || '';
+      let body = content || '';
+      const subjectMatch = body.match(/^\s*(?:subject|subj)\s*:\s*(.+?)\s*(?:\r?\n)+/i);
+      if (subjectMatch) {
+        subject = subject || subjectMatch[1].trim();
+        body = body.slice(subjectMatch[0].length);
+      }
+      body = body.replace(/^\s*(?:body|email)\s*:\s*/i, '').trimStart();
+      return { subject, body };
+    }
+
+    function injectGmailEmail(content: string, subject?: string): boolean {
+      const bodyEl = findGmailComposeBody();
+      if (!bodyEl) return false;
+      const parsed = splitGeneratedEmail(content, subject);
+      safeInjectText(bodyEl, parsed.body || content);
+      if (parsed.subject) {
+        const subjectEl = findGmailSubjectInput();
+        if (subjectEl) safeInjectText(subjectEl, parsed.subject);
+      }
+      return true;
+    }
+
+    async function injectContent(parsed: any): Promise<boolean> {
       const { action, content, subject } = parsed;
-      if ((action === 'write_email' || PLATFORM === 'gmail') && isGmail) { const body = qSel(gmailSelectors, 'compose_body', 'div[aria-label="Message Body"][contenteditable="true"]') as HTMLElement; if (body) { body.focus(); safeInjectText(body, content); if (subject) { const subj = qSel(gmailSelectors, 'compose_subject', 'input[name="subjectbox"]') as HTMLInputElement; if (subj) { subj.focus(); safeInjectText(subj, subject); } } return true; } }
-      if ((action === 'write_facebook_message' || PLATFORM === 'facebook') && isFacebook) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { box.focus(); safeInjectText(box, content); return true; } }
-      if ((action === 'write_linkedin_message' || PLATFORM === 'linkedin') && isLinkedIn) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { box.focus(); safeInjectText(box, content); return true; } }
-      if (PLATFORM === 'whatsapp') { const box = document.querySelector('div[contenteditable="true"][data-tab="10"]') as HTMLElement ?? document.querySelector('footer div[contenteditable="true"]') as HTMLElement; if (box) { box.focus(); safeInjectText(box, content); return true; } }
-      if (isInstagram) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement ?? document.querySelector('textarea[placeholder]') as HTMLElement; if (box) { box.focus(); safeInjectText(box, content); return true; } }
-      if (action === 'log_crm_note' && isVinSolutions) { pasteIntoCRM(content); return true; }
+      if ((action === 'write_email' || PLATFORM === 'gmail') && isGmail) return injectGmailEmail(content || '', subject);
+      if ((action === 'write_facebook_message' || PLATFORM === 'facebook') && isFacebook) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { safeInjectText(box, content); return true; } }
+      if ((action === 'write_linkedin_message' || PLATFORM === 'linkedin') && isLinkedIn) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { safeInjectText(box, content); return true; } }
+      if (PLATFORM === 'whatsapp') { const box = document.querySelector('div[contenteditable="true"][data-tab="10"]') as HTMLElement ?? document.querySelector('footer div[contenteditable="true"]') as HTMLElement; if (box) { safeInjectText(box, content); return true; } }
+      if (isInstagram) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement ?? document.querySelector('textarea[placeholder]') as HTMLElement; if (box) { safeInjectText(box, content); return true; } }
+      if (action === 'log_crm_note' && isVinSolutions) return await pasteIntoCRM(content || '');
       return false;
     }
 
@@ -1192,22 +1274,27 @@ export default defineContentScript({
         return false;
       }
 
-      if (msg.type === 'INJECT_CONTENT') {
-        try {
-          const { content, outputType } = msg.payload || {};
-          const mapped: any = {
-            action: outputType === 'email' ? 'write_email' : outputType === 'crm' ? 'log_crm_note' : 'write_message',
-            content: content || '',
-          };
-          const ok = injectContent(mapped);
-          if (!ok) {
-            navigator.clipboard.writeText(content || '').catch(() => {});
+      if (msg.type === 'INJECT_CONTENT' || msg.type === 'INJECT_EMAIL' || msg.type === 'INJECT_CRM_NOTE') {
+        (async () => {
+          try {
+            const payload = msg.payload || msg;
+            const outputType = payload.outputType || (msg.type === 'INJECT_EMAIL' ? 'email' : msg.type === 'INJECT_CRM_NOTE' ? 'crm' : 'text');
+            const content = payload.content || payload.body || payload.note || '';
+            const mapped: any = {
+              action: outputType === 'email' ? 'write_email' : outputType === 'crm' ? 'log_crm_note' : 'write_message',
+              content,
+              subject: payload.subject,
+            };
+            const ok = await injectContent(mapped);
+            if (!ok) {
+              navigator.clipboard.writeText(content).catch(() => {});
+            }
+            sendResponse({ ok });
+          } catch (e: any) {
+            sendResponse({ ok: false, error: e.message });
           }
-          sendResponse({ ok });
-        } catch (e: any) {
-          sendResponse({ ok: false, error: e.message });
-        }
-        return false;
+        })();
+        return true;
       }
 
       if (msg.type === 'SHOW_ALERT_BANNER') {
