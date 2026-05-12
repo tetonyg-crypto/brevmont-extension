@@ -26,6 +26,8 @@ interface PlatformContext {
 // ─── State ───────────────────────────────────────────────────────────────────
 let currentPlatform: PlatformContext = { platform: 'unknown', tabId: -1, url: '' };
 let isGenerating = false;
+const FIRST_GENERATION_KEY = 'first_generation_completed';
+const FIRST_GENERATION_EXAMPLE = 'Follow up with John about the Silverado, he wanted to think about the payment';
 
 const AUTH_SYNC_KEYS = [
   'license_key',
@@ -256,9 +258,46 @@ function renderPanel(): void {
   wireHandlers(root);
 
   // Show free tier usage counter if applicable
+  applyFirstUseGuide(root);
   updateUsageCounter(root);
   applyFeatureGates(root);
   showAccessEndedBanner(root);
+}
+
+async function applyFirstUseGuide(root: HTMLElement): Promise<void> {
+  const card = root.querySelector('#o8-first-use') as HTMLElement | null;
+  const input = root.querySelector('#o8-input') as HTMLTextAreaElement | null;
+  if (!card) return;
+
+  const state = await chrome.storage.local.get([FIRST_GENERATION_KEY, 'rep_name']);
+  if (state[FIRST_GENERATION_KEY]) {
+    card.style.display = 'none';
+    return;
+  }
+
+  const repName = String(state.rep_name || '').trim();
+  card.style.display = 'block';
+  const title = card.querySelector('.first-use-title') as HTMLElement | null;
+  if (title && repName) title.textContent = `Welcome, ${repName}. Try your first generation.`;
+  if (input && !input.value.trim()) {
+    input.placeholder = FIRST_GENERATION_EXAMPLE;
+  }
+}
+
+async function markFirstGenerationComplete(root: HTMLElement): Promise<void> {
+  await chrome.storage.local.set({ [FIRST_GENERATION_KEY]: true });
+  const card = root.querySelector('#o8-first-use') as HTMLElement | null;
+  if (!card) return;
+  card.classList.add('done');
+  card.style.display = 'block';
+  card.innerHTML = `
+    <div class="first-use-eyebrow">Nice.</div>
+    <div class="first-use-title">That is your first generation.</div>
+    <div class="first-use-copy">Your text, email, and CRM note are ready to review. Copy any of them into your CRM, text thread, or email. You decide what gets sent. Brevmont does the typing.</div>
+  `;
+  window.setTimeout(() => {
+    card.style.display = 'none';
+  }, 9000);
 }
 
 async function showAccessEndedBanner(root: HTMLElement): Promise<void> {
@@ -364,6 +403,16 @@ function wireHandlers(root: HTMLElement): void {
   // Generate button
   const genBtn = el('o8-generate');
   if (genBtn) genBtn.onclick = () => doGenerate(root);
+  const exampleBtn = el('o8-first-use-example') as HTMLButtonElement | null;
+  if (exampleBtn) {
+    exampleBtn.onclick = () => {
+      const input = el('o8-input') as HTMLTextAreaElement | null;
+      if (!input) return;
+      input.value = FIRST_GENERATION_EXAMPLE;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    };
+  }
 
   // Enter key in input
   const mainInput = el('o8-input') as HTMLTextAreaElement | null;
@@ -797,6 +846,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       const tabOrder: Array<'text' | 'email' | 'crm'> = ['text', 'email', 'crm'];
       const firstReady = tabOrder.find(t => !!root.querySelector(`.out-card[data-output-type="${t}"]`));
       if (firstReady) setActiveOutputTab(root, firstReady);
+      await markFirstGenerationComplete(root);
 
       // Honest event tracking via background
       try {

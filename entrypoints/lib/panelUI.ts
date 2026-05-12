@@ -69,6 +69,12 @@ export function getPanelHTML(platform: Platform): string {
 <div id="o8-quick" class="quick-mode">
   ${customerCard}
   <div class="input-section">
+    <div id="o8-first-use" class="first-use-card" style="display:none;">
+      <div class="first-use-eyebrow">Try your first generation</div>
+      <div class="first-use-title">Type one sentence about a customer.</div>
+      <div class="first-use-copy">Brevmont will write a follow-up text, email, and CRM note. You review it, copy it, and move to the next deal.</div>
+      <button id="o8-first-use-example" class="first-use-example" type="button">Use example</button>
+    </div>
     <div class="chips">
       <button class="chip on" data-type="text">Message</button>
       <button class="chip on" data-type="email">Email</button>

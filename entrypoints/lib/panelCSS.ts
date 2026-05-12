@@ -62,6 +62,13 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .gen-btn:hover { background:#0A5555; } .gen-btn:disabled { background:#94a3b8; cursor:wait; }
 .gen-spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:gen-spin 0.6s linear infinite; vertical-align:middle; margin-right:4px; }
 @keyframes gen-spin { to { transform:rotate(360deg); } }
+.first-use-card { margin-bottom:10px; padding:12px; border:1px solid rgba(13,110,110,0.18); border-radius:10px; background:#F8F6F1; }
+.first-use-card.done { border-color:rgba(22,163,74,0.22); background:#F0FDF4; }
+.first-use-eyebrow { font-size:9px; font-weight:800; letter-spacing:1px; text-transform:uppercase; color:#0D6E6E; margin-bottom:4px; }
+.first-use-title { font-size:14px; font-weight:750; color:#0F1419; margin-bottom:4px; }
+.first-use-copy { font-size:11px; line-height:1.45; color:#64748b; }
+.first-use-example { margin-top:8px; border:1px solid rgba(13,110,110,0.22); background:#fff; color:#0D6E6E; border-radius:7px; padding:6px 9px; font-size:11px; font-weight:700; font-family:inherit; cursor:pointer; }
+.first-use-example:hover { background:#eef8f5; }
 .usage-counter { text-align:center; font-size:11px; color:#64748b; margin-top:6px; padding:4px 8px; background:#f8fafc; border-radius:6px; border:1px solid #e2e8f0; }
 .usage-counter .usage-bar { height:3px; background:#e2e8f0; border-radius:2px; margin-top:4px; overflow:hidden; }
 .usage-counter .usage-fill { height:100%; background:#0D6E6E; border-radius:2px; transition:width 0.3s ease; }
