@@ -586,6 +586,8 @@ function wireHandlers(root: HTMLElement): void {
     settingsBtnInline.onclick = () => {
       el('o8-quick')!.style.display = 'none';
       const tp = el('o8-tools-panel'); if (tp) tp.style.display = 'none';
+      const stats = el('o8-stats-panel'); if (stats) stats.style.display = 'none';
+      const lead = el('o8-lead-panel'); if (lead) lead.style.display = 'none';
       if (settingsPanel) settingsPanel.style.display = 'flex';
     };
   }
@@ -639,6 +641,9 @@ function wireHandlers(root: HTMLElement): void {
   if (toolsBtnInline) {
     toolsBtnInline.onclick = () => {
       el('o8-quick')!.style.display = 'none';
+      const sp = el('o8-settings-panel'); if (sp) sp.style.display = 'none';
+      const stats = el('o8-stats-panel'); if (stats) stats.style.display = 'none';
+      const lead = el('o8-lead-panel'); if (lead) lead.style.display = 'none';
       if (toolsPanel) toolsPanel.style.display = 'flex';
       setActiveToolSection(root, null);
     };
@@ -1196,9 +1201,9 @@ async function loadAlerts(root: HTMLElement): Promise<void> {
       return;
     }
     list.innerHTML = alerts.map((a: any) =>
-      `<div class="alert-item"><span>${esc(a.task)}</span><span class="alert-time">${new Date(a.alertTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span><button class="alert-dismiss" data-id="${a.id}">&times;</button></div>`
+      `<div class="alert-item"><span>${esc(a.task)}</span><span class="alert-time">${new Date(a.alertTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span><button class="alert-done" data-id="${a.id}">Done</button></div>`
     ).join('');
-    list.querySelectorAll('.alert-dismiss').forEach(btn => {
+    list.querySelectorAll('.alert-done').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = (btn as HTMLElement).dataset.id;
         if (id) { await safeSend({ type: 'DISMISS_ALERT', payload: { id } }); loadAlerts(root); }
@@ -1530,14 +1535,43 @@ function wireLeadCapture(root: HTMLElement): void {
   const leadBtn = root.querySelector('#o8-lead-btn') as HTMLElement;
   const leadPanel = root.querySelector('#o8-lead-panel') as HTMLElement;
   const leadBack = root.querySelector('#o8-lead-back') as HTMLElement;
+  let autoScanTimer: number | null = null;
 
-  if (leadBtn) leadBtn.onclick = () => {
+  const activateLeadTab = (tab: 'scan' | 'voice' | 'paste') => {
+    root.querySelectorAll('.lead-tab-btn').forEach(b => {
+      const active = (b as HTMLElement).dataset.ltab === tab;
+      b.classList.toggle('active', active);
+    });
+    ['lead-scan', 'lead-voice', 'lead-paste'].forEach(id => {
+      const el = root.querySelector(`#${id}`) as HTMLElement;
+      if (el) el.style.display = id === `lead-${tab}` ? 'block' : 'none';
+    });
+  };
+
+  const openLeadScan = () => {
     root.querySelector('#o8-quick')!.setAttribute('style', 'display:none');
     const tp = root.querySelector('#o8-tools-panel') as HTMLElement; if (tp) tp.style.display = 'none';
     const sp = root.querySelector('#o8-settings-panel') as HTMLElement; if (sp) sp.style.display = 'none';
+    const stats = root.querySelector('#o8-stats-panel') as HTMLElement; if (stats) stats.style.display = 'none';
+    const result = root.querySelector('#o8-lead-result') as HTMLElement; if (result) result.style.display = 'none';
+    const emptyMsg = root.querySelector('#o8-scan-empty') as HTMLElement; if (emptyMsg) emptyMsg.style.display = 'none';
+    activateLeadTab('scan');
     if (leadPanel) leadPanel.style.display = 'flex';
+
+    if (autoScanTimer) window.clearTimeout(autoScanTimer);
+    autoScanTimer = window.setTimeout(() => {
+      const scanBtn = root.querySelector('#o8-scan-btn') as HTMLButtonElement;
+      if (scanBtn && !scanBtn.disabled) scanBtn.click();
+      autoScanTimer = null;
+    }, 75);
   };
+
+  if (leadBtn) leadBtn.onclick = openLeadScan;
   if (leadBack) leadBack.onclick = () => {
+    if (autoScanTimer) {
+      window.clearTimeout(autoScanTimer);
+      autoScanTimer = null;
+    }
     if (leadPanel) leadPanel.style.display = 'none';
     root.querySelector('#o8-quick')!.setAttribute('style', 'display:flex');
   };
@@ -1545,15 +1579,14 @@ function wireLeadCapture(root: HTMLElement): void {
   // Tab switching
   root.querySelectorAll('.lead-tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      root.querySelectorAll('.lead-tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      ['lead-scan', 'lead-voice', 'lead-paste'].forEach(id => {
-        const el = root.querySelector(`#${id}`) as HTMLElement;
-        if (el) el.style.display = 'none';
-      });
       const tab = (btn as HTMLElement).dataset.ltab;
-      const target = root.querySelector(`#lead-${tab}`) as HTMLElement;
-      if (target) target.style.display = 'block';
+      if (tab === 'scan' || tab === 'voice' || tab === 'paste') {
+        activateLeadTab(tab);
+        if (tab === 'scan') {
+          const scanBtn = root.querySelector('#o8-scan-btn') as HTMLButtonElement;
+          if (scanBtn && !scanBtn.disabled) scanBtn.click();
+        }
+      }
     });
   });
 
@@ -1561,6 +1594,8 @@ function wireLeadCapture(root: HTMLElement): void {
   const scanBtn = root.querySelector('#o8-scan-btn') as HTMLElement;
   if (scanBtn) {
     scanBtn.onclick = async () => {
+      if ((scanBtn as HTMLButtonElement).disabled) return;
+      (scanBtn as HTMLButtonElement).disabled = true;
       scanBtn.textContent = 'Scanning...';
       const emptyMsg = root.querySelector('#o8-scan-empty') as HTMLElement;
       if (emptyMsg) emptyMsg.style.display = 'none';
@@ -1596,6 +1631,7 @@ function wireLeadCapture(root: HTMLElement): void {
         if (emptyMsg) emptyMsg.style.display = 'block';
       }
       scanBtn.textContent = 'Scan This Page';
+      (scanBtn as HTMLButtonElement).disabled = false;
     };
   }
 
@@ -1661,6 +1697,7 @@ async function openStats(root: HTMLElement): Promise<void> {
   root.querySelector('#o8-quick')!.setAttribute('style', 'display:none');
   const tp = root.querySelector('#o8-tools-panel') as HTMLElement; if (tp) tp.style.display = 'none';
   const sp = root.querySelector('#o8-settings-panel') as HTMLElement; if (sp) sp.style.display = 'none';
+  const lp = root.querySelector('#o8-lead-panel') as HTMLElement; if (lp) lp.style.display = 'none';
   const statsPanel = root.querySelector('#o8-stats-panel') as HTMLElement;
   if (statsPanel) statsPanel.style.display = 'flex';
   const statsContent = root.querySelector('#o8-stats-content') as HTMLElement;

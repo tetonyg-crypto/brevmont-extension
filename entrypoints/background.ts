@@ -543,7 +543,11 @@ export default defineBackground(() => {
     if (msg.type === 'DISMISS_ALERT') {
       browser.storage.local.get('brevmont_alerts').then(data => {
         const alerts = data.brevmont_alerts || [];
-        const updated = alerts.map((a: any) => a.id === msg.payload.id ? { ...a, dismissed: true } : a);
+        const updated = alerts.map((a: any) => (
+          a.id === msg.payload.id
+            ? { ...a, dismissed: true, completed: true, completedAt: Date.now() }
+            : a
+        ));
         browser.storage.local.set({ brevmont_alerts: updated }).then(() => sendResponse({ ok: true }));
       }).catch(() => sendResponse({ ok: true }));
       return true;
@@ -875,13 +879,16 @@ export default defineBackground(() => {
     if (msg.type === 'GET_REP_STATS') {
       (async () => {
         try {
-          const syncSettings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
-          const localSettings = await browser.storage.local.get(['dealer_token', 'rep_name']);
+          const syncSettings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'rep_auth_token']);
+          const localSettings = await browser.storage.local.get(['dealer_token', 'rep_name', 'rep_auth_token', 'brevmont_rep_auth_token']);
           const dealerToken = syncSettings.dealer_token || localSettings.dealer_token;
+          const repToken = syncSettings.rep_auth_token || localSettings.rep_auth_token || localSettings.brevmont_rep_auth_token;
           const repName = syncSettings.rep_name || localSettings.rep_name;
-          if (!dealerToken || !repName) { sendResponse({ error: 'no_token' }); return; }
-          const resp = await fetch(`${PROXY_URL}/v1/rep/stats?rep_name=${encodeURIComponent(repName)}`, {
-            headers: { 'Authorization': `Bearer ${dealerToken}` },
+          const authToken = repToken || dealerToken;
+          if (!authToken || (!repToken && !repName)) { sendResponse({ error: 'no_token' }); return; }
+          const qs = repName ? `?rep_name=${encodeURIComponent(repName)}` : '';
+          const resp = await fetch(`${PROXY_URL}/v1/rep/stats${qs}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` },
           });
           if (!resp.ok) throw new Error(`Stats API returned ${resp.status}`);
           const data = await resp.json();
@@ -2044,7 +2051,13 @@ async function handleContextReply(payload: { image: string; direction: string })
       }],
       max_tokens: 800,
       model: 'claude-sonnet-4-20250514',
-      platform: 'context_reply'
+      platform: 'context_reply',
+      rep_name: (settings.rep_name as string | undefined) || null,
+      workflow_type: 'context_reply',
+      customer_name: null,
+      customer_email: null,
+      vehicle: null,
+      lead_id: null,
     }, repTokenHeader);
   } catch (e: any) {
     telemetry.trackError(e, { flow: 'context_reply_vision' });
@@ -2059,7 +2072,17 @@ async function handleContextReply(payload: { image: string; direction: string })
   }
 
   const data = await resp.json();
-  const text = data.content?.[0]?.text || '';
+  const sectionText = data.sections && typeof data.sections === 'object'
+    ? [data.sections.text, data.sections.email, data.sections.crm_note, data.sections.message]
+        .filter(Boolean)
+        .join('\n\n')
+    : '';
+  const text = data.reply
+    || data.text
+    || sectionText
+    || data.output
+    || data.content?.[0]?.text
+    || '';
   if (!text) throw new Error('Empty response. Try again.');
   return { reply: text };
 }

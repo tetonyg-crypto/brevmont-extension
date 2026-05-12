@@ -160,6 +160,48 @@ export default defineContentScript({
       try { return extractContactNameForPlatform(PLATFORM) || null; } catch { return null; }
     }
 
+    function extractGmailLeadSignal(rawText: string): { customerName?: string | null; email?: string | null; rawPrefix?: string } {
+      if (!isGmail) return {};
+      const candidates = Array.from(document.querySelectorAll('.gD[email], .gD[data-hovercard-id], [email], [data-hovercard-id]')) as HTMLElement[];
+      let senderEl = candidates.find(el => {
+        const email = el.getAttribute('email') || el.getAttribute('data-hovercard-id') || '';
+        return /@/.test(email);
+      }) || null;
+
+      if (!senderEl) {
+        senderEl = document.querySelector('[aria-label*="@"][role="button"], [title*="@"]') as HTMLElement | null;
+      }
+
+      const attrEmail = senderEl?.getAttribute('email')
+        || senderEl?.getAttribute('data-hovercard-id')
+        || senderEl?.getAttribute('title')?.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
+        || rawText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
+        || null;
+
+      const attrName = senderEl?.getAttribute('name')
+        || senderEl?.getAttribute('data-name')
+        || senderEl?.textContent?.replace(/<[^>]+>/g, '').trim()
+        || null;
+
+      const cleanName = attrName
+        ? attrName
+            .replace(attrEmail || '', '')
+            .replace(/[<>"()]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+        : null;
+      const emailLocalName = attrEmail
+        ? attrEmail.split('@')[0].replace(/[._+-]+/g, ' ').replace(/\s+/g, ' ').trim()
+        : null;
+      const customerName = cleanName || safeExtractContactName() || emailLocalName;
+      const rawPrefix = [
+        customerName ? `Sender name: ${customerName}` : '',
+        attrEmail ? `Sender email: ${attrEmail}` : '',
+      ].filter(Boolean).join('\n');
+
+      return { customerName, email: attrEmail, rawPrefix };
+    }
+
     function scrapeLeadCreatedAt(): string | null {
       if (!isVinSolutions) return null;
       try {
@@ -1101,10 +1143,14 @@ export default defineContentScript({
             rawText = gatherAllText();
           }
           rawText = (rawText || '').slice(0, 5000);
+          const gmailSignal = extractGmailLeadSignal(rawText);
+          if (gmailSignal.rawPrefix) {
+            rawText = `${gmailSignal.rawPrefix}\n\n${rawText}`.slice(0, 5000);
+          }
           const scanned = isVinSolutions ? scanText(rawText) : {};
-          const name = scanned.customerName || leadData?.customerName || safeExtractContactName();
+          const name = scanned.customerName || leadData?.customerName || gmailSignal.customerName || safeExtractContactName();
           const phone = scanned.phone || leadData?.phone || null;
-          const email = scanned.email || leadData?.email || null;
+          const email = scanned.email || leadData?.email || gmailSignal.email || null;
           const vehicle = scanned.vehicle || leadData?.vehicle || leadData?.vehicleOfInterest || null;
           sendResponse({
             name: name || null,
