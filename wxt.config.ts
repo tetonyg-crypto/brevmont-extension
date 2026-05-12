@@ -12,6 +12,16 @@ const pkgVersion = JSON.parse(
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
+  hooks: {
+    'build:manifestGenerated': (_, manifest) => {
+      // WXT auto-discovers entrypoints/popup and wires it as default_popup.
+      // Brevmont uses the Chrome side panel as the toolbar click surface, so
+      // remove the popup binding from the generated manifest.
+      if (manifest.action) {
+        delete (manifest.action as Record<string, unknown>).default_popup;
+      }
+    },
+  },
   vite: () => ({
     build: {
       minify: 'terser',
@@ -48,7 +58,7 @@ export default defineConfig({
       }
     },
     permissions: ['sidePanel', 'activeTab', 'storage', 'alarms', 'tabs', 'notifications', 'cookies'],
-    // Options page: Profile Settings (rep identity, communication style, customers).
+    // Options page: rep-only preferences (name, tone, goal).
     // Opens as a full tab via chrome.runtime.openOptionsPage().
     options_ui: {
       page: 'options-legacy.html',

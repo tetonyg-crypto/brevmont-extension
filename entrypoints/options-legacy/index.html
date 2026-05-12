@@ -2,117 +2,62 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Brevmont — Profile Settings</title>
+<title>Brevmont Settings</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;padding:32px 24px;color:#1a202c}
-.wrap{max-width:600px;margin:0 auto}
+.wrap{max-width:560px;margin:0 auto}
 h1{font-size:13px;font-weight:700;color:#0D6E6E;letter-spacing:4px;margin-bottom:4px}
-.sub{font-size:13px;color:#94a3b8;margin-bottom:24px}
-
-.section{background:#fff;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:12px;overflow:hidden}
-.section-header{padding:14px 18px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700;color:#1a202c;user-select:none}
-.section-header:hover{background:#E0F2F2}
-.section-header .arrow{color:#94a3b8;font-size:16px;transition:transform .2s}
-.section-header .arrow.open{transform:rotate(180deg)}
-.section-body{padding:0 18px 18px;display:none}
-.section-body.open{display:block}
-
-label{display:block;font-size:11px;font-weight:600;color:#64748b;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;margin-top:14px}
-label:first-child{margin-top:0}
-input,select,textarea{width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;font-family:inherit;outline:none;color:#1a202c}
-input:focus,select:focus,textarea:focus{border-color:#0D6E6E;box-shadow:0 0 0 3px rgba(13,110,110,.08)}
-textarea{resize:vertical;min-height:50px}
-.hint{font-size:10px;color:#94a3b8;margin-top:2px}
-.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-
-.save-btn{margin-top:10px;padding:8px 20px;background:#0D6E6E;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
-.save-btn:hover{background:#0A5555}
-.saved{font-size:11px;color:#16a34a;display:inline-block;margin-left:10px;opacity:0;transition:opacity .3s}
+.sub{font-size:13px;color:#64748b;margin-bottom:24px}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(15,20,25,.05)}
+.intro{font-size:13px;color:#64748b;line-height:1.55;margin-bottom:18px}
+label{display:block;font-size:11px;font-weight:700;color:#64748b;letter-spacing:.08em;text-transform:uppercase;margin:18px 0 7px}
+input[type=text],select{width:100%;height:42px;border:1px solid #e2e8f0;border-radius:8px;padding:0 12px;font-size:14px;font-family:inherit;color:#1a202c;outline:none;background:#fff}
+input[type=text]:focus,select:focus{border-color:#0D6E6E;box-shadow:0 0 0 3px rgba(13,110,110,.08)}
+.radio-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.choice{display:flex;align-items:center;gap:8px;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;font-size:13px;color:#1a202c;cursor:pointer}
+.choice input{accent-color:#0D6E6E}
+.actions{display:flex;align-items:center;gap:10px;margin-top:20px}
+button{height:40px;border:0;border-radius:8px;background:#0D6E6E;color:#fff;padding:0 16px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer}
+button:hover{background:#0A5555}
+.saved{font-size:12px;color:#16a34a;font-weight:700;opacity:0;transition:opacity .2s}
 .saved.show{opacity:1}
-
-.preview{background:#0a0a0f;border-radius:8px;padding:14px;margin-top:24px;font-family:'Courier New',monospace;font-size:11px;color:#a5b4fc;line-height:1.5;white-space:pre-wrap;max-height:300px;overflow-y:auto}
-.preview-label{font-size:11px;font-weight:600;color:#64748b;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}
-
-.no-profile{text-align:center;padding:48px;color:#94a3b8}
-.no-profile button{margin-top:16px;padding:10px 24px;background:#0D6E6E;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+.note{margin-top:16px;border-top:1px solid #e2e8f0;padding-top:14px;font-size:12px;color:#64748b;line-height:1.5}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>BREVMONT</h1>
-  <div class="sub">Profile Settings</div>
+  <div class="sub">Rep Settings</div>
 
-  <div id="no-profile" class="no-profile" style="display:none">
-    <p>No profile found. Complete onboarding to set up your Brevmont profile.</p>
-    <button id="setup-btn">Start Setup</button>
-  </div>
+  <div class="card">
+    <p class="intro">These are the only settings reps control. Store-level setup comes from the invite and manager account.</p>
 
-  <div id="settings-body" style="display:none">
+    <label for="p-first">Your name</label>
+    <input id="p-first" type="text" placeholder="First name" autocomplete="given-name">
 
-    <!-- WHO YOU ARE -->
-    <div class="section">
-      <div class="section-header">Who You Are <span class="arrow open">&#9662;</span></div>
-      <div class="section-body open">
-        <div class="row">
-          <div><label>First Name</label><input id="p-first"></div>
-          <div><label>Last Name</label><input id="p-last"></div>
-        </div>
-        <label>Job Title</label><input id="p-title">
-        <label>Years in Automotive</label><input id="p-years" placeholder="Example: 3-5 years">
-        <button class="save-btn" data-section="identity">Save</button><span class="saved" id="save-identity">Saved</span>
-      </div>
+    <label>Tone</label>
+    <div class="radio-grid">
+      <label class="choice"><input type="radio" name="tone" value="professional"> Professional</label>
+      <label class="choice"><input type="radio" name="tone" value="friendly"> Friendly</label>
+      <label class="choice"><input type="radio" name="tone" value="casual"> Casual</label>
+      <label class="choice"><input type="radio" name="tone" value="direct"> Direct</label>
     </div>
 
-    <!-- WHERE YOU WORK -->
-    <div class="section">
-      <div class="section-header">Where You Work <span class="arrow">&#9662;</span></div>
-      <div class="section-body">
-        <label>Dealership</label><input id="p-dealer">
-        <div class="row">
-          <div><label>City</label><input id="p-city"></div>
-          <div><label>State</label><input id="p-state"></div>
-        </div>
-        <label>License Key</label><input id="p-license">
-        <label>Primary CRM</label><input id="p-crm">
-        <div class="row">
-          <div><label>Doc Fee ($)</label><input id="p-docfee" type="number"></div>
-          <div><label>Tax Rate (%)</label><input id="p-tax" type="number" step="0.01"></div>
-        </div>
-        <label>Salt Roads</label><input id="p-salt" readonly>
-        <button class="save-btn" data-section="dealership">Save</button><span class="saved" id="save-dealership">Saved</span>
-      </div>
+    <label for="p-goal">Goal</label>
+    <select id="p-goal">
+      <option value="close_deal">Close the deal</option>
+      <option value="book_appointment">Book appointment</option>
+      <option value="gather_info">Gather info</option>
+      <option value="nurture">Nurture long-term</option>
+    </select>
+
+    <div class="actions">
+      <button id="save-btn" type="button">Save preferences</button>
+      <span id="saved" class="saved">Saved</span>
     </div>
 
-    <!-- HOW YOU COMMUNICATE -->
-    <div class="section">
-      <div class="section-header">How You Communicate <span class="arrow">&#9662;</span></div>
-      <div class="section-body">
-        <label>Tone</label><input id="p-tone">
-        <label>Emojis</label><input id="p-emojis">
-        <label>Text Signature</label><input id="p-textsig">
-        <label>Email Sign-Off</label><input id="p-emailsig">
-        <label>Languages</label><input id="p-langs">
-        <label>Selling Philosophy</label><textarea id="p-philosophy" maxlength="200"></textarea>
-        <button class="save-btn" data-section="voice">Save</button><span class="saved" id="save-voice">Saved</span>
-      </div>
-    </div>
-
-    <!-- YOUR CUSTOMERS -->
-    <div class="section">
-      <div class="section-header">Your Customers <span class="arrow">&#9662;</span></div>
-      <div class="section-body">
-        <label>Customer Types</label><input id="p-custtypes" readonly>
-        <label>Common Objections</label><input id="p-objections" readonly>
-        <label>Market Type</label><input id="p-market">
-        <label>Customer Note</label><textarea id="p-custnote" maxlength="200"></textarea>
-        <button class="save-btn" data-section="market">Save</button><span class="saved" id="save-market">Saved</span>
-      </div>
-    </div>
-
-    <!-- CONTEXT PREVIEW -->
-    <div class="preview-label">What Brevmont knows about you (injected into every prompt):</div>
-    <div class="preview" id="ctx-preview">Loading...</div>
+    <p class="note">Need to change store-level details? Ask your manager.</p>
   </div>
 </div>
 

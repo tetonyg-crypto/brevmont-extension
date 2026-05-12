@@ -133,6 +133,9 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .lead-banner { padding:8px 12px; background:#F0EFFF; border-bottom:1px solid #E5E7EB; cursor:pointer; font-size:12px; color:#0D6E6E; font-weight:600; display:flex; align-items:center; gap:6px; } .lead-banner:hover { background:#e8e4ff; }
 .settings-section { padding:16px 14px; } .settings-label { font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; margin-top:12px; }
 .settings-options { display:flex; flex-direction:column; gap:6px; position:relative; } .settings-options label { font-size:12px; color:#1a202c; display:flex; align-items:center; gap:6px; } .settings-options input[type="radio"] { accent-color:#0D6E6E; }
+.settings-input { width:100%; padding:9px 10px; border:1px solid #E5E7EB; border-radius:6px; font-size:13px; color:#1a202c; outline:none; font-family:inherit; } .settings-input:focus { border-color:#0D6E6E; box-shadow:0 0 0 3px rgba(13,110,110,.08); }
+.settings-save { margin-top:14px; padding:9px 12px; border:0; border-radius:7px; background:#0D6E6E; color:#fff; font-size:12px; font-weight:700; font-family:inherit; cursor:pointer; } .settings-save:hover { background:#0A5555; }
+.settings-saved { margin-left:8px; color:#16A34A; font-size:11px; font-weight:700; opacity:0; transition:opacity .2s; } .settings-saved.show { opacity:1; }
 .outcome-section select { color:#1a202c; }
 ${domMode && isGmail ? `
 /* Gmail DOM-sidebar overrides */

@@ -28,20 +28,14 @@ function getBadge(platform: Platform) {
 function getSettingsHTML(): string {
   return `<div class="settings-section">
     <div style="font-size:12px;color:#6B7280;line-height:1.5;margin-bottom:4px;">Controls how Brevmont writes for you. Changes apply to your next follow-up.</div>
+    <div class="settings-label">Your name</div>
+    <input id="sp-rep-first-name" class="settings-input" type="text" placeholder="First name" autocomplete="given-name" />
     <div class="settings-label">Tone</div>
     <div class="settings-options"><label><input type="radio" name="brevmont-tone" value="professional" checked> Professional</label><label><input type="radio" name="brevmont-tone" value="friendly"> Friendly</label><label><input type="radio" name="brevmont-tone" value="casual"> Casual</label><label><input type="radio" name="brevmont-tone" value="direct"> Direct</label></div>
     <div class="settings-label">Goal</div>
     <div class="settings-options"><label><input type="radio" name="brevmont-goal" value="close_deal" checked> Close the deal<span class="goal-desc">Ask for the sale, push for commitment</span></label><label><input type="radio" name="brevmont-goal" value="book_appointment"> Book appointment<span class="goal-desc">Get them on the lot or on a call</span></label><label><input type="radio" name="brevmont-goal" value="gather_info"> Gather info<span class="goal-desc">Learn what they need before pitching</span></label><label><input type="radio" name="brevmont-goal" value="nurture"> Nurture long-term<span class="goal-desc">Stay top of mind, no pressure</span></label></div>
-    <div style="border-top:1px solid #E5E7EB;margin-top:14px;padding-top:10px"></div>
-    <div class="settings-label">Account</div>
-    <div id="sp-account-info" style="font-size:12px;color:#1a202c;display:flex;flex-direction:column;gap:6px">
-      <div style="display:flex;justify-content:space-between"><span style="color:#6B7280">Dealership</span><span id="sp-dealership" style="font-weight:600">—</span></div>
-      <div style="display:flex;justify-content:space-between"><span style="color:#6B7280">Rep</span><span id="sp-rep-name" style="font-weight:600">—</span></div>
-      <div style="display:flex;justify-content:space-between;align-items:center"><span style="color:#6B7280">License</span><span style="display:flex;align-items:center;gap:4px"><code id="sp-license" style="font-size:11px;font-family:ui-monospace,monospace;color:#0D6E6E">—</code><button id="sp-copy-license" style="background:none;border:none;font-size:10px;color:#0D6E6E;cursor:pointer;font-weight:600">Copy</button></span></div>
-      <div style="display:flex;justify-content:space-between;align-items:center"><span style="color:#6B7280">Status</span><span id="sp-status" style="display:flex;align-items:center;gap:4px"><span id="sp-status-dot" style="width:7px;height:7px;border-radius:50%;background:#F59E0B;display:inline-block"></span><span id="sp-status-text" style="font-size:11px;color:#6B7280">Checking</span></span></div>
-      <div style="display:flex;justify-content:space-between"><span style="color:#6B7280">Version</span><span id="sp-version" style="font-size:11px;color:#9CA3AF">—</span></div>
-      <div id="sp-queue-row" style="display:none;background:#FEF3C7;border:1px solid #F59E0B;border-radius:6px;padding:6px 8px;font-size:11px;color:#92400E;margin-top:2px"><span id="sp-queue-count">0</span> queued — will send when connection returns</div>
-    </div>
+    <button id="sp-save-settings" class="settings-save" type="button">Save preferences</button>
+    <span id="sp-settings-saved" class="settings-saved">Saved</span>
     <div style="border-top:1px solid #E5E7EB;margin-top:14px;padding-top:10px;display:flex;flex-direction:column;gap:6px">
       <a id="sp-link-changelog" href="https://app.brevmont.com/changelog" target="_blank" rel="noopener" style="font-size:11px;color:#6B7280;text-decoration:none">Changelog</a>
       <button id="sp-link-help" style="background:none;border:none;padding:0;font-size:11px;color:#0D6E6E;cursor:pointer;text-align:left;font-weight:500;font-family:inherit">Get help</button>
@@ -108,7 +102,7 @@ export function getPanelHTML(platform: Platform): string {
   <div id="o8-outputs" class="outputs"></div>
 </div>
 <div id="o8-tools-panel" class="tools-panel" style="display:none">
-  <div class="tools-header"><button id="o8-tools-back" class="back-btn">← Back</button><span class="tools-title">Tools</span></div>
+  <div class="tools-header"><button id="o8-tools-back" class="back-btn">&larr; Back</button><span class="tools-title">Tools</span></div>
   <div class="tool-tabs">
     <button class="tool-tab-btn" data-tool="coach">Coach</button>
     <button class="tool-tab-btn" data-tool="alerts">Reminders</button>
@@ -121,17 +115,17 @@ export function getPanelHTML(platform: Platform): string {
   <div id="tool-command" class="tool-content" style="display:none"><div class="tool-section"><div class="input-wrap"><textarea id="o8-cmd-input" class="main-input" placeholder="e.g., Calculate payment on $35,000 at 6.9% for 72mo" rows="2"></textarea><button id="o8-cmd-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button></div><button id="o8-cmd-execute" class="gen-btn">Ask</button></div><div id="o8-cmd-status" class="tool-output"></div></div>
 </div>
 <div id="o8-stats-panel" class="tools-panel" style="display:none">
-  <div class="tools-header"><button id="o8-stats-back" class="back-btn">← Back</button><span class="tools-title">My Stats</span></div>
+  <div class="tools-header"><button id="o8-stats-back" class="back-btn">&larr; Back</button><span class="tools-title">My Stats</span></div>
   <div id="o8-stats-content" class="tool-section" style="padding:12px;">
     <div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading stats...</div>
   </div>
 </div>
 <div id="o8-settings-panel" class="tools-panel" style="display:none">
-  <div class="tools-header"><button id="o8-settings-back" class="back-btn">← Back</button><span class="tools-title">Settings</span></div>
+  <div class="tools-header"><button id="o8-settings-back" class="back-btn">&larr; Back</button><span class="tools-title">Settings</span></div>
   ${getSettingsHTML()}
 </div>
 <div id="o8-lead-panel" class="tools-panel" style="display:none">
-  <div class="tools-header"><button id="o8-lead-back" class="back-btn">← Back</button><span class="tools-title">Save Lead</span></div>
+  <div class="tools-header"><button id="o8-lead-back" class="back-btn">&larr; Back</button><span class="tools-title">Save Lead</span></div>
   <div class="tool-tabs">
     <button class="lead-tab-btn active" data-ltab="scan">Scan</button>
     <button class="lead-tab-btn" data-ltab="voice">Voice</button>

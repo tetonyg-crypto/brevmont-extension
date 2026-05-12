@@ -525,6 +525,47 @@ function loadAccountInfo(root: HTMLElement): void {
 }
 
 // ─── Wire up all interactive elements ────────────────────────────────────────
+function loadRepPreferences(root: HTMLElement): void {
+  chrome.storage.local.get(['rep_name', 'profile']).then(local => {
+    chrome.storage.sync.get(['rep_name', 'profile']).then(sync => {
+      const nameInput = root.querySelector('#sp-rep-first-name') as HTMLInputElement | null;
+      if (!nameInput) return;
+      let firstName = String(local.rep_name || sync.rep_name || '').trim().split(/\s+/)[0] || '';
+      try {
+        const profile = JSON.parse(String(local.profile || sync.profile || '{}'));
+        firstName = profile?.identity?.firstName || firstName;
+      } catch {}
+      nameInput.value = firstName;
+    });
+  });
+}
+
+async function saveRepPreferences(root: HTMLElement): Promise<void> {
+  const nameInput = root.querySelector('#sp-rep-first-name') as HTMLInputElement | null;
+  const firstName = nameInput?.value.trim() || '';
+  const tone = (root.querySelector('input[name="brevmont-tone"]:checked') as HTMLInputElement | null)?.value || 'professional';
+  const goal = (root.querySelector('input[name="brevmont-goal"]:checked') as HTMLInputElement | null)?.value || 'close_deal';
+  let profile: Record<string, any> = {};
+  const stored = await chrome.storage.local.get(['profile']);
+  try { profile = stored.profile ? JSON.parse(String(stored.profile)) : {}; } catch { profile = {}; }
+  profile.identity = { ...(profile.identity || {}), firstName };
+  profile.voice = { ...(profile.voice || {}), tone };
+  const payload: Record<string, any> = {
+    profile: JSON.stringify(profile),
+    brevmont_tone: tone,
+    brevmont_goal: goal,
+  };
+  if (firstName) payload.rep_name = firstName;
+  await chrome.storage.local.set(payload);
+  await chrome.storage.sync.set(payload);
+  const saved = root.querySelector('#sp-settings-saved') as HTMLElement | null;
+  if (saved) {
+    saved.classList.add('show');
+    setTimeout(() => saved.classList.remove('show'), 1800);
+  }
+  showToast(root, 'Preferences saved');
+}
+
 function wireHandlers(root: HTMLElement): void {
   const el = (id: string) => root.querySelector(`#${id}`) as HTMLElement | null;
 
@@ -594,10 +635,18 @@ function wireHandlers(root: HTMLElement): void {
 
   // Tone/goal radios
   root.querySelectorAll('input[name="brevmont-tone"]').forEach(radio => {
-    radio.addEventListener('change', () => { chrome.storage.local.set({ brevmont_tone: (radio as HTMLInputElement).value }); });
+    radio.addEventListener('change', () => {
+      const brevmont_tone = (radio as HTMLInputElement).value;
+      chrome.storage.local.set({ brevmont_tone });
+      chrome.storage.sync.set({ brevmont_tone });
+    });
   });
   root.querySelectorAll('input[name="brevmont-goal"]').forEach(radio => {
-    radio.addEventListener('change', () => { chrome.storage.local.set({ brevmont_goal: (radio as HTMLInputElement).value }); });
+    radio.addEventListener('change', () => {
+      const brevmont_goal = (radio as HTMLInputElement).value;
+      chrome.storage.local.set({ brevmont_goal });
+      chrome.storage.sync.set({ brevmont_goal });
+    });
   });
   // Restore saved tone/goal
   chrome.storage.local.get(['brevmont_tone', 'brevmont_goal']).then(r => {
@@ -606,15 +655,10 @@ function wireHandlers(root: HTMLElement): void {
   });
 
   // ─── Account info (migrated from popup) ─────────────────────────────────────
-  loadAccountInfo(root);
-  const copyBtn = root.querySelector('#sp-copy-license') as HTMLButtonElement;
-  if (copyBtn) {
-    copyBtn.onclick = () => {
-      chrome.storage.local.get(['dealer_token']).then(r => {
-        const t = r.dealer_token as string;
-        if (t) { navigator.clipboard.writeText(t).then(() => { copyBtn.textContent = 'Copied'; setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000); }); }
-      });
-    };
+  loadRepPreferences(root);
+  const saveSettingsBtn = root.querySelector('#sp-save-settings') as HTMLButtonElement | null;
+  if (saveSettingsBtn) {
+    saveSettingsBtn.onclick = () => { void saveRepPreferences(root); };
   }
   const reportBtn = root.querySelector('#sp-link-report') as HTMLButtonElement;
   if (reportBtn) {

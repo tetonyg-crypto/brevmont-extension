@@ -48,8 +48,47 @@ export default defineBackground(() => {
   // After setup_complete flag is set, clicks open the side panel directly.
   const SETUP_KEY = 'brevmont_setup_complete';
 
+  function configureSidePanelAction(): void {
+    try {
+      const sidePanel = chrome.sidePanel as any;
+      if (sidePanel?.setPanelBehavior) {
+        sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err: any) => {
+          console.warn('[Brevmont] sidePanel.setPanelBehavior failed:', err?.message || err);
+        });
+      }
+    } catch (err: any) {
+      console.warn('[Brevmont] side panel behavior unavailable:', err?.message || err);
+    }
+  }
+
+  async function openSidePanelForActionClick(tab?: chrome.tabs.Tab): Promise<boolean> {
+    try {
+      const sidePanel = chrome.sidePanel as any;
+      if (!sidePanel?.open) return false;
+      if (typeof tab?.windowId === 'number') {
+        await sidePanel.open({ windowId: tab.windowId });
+        return true;
+      }
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (typeof activeTab?.windowId === 'number') {
+        await sidePanel.open({ windowId: activeTab.windowId });
+        return true;
+      }
+    } catch (err: any) {
+      console.warn('[Brevmont] sidePanel.open failed:', err?.message || err);
+    }
+    return false;
+  }
+
+  configureSidePanelAction();
+  chrome.runtime.onStartup?.addListener(configureSidePanelAction);
+  chrome.runtime.onInstalled?.addListener(configureSidePanelAction);
+
   chrome.action.onClicked.addListener(async (tab) => {
     try {
+      const opened = await openSidePanelForActionClick(tab);
+      if (opened) return;
+
       const data = await chrome.storage.local.get([SETUP_KEY, 'profile_onboarded', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']);
       if (data[SETUP_KEY] && data.profile_onboarded) {
         // Setup done — open side panel directly
