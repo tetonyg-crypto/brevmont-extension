@@ -173,6 +173,29 @@ export default defineBackground(() => {
     // Health check — content script pings to verify service worker is alive
     if (msg.type === 'PING') { sendResponse({ pong: true }); return false; }
 
+    if (msg.type === 'OPEN_BREVMONT_SIDE_PANEL') {
+      (async () => {
+        try {
+          const windowId =
+            typeof msg.windowId === 'number'
+              ? msg.windowId
+              : typeof sender.tab?.windowId === 'number'
+                ? sender.tab.windowId
+                : null;
+
+          if (typeof windowId !== 'number') {
+            sendResponse({ ok: false, error: 'missing_window' });
+            return;
+          }
+
+          await (chrome.sidePanel as any).open({ windowId });
+          sendResponse({ ok: true });
+        } catch (e: any) {
+          sendResponse({ ok: false, error: e?.message || 'side_panel_open_failed' });
+        }
+      })();
+      return true;
+    }
 
     if (msg.type === 'GET_SYNC_QUEUE_COUNT') {
       getDexieQueueCount().then((count) => sendResponse({ count })).catch(() => sendResponse({ count: 0 }));

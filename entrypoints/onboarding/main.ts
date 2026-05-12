@@ -472,7 +472,7 @@ function collectCurrentStep() {
     profileData.identity.lastName = g('s1-last');
     const sel = document.getElementById('s1-title') as HTMLSelectElement;
     profileData.identity.jobTitle = sel.value === 'other' ? g('s1-title-other') : sel.value;
-    profileData.identity.yearsExperience = (document.getElementById('s1-years') as HTMLSelectElement).value;
+    profileData.identity.yearsExperience = (document.getElementById('s1-years') as HTMLInputElement).value.trim();
   } else if (currentStep === 2) {
     profileData.dealership.name = g('s2-dealer');
     profileData.dealership.city = g('s2-city');
@@ -507,7 +507,7 @@ function restoreFields() {
     const opt = Array.from(sel.options).find(o => o.value === id.jobTitle || o.text === id.jobTitle);
     if (opt) sel.value = opt.value; else { sel.value = 'other'; s('s1-title-other', id.jobTitle); document.getElementById('s1-title-other-wrap')!.style.display = 'block'; }
   }
-  if (id.yearsExperience) (document.getElementById('s1-years') as HTMLSelectElement).value = id.yearsExperience;
+  if (id.yearsExperience) (document.getElementById('s1-years') as HTMLInputElement).value = id.yearsExperience;
   s('s2-dealer', dl.name); s('s2-city', dl.city); s('s2-state', dl.state); s('s2-license', dl.licenseKey);
   if (dl.crm) (document.getElementById('s2-crm') as HTMLSelectElement).value = dl.crm;
   s('s2-docfee', dl.docFee); s('s2-tax', dl.taxRate);
@@ -1130,7 +1130,7 @@ async function openBrevmont() {
   const repRoles = ['rep', 'sales_rep'];
 
   if (repRoles.includes(role)) {
-    await openRepPostInstallDestination();
+    await openRepSidebarOrFallback();
   } else {
     try {
       chrome.tabs.create({ url: 'https://app.brevmont.com/manager/team' });
@@ -1139,6 +1139,60 @@ async function openBrevmont() {
       window.location.href = 'https://app.brevmont.com/manager/team';
     }
   }
+}
+
+async function getCurrentWindowId(): Promise<number | null> {
+  try {
+    const tab = await new Promise<chrome.tabs.Tab | undefined>((resolve) => {
+      chrome.tabs.getCurrent((currentTab) => resolve(currentTab));
+    });
+    if (typeof tab?.windowId === 'number') return tab.windowId;
+  } catch {
+    /* fall through */
+  }
+
+  try {
+    return await new Promise<number | null>((resolve) => {
+      chrome.windows.getCurrent((currentWindow) => {
+        resolve(typeof currentWindow?.id === 'number' ? currentWindow.id : null);
+      });
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function openRepSidebarOrFallback(): Promise<void> {
+  const windowId = await getCurrentWindowId();
+  const sidePanel = (chrome as any).sidePanel;
+
+  if (sidePanel?.open && typeof windowId === 'number') {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        sidePanel.open({ windowId }, () => {
+          const err = chrome.runtime.lastError;
+          if (err) reject(new Error(err.message));
+          else resolve();
+        });
+      });
+      window.close();
+      return;
+    } catch {
+      /* try the background route below */
+    }
+  }
+
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'OPEN_BREVMONT_SIDE_PANEL', windowId });
+    if (response?.ok) {
+      window.close();
+      return;
+    }
+  } catch {
+    /* fall through */
+  }
+
+  await openRepPostInstallDestination();
 }
 
 // UI helpers

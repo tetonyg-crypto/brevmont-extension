@@ -42,7 +42,8 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
 .language-check{display:flex;gap:10px;align-items:flex-start;padding:14px;border:1.5px solid #e2e8f0;border-radius:10px;background:#fff;cursor:pointer}
 .language-check input{width:auto;margin-top:2px;accent-color:#0D6E6E}
 .language-check strong{font-size:13px;color:#1a202c}
-.language-check span{display:block;font-size:12px;color:#64748b;margin-top:2px}
+.language-check>span{display:block;font-size:14px;font-weight:700;color:#1a202c;margin-top:0}
+.language-check span span{display:block;font-size:12px;font-weight:400;color:#64748b;margin-top:2px}
 .setup-help{margin-top:16px;padding:14px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;font-size:13px;color:#64748b;line-height:1.45}
 .setup-help a{color:#0D6E6E;font-weight:700;text-decoration:none}
 
@@ -106,37 +107,33 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
     <div class="quick-meta">You're set up at <strong id="quick-dealer-name">your dealership</strong>.</div>
 
     <div class="quick-section">
-      <h3>Before you start</h3>
-      <div class="sub" style="margin-bottom:14px">How should your follow-ups sound?</div>
+      <h3>How should your follow-ups sound?</h3>
       <div class="tone-grid full-width-tone" id="quick-tone">
         <label class="tone-card selected" data-tone="friendly">
           <input type="radio" name="quick-tone-choice" value="friendly" checked>
           <div class="tc-name">Friendly and warm</div>
-          <div class="tc-ex">"Hey John, just checking in on the Tahoe..."</div>
         </label>
         <label class="tone-card" data-tone="professional">
           <input type="radio" name="quick-tone-choice" value="professional">
           <div class="tc-name">Professional</div>
-          <div class="tc-ex">"Good afternoon, John. Following up regarding the Tahoe..."</div>
         </label>
         <label class="tone-card" data-tone="direct">
           <input type="radio" name="quick-tone-choice" value="direct">
           <div class="tc-name">Short and direct</div>
-          <div class="tc-ex">"John - any update on the Tahoe? Let me know."</div>
         </label>
       </div>
     </div>
 
     <div class="quick-section">
-      <h3>Languages</h3>
+      <h3>Do you text customers in Spanish?</h3>
       <label class="language-check">
         <input type="checkbox" id="quick-spanish">
-        <span><strong>Spanish</strong><span>Write Spanish follow-ups when a customer needs it.</span></span>
+        <span>Yes, generate in Spanish too</span>
       </label>
     </div>
 
     <div class="btn-row">
-      <button class="btn btn-primary" id="btn-quick-start" style="width:100%;font-size:16px;padding:14px">Start writing follow-ups</button>
+      <button class="btn btn-primary" id="btn-quick-start" style="width:100%;font-size:16px;padding:14px">Start Writing Follow-Ups →</button>
     </div>
   </div>
 </div>
@@ -209,14 +206,14 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
 
   <div class="field">
     <label>Years in Automotive Sales</label>
-    <select id="s1-years">
-      <option value="">Select</option>
-      <option>Less than 1 year</option>
-      <option>1-3 years</option>
-      <option>3-5 years</option>
-      <option>5-10 years</option>
-      <option>10+ years</option>
-    </select>
+    <input id="s1-years" list="s1-years-options" inputmode="text" placeholder="e.g. 3 years">
+    <datalist id="s1-years-options">
+      <option value="Less than 1 year"></option>
+      <option value="1-3 years"></option>
+      <option value="3-5 years"></option>
+      <option value="5-10 years"></option>
+      <option value="10+ years"></option>
+    </datalist>
   </div>
 
   <div class="btn-row"><button class="btn btn-primary" id="btn-next-1">Continue</button></div>
