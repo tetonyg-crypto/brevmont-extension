@@ -19,7 +19,7 @@
  *   * No exclamation points except "thanks!" sign-offs (max one per screen).
  *   * No emojis.
  *   * No em-dashes (use a comma or a period).
- *   * No "leverage", "synergy", "unlock", "robust", "seamless".
+ *   * No "leverage", "synergy", "robust", "seamless".
  *   * Concrete > abstract. "Sign in with Google" beats "Authenticate".
  *   * Show, don't promise. "Generates in 30 seconds" beats "Lightning fast".
  *
@@ -49,7 +49,7 @@ export const copy = {
     // Step 2 — dealership + auth
     step2: {
       heading: "Which dealership are you with?",
-      hint: 'We use this to match the deals you generate to your shop.',
+      hint: 'We use this to match the deals you work to your store.',
       nameLabel: 'Dealership name',
       cityLabel: 'City',
       stateLabel: 'State',

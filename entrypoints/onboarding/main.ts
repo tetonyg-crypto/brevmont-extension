@@ -725,7 +725,7 @@ function setAuthRole(role: 'manager' | 'rep') {
   if (sub) {
     sub.textContent = role === 'rep'
       ? 'Brevmont will connect you to the store that invited you. No dealership settings needed.'
-      : 'Brevmont uses this to make every generation local and accurate.';
+      : 'Brevmont uses this so the follow-up fits your store.';
   }
   const nextButton = document.getElementById('btn-next-2');
   if (nextButton) nextButton.textContent = role === 'rep' ? 'Finish Setup' : 'Continue';

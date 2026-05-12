@@ -218,7 +218,7 @@ function updateUsageCounter(root: HTMLElement): void {
 
     counter.style.display = 'block';
     counter.className = 'usage-counter' + (pct >= 90 ? ' usage-critical' : pct >= 70 ? ' usage-warning' : '');
-    counter.innerHTML = `<span>${used}/${limit} free generations used this month</span><div class="usage-bar"><div class="usage-fill" style="width:${pct}%"></div></div>`;
+    counter.innerHTML = `<span>${used}/${limit} free follow-ups used this month</span><div class="usage-bar"><div class="usage-fill" style="width:${pct}%"></div></div>`;
   }).catch(() => {});
 }
 
@@ -227,9 +227,9 @@ function showUpgradePrompt(root: HTMLElement, message: string, upgradeUrl?: stri
   if (!prompt) return;
   prompt.style.display = 'block';
   prompt.innerHTML = `
-    <div class="upgrade-title">Free Limit Reached</div>
+    <div class="upgrade-title">Free follow-ups used up</div>
     <div class="upgrade-msg">${esc(message)}</div>
-    <a class="upgrade-btn" href="${upgradeUrl || 'https://brevmont.com'}" target="_blank">Upgrade Now</a>
+    <a class="upgrade-btn" href="${upgradeUrl || 'https://brevmont.com'}" target="_blank">Text us about more access</a>
     <div class="upgrade-phone">Or text us: 307-690-0291</div>
   `;
 }
@@ -282,7 +282,7 @@ async function applyVersionStatus(root: HTMLElement): Promise<void> {
   if (status.forceUpdate) {
     root.querySelectorAll<HTMLButtonElement>('#o8-generate,#o8-coach-btn,#o8-cmd-execute,#o8-ctx-generate').forEach((button) => {
       button.disabled = true;
-      button.title = 'Update Brevmont to continue generating.';
+      button.title = 'Update Brevmont to keep writing follow-ups.';
     });
   }
 }
@@ -291,7 +291,7 @@ async function ensureGenerationAllowed(root: HTMLElement): Promise<boolean> {
   const status = await getVersionStatus();
   if (!status?.forceUpdate) return true;
   await applyVersionStatus(root);
-  showToast(root, 'Update Brevmont to continue generating.');
+  showToast(root, 'Update Brevmont to keep writing follow-ups.');
   return false;
 }
 
@@ -394,7 +394,7 @@ async function applyFirstUseGuide(root: HTMLElement): Promise<void> {
   const repName = String(state.rep_name || '').trim();
   card.style.display = 'block';
   const title = card.querySelector('.first-use-title') as HTMLElement | null;
-  if (title && repName) title.textContent = `Welcome, ${repName}. Try your first generation.`;
+  if (title && repName) title.textContent = `Welcome, ${repName}. Try your first follow-up.`;
   if (input && !input.value.trim()) {
     input.placeholder = FIRST_GENERATION_EXAMPLE;
   }
@@ -408,7 +408,7 @@ async function markFirstGenerationComplete(root: HTMLElement): Promise<void> {
   card.style.display = 'block';
   card.innerHTML = `
     <div class="first-use-eyebrow">Nice.</div>
-    <div class="first-use-title">That is your first generation.</div>
+    <div class="first-use-title">That is your first follow-up.</div>
     <div class="first-use-copy">Your text, email, and CRM note are ready to review. Copy any of them into your CRM, text thread, or email. You decide what gets sent. Brevmont does the typing.</div>
   `;
   window.setTimeout(() => {
@@ -611,7 +611,7 @@ function wireHandlers(root: HTMLElement): void {
       if (coachInput) {
         setTimeout(() => {
           coachInput.focus();
-          coachInput.placeholder = 'Describe the sales scenario, then click Coach Me below ↓';
+          coachInput.placeholder = 'Tell Brevmont what the customer said, then click Coach Me below ↓';
         }, 100);
       }
     };
@@ -943,7 +943,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     (root as any).__pendingLeadId = null;
 
     if (response?.generation_limit_reached) {
-      showUpgradePrompt(root, response.message || 'You\'ve used all your free generations this month.', response.upgrade_url);
+      showUpgradePrompt(root, response.message || 'You\'ve used all your free follow-ups this month.', response.upgrade_url);
       updateUsageCounter(root);
     } else if (response?.queued) {
       showToast(root, response.message || 'Saved. Will sync when online.');
@@ -1591,14 +1591,14 @@ function wireLeadCapture(root: HTMLElement): void {
     voiceParseBtn.onclick = async () => {
       const input = (root.querySelector('#o8-lead-voice-input') as HTMLTextAreaElement)?.value?.trim();
       if (!input) return;
-      voiceParseBtn.innerHTML = '<span class="gen-spinner"></span> Parsing…';
+      voiceParseBtn.innerHTML = '<span class="gen-spinner"></span> Pulling details…';
       voiceParseBtn.disabled = true;
       try {
         await requireToken();
         const resp = await safeSend({ type: 'PARSE_LEAD', payload: { raw_text: input, platform: currentPlatform.platform } });
         showLeadResult(root, resp?.lead || resp);
-      } catch (e: any) { showToast(root, e.message || 'Parse error'); }
-      voiceParseBtn.innerHTML = 'Parse';
+      } catch (e: any) { showToast(root, e.message || 'Could not pull details'); }
+      voiceParseBtn.innerHTML = 'Pull details';
       voiceParseBtn.disabled = false;
     };
   }
@@ -1609,14 +1609,14 @@ function wireLeadCapture(root: HTMLElement): void {
     pasteParseBtn.onclick = async () => {
       const input = (root.querySelector('#o8-lead-paste-input') as HTMLTextAreaElement)?.value?.trim();
       if (!input) return;
-      pasteParseBtn.innerHTML = '<span class="gen-spinner"></span> Parsing…';
+      pasteParseBtn.innerHTML = '<span class="gen-spinner"></span> Pulling details…';
       pasteParseBtn.disabled = true;
       try {
         await requireToken();
         const resp = await safeSend({ type: 'PARSE_LEAD', payload: { raw_text: input, platform: currentPlatform.platform } });
         showLeadResult(root, resp?.lead || resp);
-      } catch (e: any) { showToast(root, e.message || 'Parse error'); }
-      pasteParseBtn.innerHTML = 'Parse';
+      } catch (e: any) { showToast(root, e.message || 'Could not pull details'); }
+      pasteParseBtn.innerHTML = 'Pull details';
       pasteParseBtn.disabled = false;
     };
   }
@@ -1638,7 +1638,7 @@ async function openStats(root: HTMLElement): Promise<void> {
       const today = resp.today_count ?? 0;
       const isZero = total === 0 && today === 0;
       statsContent.innerHTML = `
-        ${isZero ? '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:16px 8px 8px;line-height:1.5;">Generate your first message to start tracking stats.</div>' : ''}
+        ${isZero ? '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:16px 8px 8px;line-height:1.5;">Write your first follow-up to start tracking stats.</div>' : ''}
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
           <div style="background:#F0FDF4;border-radius:8px;padding:10px;text-align:center;">
             <div style="font-size:20px;font-weight:700;color:#166534;">${total}</div>

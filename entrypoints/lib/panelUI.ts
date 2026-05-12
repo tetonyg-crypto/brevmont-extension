@@ -27,7 +27,7 @@ function getBadge(platform: Platform) {
 
 function getSettingsHTML(): string {
   return `<div class="settings-section">
-    <div style="font-size:12px;color:#6B7280;line-height:1.5;margin-bottom:4px;">Controls how Brevmont writes for you. Changes apply to your next generation.</div>
+    <div style="font-size:12px;color:#6B7280;line-height:1.5;margin-bottom:4px;">Controls how Brevmont writes for you. Changes apply to your next follow-up.</div>
     <div class="settings-label">Tone</div>
     <div class="settings-options"><label><input type="radio" name="brevmont-tone" value="professional" checked> Professional</label><label><input type="radio" name="brevmont-tone" value="friendly"> Friendly</label><label><input type="radio" name="brevmont-tone" value="casual"> Casual</label><label><input type="radio" name="brevmont-tone" value="direct"> Direct</label></div>
     <div class="settings-label">Goal</div>
@@ -70,7 +70,7 @@ export function getPanelHTML(platform: Platform): string {
   ${customerCard}
   <div class="input-section">
     <div id="o8-first-use" class="first-use-card" style="display:none;">
-      <div class="first-use-eyebrow">Try your first generation</div>
+      <div class="first-use-eyebrow">Try your first follow-up</div>
       <div class="first-use-title">Type one sentence about a customer.</div>
       <div class="first-use-copy">Brevmont will write a follow-up text, email, and CRM note. You review it, copy it, and move to the next deal.</div>
       <button id="o8-first-use-example" class="first-use-example" type="button">Use example</button>
@@ -84,7 +84,7 @@ export function getPanelHTML(platform: Platform): string {
       <textarea id="o8-input" class="main-input" placeholder="${esc(placeholder)}" rows="3"></textarea>
       <button id="o8-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button>
     </div>
-    <div class="input-hint">One sentence. Three generations.</div>
+    <div class="input-hint">One sentence. Text, email, CRM note.</div>
     <button id="o8-generate" class="gen-btn">Generate</button>
     <div id="o8-usage-counter" class="usage-counter" style="display:none;"></div>
     <div id="o8-upgrade-prompt" class="upgrade-prompt" style="display:none;"></div>
@@ -102,7 +102,7 @@ export function getPanelHTML(platform: Platform): string {
   <div id="o8-outcome-status" style="font-size:11px; color:#64748b; text-align:center; margin-top:4px;"></div>
 </div>` : ''}
     <div class="inline-links"><button id="o8-tools-btn-inline" class="link-btn nav-link">&#x1F4AC; Coach</button><span class="link-sep">|</span><button id="o8-stats-btn-inline" class="link-btn nav-link">&#x1F4CA; My Stats</button><span class="link-sep">|</span><button id="o8-settings-btn-inline" class="link-btn nav-link">&#x2699;&#xFE0F; Settings</button></div>
-    <div class="tcpa-inline">Messages are for human review. TCPA compliance is your responsibility.</div>
+    <div class="tcpa-inline">You review and send. Follow your store's texting rules.</div>
   </div>
   <div id="o8-outputs" class="outputs"></div>
 </div>
@@ -130,15 +130,15 @@ export function getPanelHTML(platform: Platform): string {
   ${getSettingsHTML()}
 </div>
 <div id="o8-lead-panel" class="tools-panel" style="display:none">
-  <div class="tools-header"><button id="o8-lead-back" class="back-btn">← Back</button><span class="tools-title">Capture Lead</span></div>
+  <div class="tools-header"><button id="o8-lead-back" class="back-btn">← Back</button><span class="tools-title">Save Lead</span></div>
   <div class="tool-tabs">
     <button class="lead-tab-btn active" data-ltab="scan">Scan</button>
     <button class="lead-tab-btn" data-ltab="voice">Voice</button>
     <button class="lead-tab-btn" data-ltab="paste">Paste</button>
   </div>
   <div id="lead-scan" class="tool-content" style="display:block"><div class="tool-section"><button id="o8-scan-btn" class="gen-btn">Scan This Page</button><div style="font-size:11px;color:#9CA3AF;text-align:center;margin-top:8px">Reads this page and pulls name, phone, email, and vehicle of interest.</div><div id="o8-scan-empty" style="display:none;font-size:11px;color:#F59E0B;text-align:center;margin-top:8px;padding:8px;background:#FFFBEB;border-radius:6px;">No lead info found on this page. Try the Paste tab instead.</div></div></div>
-  <div id="lead-voice" class="tool-content" style="display:none"><div class="tool-section"><div class="input-wrap"><textarea id="o8-lead-voice-input" class="main-input" placeholder="Tap mic and describe the lead..." rows="3"></textarea><button id="o8-lead-voice-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button></div><button id="o8-lead-voice-parse" class="gen-btn" style="margin-top:8px">Parse</button></div></div>
-  <div id="lead-paste" class="tool-content" style="display:none"><div class="tool-section"><textarea id="o8-lead-paste-input" class="main-input" placeholder="Paste a text thread, email, or Facebook message with customer info..." rows="4"></textarea><button id="o8-lead-paste-parse" class="gen-btn" style="margin-top:8px">Parse</button></div></div>
+  <div id="lead-voice" class="tool-content" style="display:none"><div class="tool-section"><div class="input-wrap"><textarea id="o8-lead-voice-input" class="main-input" placeholder="Tap mic and describe the lead..." rows="3"></textarea><button id="o8-lead-voice-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button></div><button id="o8-lead-voice-parse" class="gen-btn" style="margin-top:8px">Pull details</button></div></div>
+  <div id="lead-paste" class="tool-content" style="display:none"><div class="tool-section"><textarea id="o8-lead-paste-input" class="main-input" placeholder="Paste a text thread, email, or Facebook message with customer info..." rows="4"></textarea><button id="o8-lead-paste-parse" class="gen-btn" style="margin-top:8px">Pull details</button></div></div>
   <div id="o8-lead-result" class="tool-content" style="display:none"></div>
 </div>
 `;

@@ -1735,7 +1735,7 @@ async function handleGenerate(payload: {
         });
         return {
           generation_limit_reached: true,
-          message: data.message || `You've used all ${data.limit || 500} free generations this month.`,
+          message: data.message || `You've used all ${data.limit || 500} free follow-ups this month.`,
           limit: data.limit || 500,
           used: data.used || data.limit || 500,
           resets_at: data.resets_at || null,
@@ -1855,7 +1855,7 @@ async function generateViaProxy(
       throw new Error(`GENERATION_LIMIT:${JSON.stringify(body429)}`);
     }
     if (body429.error === 'daily_limit_reached') {
-      throw new Error(body429.message || "You've hit your daily generation limit. This resets tomorrow morning.");
+      throw new Error(body429.message || "You've hit your daily follow-up limit. This resets tomorrow morning.");
     }
     throw new Error('Too many requests. Wait a few seconds and try again.');
   }
