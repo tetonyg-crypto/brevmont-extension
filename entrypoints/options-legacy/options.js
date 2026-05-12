@@ -77,6 +77,7 @@ function saveSection(section) {
     profile.identity.firstName = document.getElementById('p-first').value.trim();
     profile.identity.lastName = document.getElementById('p-last').value.trim();
     profile.identity.jobTitle = document.getElementById('p-title').value.trim();
+    profile.identity.yearsExperience = document.getElementById('p-years').value.trim();
   } else if (section === 'dealership') {
     profile.dealership.name = document.getElementById('p-dealer').value.trim();
     profile.dealership.city = document.getElementById('p-city').value.trim();

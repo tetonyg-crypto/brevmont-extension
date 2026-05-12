@@ -31,6 +31,20 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
 .field .error{font-size:11px;color:#ef4444;margin-top:3px;display:none}
 .field .valid{font-size:11px;color:#16a34a;margin-top:3px;display:none}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.quick-card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:24px;box-shadow:0 20px 60px rgba(15,20,25,.08)}
+.quick-meta{font-size:14px;color:#64748b;line-height:1.5;margin-top:8px;margin-bottom:24px}
+.quick-meta strong{color:#0D6E6E}
+.quick-section{margin-top:22px}
+.quick-section h3{font-size:13px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:10px}
+.full-width-tone{grid-template-columns:1fr}
+.tone-card input{position:absolute;opacity:0;pointer-events:none}
+.tone-card .tc-ex{line-height:1.35}
+.language-check{display:flex;gap:10px;align-items:flex-start;padding:14px;border:1.5px solid #e2e8f0;border-radius:10px;background:#fff;cursor:pointer}
+.language-check input{width:auto;margin-top:2px;accent-color:#0D6E6E}
+.language-check strong{font-size:13px;color:#1a202c}
+.language-check span{display:block;font-size:12px;color:#64748b;margin-top:2px}
+.setup-help{margin-top:16px;padding:14px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;font-size:13px;color:#64748b;line-height:1.45}
+.setup-help a{color:#0D6E6E;font-weight:700;text-decoration:none}
 
 /* Tone cards */
 .tone-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -83,6 +97,86 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
   <div class="step-dot" id="dot-3"></div>
   <div class="step-dot" id="dot-4"></div>
   <span class="step-label" id="step-label">Step 1 of 4</span>
+</div>
+
+<!-- QUICK PATH A: INVITED REP -->
+<div class="screen" id="screen-quick-rep">
+  <div class="quick-card">
+    <h1>Welcome, <span id="quick-rep-name">there</span>.</h1>
+    <div class="quick-meta">You're set up at <strong id="quick-dealer-name">your dealership</strong>.</div>
+
+    <div class="quick-section">
+      <h3>Before you start</h3>
+      <div class="sub" style="margin-bottom:14px">How should your follow-ups sound?</div>
+      <div class="tone-grid full-width-tone" id="quick-tone">
+        <label class="tone-card selected" data-tone="friendly">
+          <input type="radio" name="quick-tone-choice" value="friendly" checked>
+          <div class="tc-name">Friendly and warm</div>
+          <div class="tc-ex">"Hey John, just checking in on the Tahoe..."</div>
+        </label>
+        <label class="tone-card" data-tone="professional">
+          <input type="radio" name="quick-tone-choice" value="professional">
+          <div class="tc-name">Professional</div>
+          <div class="tc-ex">"Good afternoon, John. Following up regarding the Tahoe..."</div>
+        </label>
+        <label class="tone-card" data-tone="direct">
+          <input type="radio" name="quick-tone-choice" value="direct">
+          <div class="tc-name">Short and direct</div>
+          <div class="tc-ex">"John - any update on the Tahoe? Let me know."</div>
+        </label>
+      </div>
+    </div>
+
+    <div class="quick-section">
+      <h3>Languages</h3>
+      <label class="language-check">
+        <input type="checkbox" id="quick-spanish">
+        <span><strong>Spanish</strong><span>Generate Spanish follow-ups when a customer needs it.</span></span>
+      </label>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-quick-start" style="width:100%;font-size:16px;padding:14px">Start Generating</button>
+    </div>
+  </div>
+</div>
+
+<!-- QUICK PATH B: MANAGER / OWNER -->
+<div class="screen" id="screen-manager-setup">
+  <div class="quick-card">
+    <h1>Welcome. Let's set up your dealership.</h1>
+    <div class="sub">Four fields now. Everything else can wait.</div>
+    <div class="field"><label>Dealership Name</label><input id="mgr-dealer" placeholder="Dealership name"></div>
+    <div class="field"><label>Your Name</label><input id="mgr-name" placeholder="Your name"></div>
+    <div class="field-row">
+      <div class="field"><label>State</label><input id="mgr-state" maxlength="20" placeholder="UT"></div>
+      <div class="field"><label>Primary CRM</label><select id="mgr-crm"><option value="">Select</option><option>VinSolutions</option><option>Elead</option><option>DealerSocket</option><option>CDK</option><option>Other</option><option>None</option></select></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-manager-start" style="width:100%;font-size:16px;padding:14px">Set Up Dealership</button>
+    </div>
+  </div>
+</div>
+
+<!-- QUICK PATH C: SETUP CODE ONLY -->
+<div class="screen" id="screen-setup-code">
+  <div class="quick-card">
+    <h1>Got a setup code?</h1>
+    <div class="sub">If your manager invited you, paste the code from your email.</div>
+    <div class="field">
+      <label>Setup Code</label>
+      <input id="quick-setup-code" placeholder="Paste setup code">
+      <div class="valid" id="quick-code-ok">Setup code connected</div>
+      <div class="error" id="quick-code-err">Invalid setup code</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-connect-code" style="width:100%;font-size:16px;padding:14px">Connect</button>
+    </div>
+    <div class="setup-help">
+      No code? Ask your manager for an invitation.<br>
+      Need help installing? <a href="https://app.brevmont.com/install-guide" target="_blank" rel="noreferrer">Open the visual guide</a> or text us at 307-690-0291.
+    </div>
+  </div>
 </div>
 
 <!-- SCREEN 1: WHO YOU ARE -->

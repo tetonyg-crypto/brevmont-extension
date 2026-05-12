@@ -50,10 +50,12 @@ export default defineBackground(() => {
 
   chrome.action.onClicked.addListener(async (tab) => {
     try {
-      const data = await chrome.storage.local.get(SETUP_KEY);
-      if (data[SETUP_KEY]) {
+      const data = await chrome.storage.local.get([SETUP_KEY, 'profile_onboarded', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']);
+      if (data[SETUP_KEY] && data.profile_onboarded) {
         // Setup done — open side panel directly
         await (chrome.sidePanel as any).open({ windowId: tab.windowId });
+      } else if (data.dealer_token || data.rep_auth_token || data.brevmont_rep_auth_token) {
+        await chrome.tabs.create({ url: chrome.runtime.getURL('onboarding.html') });
       } else {
         // First time — open permission page as a full tab
         await chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') });
@@ -1303,13 +1305,13 @@ export default defineBackground(() => {
         dealership_tier: data.tier || 'free',
         dealership_plan: data.plan || data.tier || 'free',
         brevmont_features: getTierFeatures(data.tier || 'free'),
-        profile_onboarded: true,
+        profile_onboarded: false,
         profile_onboarding: null,
         activated_at: Date.now(),
         license_revoked: false,
         brevmont_extension_role: 'rep',
-        [SETUP_KEY]: true,
       });
+      await browser.storage.local.remove(SETUP_KEY);
       await browser.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
 
       // Sync mirror for legacy readers and hasCompleteActivation repair.
@@ -1322,7 +1324,7 @@ export default defineBackground(() => {
         brevmont_tier: data.tier || 'free',
         dealership_tier: data.tier || 'free',
         dealership_plan: data.plan || data.tier || 'free',
-        profile_onboarded: true,
+        profile_onboarded: false,
         brevmont_extension_role: 'rep',
       });
       await browser.storage.sync.remove(['profile_onboarding']);

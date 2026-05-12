@@ -88,6 +88,146 @@ let profileData = {
   market: { customerTypes:[] as string[], objections:[] as string[], marketType:'', customerNote:'' }
 };
 
+type StoredSetup = {
+  profile_onboarded?: boolean;
+  profile_onboarding?: string | null;
+  dealer_token?: string;
+  license_key?: string;
+  license_secret?: string;
+  brevmont_license_secret?: string;
+  rep_auth_token?: string;
+  brevmont_rep_auth_token?: string;
+  rep_id?: string;
+  rep_name?: string;
+  rep_email?: string;
+  dealership?: string;
+  dealership_name?: string;
+  dealership_id?: string;
+  brevmont_tier?: string;
+  dealership_tier?: string;
+  dealership_plan?: string;
+  brevmont_extension_role?: string;
+  role?: string;
+  profile?: string;
+};
+
+function getDisplayName(stored: StoredSetup): string {
+  return String(stored.rep_name || 'there').trim();
+}
+
+function splitName(name: string): { firstName: string; lastName: string } {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') };
+}
+
+function getDealershipName(stored: StoredSetup): string {
+  return String(stored.dealership || stored.dealership_name || 'your dealership').trim();
+}
+
+function isInvitedRep(stored: StoredSetup): boolean {
+  return Boolean((stored.rep_auth_token || stored.brevmont_rep_auth_token) && stored.dealership_id);
+}
+
+function isManagerInstall(stored: StoredSetup): boolean {
+  const role = String(stored.brevmont_extension_role || stored.role || '').toLowerCase();
+  return ['owner_principal', 'owner', 'manager', 'gm', 'admin'].includes(role) || Boolean(stored.dealer_token && !stored.rep_auth_token && !stored.brevmont_rep_auth_token);
+}
+
+async function getStoredSetup(): Promise<StoredSetup> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([
+      'profile_onboarded',
+      'profile_onboarding',
+      'dealer_token',
+      'license_key',
+      'license_secret',
+      'brevmont_license_secret',
+      'rep_auth_token',
+      'brevmont_rep_auth_token',
+      'rep_id',
+      'rep_name',
+      'rep_email',
+      'dealership',
+      'dealership_name',
+      'dealership_id',
+      'brevmont_tier',
+      'dealership_tier',
+      'dealership_plan',
+      'brevmont_extension_role',
+      'role',
+      'profile',
+    ], (d) => resolve(d as StoredSetup));
+  });
+}
+
+function hideProgress(): void {
+  const progress = document.querySelector('.progress') as HTMLElement | null;
+  if (progress) progress.style.display = 'none';
+}
+
+function showProgress(): void {
+  const progress = document.querySelector('.progress') as HTMLElement | null;
+  if (progress) progress.style.display = '';
+}
+
+function showOnlyScreen(id: string): void {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id)?.classList.add('active');
+}
+
+async function routeStoredSetup(): Promise<boolean> {
+  const stored = await getStoredSetup();
+  if (stored.profile_onboarded && stored.dealer_token) return false;
+
+  if (isInvitedRep(stored)) {
+    showInvitedRepOnboarding(stored);
+    return true;
+  }
+
+  if (isManagerInstall(stored)) {
+    showManagerOnboarding(stored);
+    return true;
+  }
+
+  showSetupCodeEntry();
+  return true;
+}
+
+function showInvitedRepOnboarding(stored: StoredSetup): void {
+  hideProgress();
+  const name = getDisplayName(stored);
+  const dealership = getDealershipName(stored);
+  document.getElementById('quick-rep-name')!.textContent = name;
+  document.getElementById('quick-dealer-name')!.textContent = dealership;
+
+  profileData.identity = {
+    ...profileData.identity,
+    ...splitName(name === 'there' ? '' : name),
+  };
+  profileData.dealership.name = dealership;
+  profileData.dealership.licenseKey = String(stored.license_key || stored.dealer_token || profileData.dealership.licenseKey || '');
+  profileData.voice.tone = 'friendly';
+  profileData.voice.languages = ['english'];
+
+  showOnlyScreen('screen-quick-rep');
+}
+
+function showManagerOnboarding(stored: StoredSetup): void {
+  hideProgress();
+  const name = String(stored.rep_name || '').trim();
+  const dealer = getDealershipName(stored);
+  const dealerInput = document.getElementById('mgr-dealer') as HTMLInputElement | null;
+  const nameInput = document.getElementById('mgr-name') as HTMLInputElement | null;
+  if (dealerInput && dealer !== 'your dealership') dealerInput.value = dealer;
+  if (nameInput && name) nameInput.value = name;
+  showOnlyScreen('screen-manager-setup');
+}
+
+function showSetupCodeEntry(): void {
+  hideProgress();
+  showOnlyScreen('screen-setup-code');
+}
+
 // Boot path: storage init → URL token check → onboarded check → resume.
 // Each step is short-circuited by an earlier success.
 (async function boot() {
@@ -100,11 +240,7 @@ let profileData = {
   // EXIT FIRST if already activated — before install_token, cookie path, or resume.
   // Requires dealer_token so we don't close on a half-written profile flag alone.
   try {
-    const gate = await new Promise<{ profile_onboarded?: boolean; dealer_token?: string }>((resolve) => {
-      chrome.storage.local.get(['profile_onboarded', 'dealer_token'], (d) =>
-        resolve(d as { profile_onboarded?: boolean; dealer_token?: string }),
-      );
-    });
+    const gate = await getStoredSetup();
     if (gate.profile_onboarded && gate.dealer_token) {
       window.close();
       return;
@@ -124,13 +260,7 @@ let profileData = {
       url.searchParams.delete('install_token');
       window.history.replaceState({}, document.title, url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : ''));
       // Hand control to completion screen — credentials are already in storage.
-      try {
-        const stored = await storage.getMany(['dealership', 'rep_name']);
-        document.getElementById('comp-name')!.textContent = stored.rep_name || 'You';
-        document.getElementById('comp-dealer')!.textContent = stored.dealership || '';
-        document.getElementById('comp-tone')!.textContent = 'Default';
-      } catch (_) { /* noop */ }
-      goToStep(5);
+      await routeStoredSetup();
       return;
     }
     // Validate failed — show inline error on step 2 and let the user fall
@@ -147,26 +277,16 @@ let profileData = {
   // which returns full credentials for the rep. Skips manual entry entirely.
   const cookieOk = await tryAutoConfigFromCookie();
   if (cookieOk) {
-    try {
-      const stored = await storage.getMany(['dealership', 'rep_name']);
-      document.getElementById('comp-name')!.textContent = stored.rep_name || 'You';
-      document.getElementById('comp-dealer')!.textContent = stored.dealership || '';
-      document.getElementById('comp-tone')!.textContent = 'Default';
-    } catch (_) { /* noop */ }
-    goToStep(5);
+    await routeStoredSetup();
     return;
   }
 
+  if (await routeStoredSetup()) return;
+
   // Path 3/4 — onboarded check + resume from local-storage progress.
-  let stored: {
-    profile_onboarded?: boolean;
-    profile_onboarding?: string | null;
-    dealer_token?: string;
-  } = {};
+  let stored: StoredSetup = {};
   try {
-    stored = await new Promise((resolve) => {
-      chrome.storage.local.get(['profile_onboarded', 'profile_onboarding', 'dealer_token'], (d) => resolve(d as any));
-    });
+    stored = await getStoredSetup();
   } catch (_) { /* noop */ }
 
   if (stored.profile_onboarded && stored.dealer_token) {
@@ -221,13 +341,14 @@ async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
         dealership_plan: data.plan || data.tier || 'free',
       });
     } catch (_) { /* noop */ }
-    // Mark onboarded so the popup/options pages don't re-prompt.
+    // Credentials are ready, but invited reps still get the two-question
+    // preference step before Brevmont opens.
     await storage.patch({
-      profile_onboarded: true,
+      profile_onboarded: false,
       profile_onboarding: null,
     });
     try {
-      await chrome.storage.local.set({ [SETUP_KEY]: true });
+      await chrome.storage.local.remove(SETUP_KEY);
       await chrome.storage.sync.set({
         dealer_token: data.dealer_token || data.license_key,
         rep_auth_token: data.rep_auth_token || null,
@@ -237,7 +358,7 @@ async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
         brevmont_tier: data.tier || 'free',
         dealership_tier: data.tier || 'free',
         dealership_plan: data.plan || data.tier || 'free',
-        profile_onboarded: true,
+        profile_onboarded: false,
         brevmont_extension_role: (data.rep_id || data.rep_auth_token) ? 'rep' : 'manager',
       });
     } catch (_) { /* noop */ }
@@ -288,13 +409,12 @@ async function tryAutoConfigFromCookie(): Promise<boolean> {
       dealer_token: dealerToken,
       activated_at: Date.now(),
       license_revoked: false,
-      profile_onboarded: true,
+      profile_onboarded: false,
       profile_onboarding: null,
       brevmont_extension_role: 'rep',
       brevmont_tier: data.tier || 'free',
       dealership_tier: data.tier || 'free',
       dealership_plan: data.plan || data.tier || 'free',
-      [SETUP_KEY]: true,
     };
     if (data.license_secret) {
       toStore.license_secret = data.license_secret;
@@ -321,9 +441,10 @@ async function tryAutoConfigFromCookie(): Promise<boolean> {
       brevmont_tier: data.tier || 'free',
       dealership_tier: data.tier || 'free',
       dealership_plan: data.plan || data.tier || 'free',
-      profile_onboarded: true,
+      profile_onboarded: false,
       brevmont_extension_role: 'rep',
     });
+    await chrome.storage.local.remove(SETUP_KEY);
     await chrome.storage.sync.remove('profile_onboarding');
     try { chrome.action?.setBadgeText?.({ text: '' }); } catch {}
     return true;
@@ -683,12 +804,11 @@ async function validateRepToken(token: string) {
       rep_auth_token: resolvedRepToken,
       activated_at: Date.now(),
       license_revoked: false,
-      profile_onboarded: true,
+      profile_onboarded: false,
       profile_onboarding: null,
       brevmont_tier: data.tier || 'free',
       dealership_tier: data.tier || 'free',
       dealership_plan: data.plan || data.tier || 'free',
-      [SETUP_KEY]: true,
     };
     if (data.license_key) toStore.license_key = data.license_key;
     if (data.dealer_token) toStore.dealer_token = data.dealer_token;
@@ -714,9 +834,10 @@ async function validateRepToken(token: string) {
         brevmont_tier: data.tier || 'free',
         dealership_tier: data.tier || 'free',
         dealership_plan: data.plan || data.tier || 'free',
-        profile_onboarded: true,
+        profile_onboarded: false,
         brevmont_extension_role: 'rep',
       });
+      await chrome.storage.local.remove(SETUP_KEY);
       await chrome.storage.sync.remove('profile_onboarding');
     } catch {}
     try { chrome.action?.setBadgeText?.({ text: '' }); } catch {}
@@ -828,6 +949,146 @@ async function finish() {
   });
 }
 
+async function finishQuickRepOnboarding() {
+  const stored = await getStoredSetup();
+  const name = getDisplayName(stored);
+  const dealership = getDealershipName(stored);
+  const selectedTone = (document.querySelector('#quick-tone .tone-card.selected') as HTMLElement | null)?.dataset.tone || 'friendly';
+  const languages = ['english'];
+  if ((document.getElementById('quick-spanish') as HTMLInputElement | null)?.checked) languages.push('spanish');
+  const parsedName = splitName(name === 'there' ? '' : name);
+
+  const profile = {
+    identity: {
+      ...profileData.identity,
+      firstName: parsedName.firstName,
+      lastName: parsedName.lastName,
+      jobTitle: profileData.identity.jobTitle || 'Sales Consultant',
+    },
+    dealership: {
+      ...profileData.dealership,
+      name: dealership,
+      licenseKey: String(stored.license_key || stored.dealer_token || profileData.dealership.licenseKey || ''),
+    },
+    voice: {
+      ...profileData.voice,
+      tone: selectedTone,
+      emojis: 'sometimes',
+      languages,
+    },
+    market: profileData.market,
+    onboarded: true,
+    onboarded_at: new Date().toISOString(),
+  };
+
+  const payload: Record<string, any> = {
+    profile: JSON.stringify(profile),
+    profile_onboarded: true,
+    profile_onboarding: null,
+    rep_name: name === 'there' ? 'Rep' : name,
+    dealership,
+    brevmont_extension_role: 'rep',
+    [SETUP_KEY]: true,
+  };
+  if (stored.dealer_token) payload.dealer_token = stored.dealer_token;
+  if (stored.rep_auth_token || stored.brevmont_rep_auth_token) {
+    payload.rep_auth_token = stored.rep_auth_token || stored.brevmont_rep_auth_token;
+    payload.brevmont_rep_auth_token = stored.brevmont_rep_auth_token || stored.rep_auth_token;
+  }
+  if (stored.rep_id) payload.rep_id = stored.rep_id;
+  if (stored.rep_email) payload.rep_email = stored.rep_email;
+  if (stored.dealership_id) payload.dealership_id = stored.dealership_id;
+  if (stored.brevmont_tier || stored.dealership_tier) {
+    payload.brevmont_tier = stored.brevmont_tier || stored.dealership_tier;
+    payload.dealership_tier = stored.dealership_tier || stored.brevmont_tier;
+    payload.dealership_plan = stored.dealership_plan || stored.dealership_tier || stored.brevmont_tier;
+  }
+
+  await chrome.storage.local.set(payload);
+  await chrome.storage.sync.set(payload);
+  await chrome.storage.local.remove('profile_onboarding');
+  await chrome.storage.sync.remove('profile_onboarding');
+  syncProfileToSupabase(profile).catch((e: any) => {
+    try { chrome.runtime.sendMessage({ type: 'REPORT_ERROR', payload: { error_type: 'API_ERROR', error_message: e?.message || 'Profile sync to Supabase failed', context: 'quick_rep_onboarding' } }); } catch(_) {}
+  });
+  await openBrevmont();
+}
+
+async function finishManagerOnboarding() {
+  const stored = await getStoredSetup();
+  const dealership = ((document.getElementById('mgr-dealer') as HTMLInputElement | null)?.value || getDealershipName(stored)).trim();
+  const name = ((document.getElementById('mgr-name') as HTMLInputElement | null)?.value || stored.rep_name || '').trim();
+  const state = ((document.getElementById('mgr-state') as HTMLInputElement | null)?.value || '').trim();
+  const crm = ((document.getElementById('mgr-crm') as HTMLSelectElement | null)?.value || '').trim();
+  if (!dealership || !name || !state) {
+    alert('Dealership name, your name, and state are required.');
+    return;
+  }
+  const parsedName = splitName(name);
+  const profile = {
+    identity: {
+      ...profileData.identity,
+      firstName: parsedName.firstName,
+      lastName: parsedName.lastName,
+      jobTitle: 'General Manager',
+    },
+    dealership: {
+      ...profileData.dealership,
+      name: dealership,
+      state,
+      crm,
+      licenseKey: String(stored.license_key || stored.dealer_token || ''),
+    },
+    voice: profileData.voice,
+    market: profileData.market,
+    onboarded: true,
+    onboarded_at: new Date().toISOString(),
+  };
+  const payload: Record<string, any> = {
+    profile: JSON.stringify(profile),
+    profile_onboarded: true,
+    profile_onboarding: null,
+    rep_name: name,
+    dealership,
+    dealer_token: stored.dealer_token || stored.license_key || '',
+    brevmont_extension_role: 'manager',
+    [SETUP_KEY]: true,
+  };
+  if (stored.dealership_id) payload.dealership_id = stored.dealership_id;
+  if (stored.brevmont_tier || stored.dealership_tier) {
+    payload.brevmont_tier = stored.brevmont_tier || stored.dealership_tier;
+    payload.dealership_tier = stored.dealership_tier || stored.brevmont_tier;
+    payload.dealership_plan = stored.dealership_plan || stored.dealership_tier || stored.brevmont_tier;
+  }
+  await chrome.storage.local.set(payload);
+  await chrome.storage.sync.set(payload);
+  await chrome.storage.local.remove('profile_onboarding');
+  await chrome.storage.sync.remove('profile_onboarding');
+  syncProfileToSupabase(profile).catch(() => {});
+  await openBrevmont();
+}
+
+async function connectSetupCode() {
+  const input = document.getElementById('quick-setup-code') as HTMLInputElement | null;
+  const err = document.getElementById('quick-code-err') as HTMLElement | null;
+  const ok = document.getElementById('quick-code-ok') as HTMLElement | null;
+  const token = input?.value.trim() || '';
+  if (!token) {
+    if (err) { err.textContent = 'Paste the setup code from your invitation email.'; err.style.display = 'block'; }
+    if (ok) ok.style.display = 'none';
+    return;
+  }
+  if (err) err.style.display = 'none';
+  const valid = await validateRepToken(token);
+  if (!valid) {
+    if (err) { err.textContent = 'Setup code is invalid or expired. Ask your manager for a fresh invite.'; err.style.display = 'block'; }
+    if (ok) ok.style.display = 'none';
+    return;
+  }
+  if (ok) ok.style.display = 'block';
+  await routeStoredSetup();
+}
+
 async function syncProfileToSupabase(profile: any) {
   // Phase 1e: Supabase key removed from extension. Rep profile now flows
   // through the proxy. If a proxy profile-sync endpoint exists it goes here;
@@ -910,6 +1171,9 @@ document.getElementById('btn-prev-3')!.addEventListener('click', () => prev(3));
 document.getElementById('btn-prev-4')!.addEventListener('click', () => prev(4));
 document.getElementById('btn-finish')!.addEventListener('click', () => finish());
 document.getElementById('btn-open')!.addEventListener('click', () => openBrevmont());
+document.getElementById('btn-quick-start')?.addEventListener('click', () => finishQuickRepOnboarding().catch(() => {}));
+document.getElementById('btn-manager-start')?.addEventListener('click', () => finishManagerOnboarding().catch(() => {}));
+document.getElementById('btn-connect-code')?.addEventListener('click', () => connectSetupCode().catch(() => {}));
 
 document.querySelectorAll('#s2-role .tone-card[data-role]').forEach(c =>
   c.addEventListener('click', () => setAuthRole(((c as HTMLElement).dataset.role as 'manager' | 'rep') || 'manager'))

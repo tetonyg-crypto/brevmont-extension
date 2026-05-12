@@ -19,7 +19,6 @@
  */
 
 import { hasCompleteActivation } from '../lib/activationState';
-import { openRepPostInstallDestination } from '../lib/repAfterInstall';
 
 type Platform = 'mac' | 'windows' | 'other';
 
@@ -73,8 +72,8 @@ function imgOrFallback(srcRel: string, alt: string): HTMLElement {
 async function isAlreadyActivated(): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      chrome.storage.local.get(['license_key', 'dealer_token', 'profile_onboarded'], (d) => {
-        resolve(Boolean(d.license_key || d.dealer_token || d.profile_onboarded));
+      chrome.storage.local.get(['license_key', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'profile_onboarded'], (d) => {
+        resolve(Boolean(d.license_key || d.dealer_token || d.rep_auth_token || d.brevmont_rep_auth_token || d.profile_onboarded));
       });
     } catch {
       resolve(false);
@@ -140,23 +139,7 @@ async function bootstrap() {
     }
     const activated = await isAlreadyActivated();
     if (activated) {
-      const stored = await new Promise<any>((resolve) => {
-        chrome.storage.local.get(['brevmont_extension_role', 'dealer_token'], resolve);
-      });
-
-      const role = stored.brevmont_extension_role || 'rep';
-      const repRoles = ['rep', 'sales_rep'];
-
-      if (repRoles.includes(role)) {
-        await openRepPostInstallDestination();
-      } else {
-        try {
-          chrome.tabs.create({ url: 'https://app.brevmont.com/manager/team' });
-          window.close();
-        } catch {
-          window.location.href = 'https://app.brevmont.com/manager/team';
-        }
-      }
+      window.location.href = chrome.runtime.getURL('onboarding.html');
       return;
     }
     // Not activated — open the legacy wizard so the rep pastes their license.
