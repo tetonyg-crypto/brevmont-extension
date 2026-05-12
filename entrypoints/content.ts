@@ -160,26 +160,44 @@ export default defineContentScript({
       try { return extractContactNameForPlatform(PLATFORM) || null; } catch { return null; }
     }
 
+    function extractPartialLeadSignals(rawText: string): { customerName?: string | null; email?: string | null; phone?: string | null; vehicle?: string | null } {
+      const raw = String(rawText || '');
+      const email = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || null;
+      const phone = raw.match(/(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/)?.[0] || null;
+      const spacedVehicle = raw.match(/\b((?:19|20)\d{2}\s+[A-Z][A-Za-z0-9-]*(?:\s+[A-Z][A-Za-z0-9-]*){0,4})\b/);
+      const gluedVehicle = raw.match(/\b((?:19|20)\d{2})([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z0-9-]*){0,3})\b/);
+      const vehicle = spacedVehicle?.[1]?.trim()
+        || (gluedVehicle ? `${gluedVehicle[1]} ${gluedVehicle[2]}`.trim() : null);
+      const emailName = email ? email.split('@')[0].replace(/[._+-]+/g, ' ').replace(/\s+/g, ' ').trim() : null;
+      return { customerName: emailName, email, phone, vehicle };
+    }
+
     function extractGmailLeadSignal(rawText: string): { customerName?: string | null; email?: string | null; rawPrefix?: string } {
       if (!isGmail) return {};
-      const candidates = Array.from(document.querySelectorAll('.gD[email], .gD[data-hovercard-id], [email], [data-hovercard-id]')) as HTMLElement[];
+      const candidates = Array.from(document.querySelectorAll('.gD[email], .go[email], .g2[email], .gD[data-hovercard-id], [email], [data-hovercard-id], a[href^="mailto:"]')) as HTMLElement[];
       let senderEl = candidates.find(el => {
-        const email = el.getAttribute('email') || el.getAttribute('data-hovercard-id') || '';
+        const email = el.getAttribute('email')
+          || el.getAttribute('data-hovercard-id')
+          || (el as HTMLAnchorElement).href?.replace(/^mailto:/, '').split('?')[0]
+          || '';
         return /@/.test(email);
       }) || null;
 
       if (!senderEl) {
-        senderEl = document.querySelector('[aria-label*="@"][role="button"], [title*="@"]') as HTMLElement | null;
+        senderEl = document.querySelector('[aria-label*="@"][role="button"], [aria-label*="@"] [role="button"], [title*="@"]') as HTMLElement | null;
       }
 
       const attrEmail = senderEl?.getAttribute('email')
         || senderEl?.getAttribute('data-hovercard-id')
+        || (senderEl as HTMLAnchorElement | null)?.href?.replace(/^mailto:/, '').split('?')[0]
+        || senderEl?.getAttribute('aria-label')?.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
         || senderEl?.getAttribute('title')?.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
         || rawText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
         || null;
 
       const attrName = senderEl?.getAttribute('name')
         || senderEl?.getAttribute('data-name')
+        || senderEl?.getAttribute('aria-label')?.replace(attrEmail || '', '')
         || senderEl?.textContent?.replace(/<[^>]+>/g, '').trim()
         || null;
 
@@ -1147,11 +1165,12 @@ export default defineContentScript({
           if (gmailSignal.rawPrefix) {
             rawText = `${gmailSignal.rawPrefix}\n\n${rawText}`.slice(0, 5000);
           }
+          const partialSignal = extractPartialLeadSignals(rawText);
           const scanned = isVinSolutions ? scanText(rawText) : {};
-          const name = scanned.customerName || leadData?.customerName || gmailSignal.customerName || safeExtractContactName();
-          const phone = scanned.phone || leadData?.phone || null;
-          const email = scanned.email || leadData?.email || gmailSignal.email || null;
-          const vehicle = scanned.vehicle || leadData?.vehicle || leadData?.vehicleOfInterest || null;
+          const name = scanned.customerName || leadData?.customerName || gmailSignal.customerName || safeExtractContactName() || partialSignal.customerName;
+          const phone = scanned.phone || leadData?.phone || partialSignal.phone || null;
+          const email = scanned.email || leadData?.email || gmailSignal.email || partialSignal.email || null;
+          const vehicle = scanned.vehicle || leadData?.vehicle || leadData?.vehicleOfInterest || partialSignal.vehicle || null;
           sendResponse({
             name: name || null,
             customerName: name || null,

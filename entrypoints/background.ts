@@ -40,6 +40,28 @@ import { syncPendingLeads, getSyncStats } from '../lib/leadSync';
 import type { LocalLead } from '../lib/types/lead';
 import { getLegacyFeatureFlagsForTier } from '../lib/featureGate';
 
+function parseLooseLeadText(rawText: unknown): { customer_name?: string | null; vehicle_interest?: string | null } {
+  const raw = String(rawText || '').trim();
+  if (!raw) return {};
+  const spacedVehicle = raw.match(/\b((?:19|20)\d{2}\s+[A-Z][A-Za-z0-9-]*(?:\s+[A-Z][A-Za-z0-9-]*){0,4})\b/);
+  const gluedVehicle = raw.match(/\b((?:19|20)\d{2})([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z0-9-]*){0,3})\b/);
+  const vehicle = spacedVehicle?.[1]?.trim()
+    || (gluedVehicle ? `${gluedVehicle[1]} ${gluedVehicle[2]}`.trim() : null);
+  const vehicleNeedle = spacedVehicle?.[0] || gluedVehicle?.[0] || vehicle || '';
+  const beforeVehicle = vehicleNeedle ? raw.slice(0, raw.indexOf(vehicleNeedle)) : raw.split(/[,;\n|]/)[0];
+  const name = beforeVehicle
+    .replace(/\b(name|customer|lead|sender)\s*:/gi, ' ')
+    .replace(/[0-9]/g, ' ')
+    .replace(/[^A-Za-z' -]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const parts = name.split(/\s+/).filter(Boolean);
+  return {
+    customer_name: parts.length >= 2 && parts.length <= 4 ? parts.join(' ') : null,
+    vehicle_interest: vehicle,
+  };
+}
+
 initSentry();
 
 export default defineBackground(() => {
@@ -701,12 +723,14 @@ export default defineBackground(() => {
 
           // Save parsed lead locally in Dexie for Lead Inbox
           const parsedLead = data.lead || {};
+          const looseFallback = parseLooseLeadText(msg.payload?.raw_text);
           const fallbackName =
             msg.payload?.customer_name ||
             msg.payload?.customerName ||
             msg.payload?.name ||
+            looseFallback.customer_name ||
             null;
-          const customerName = parsedLead.customer_name || fallbackName;
+          const customerName = parsedLead.customer_name || parsedLead.name || fallbackName;
 
           if (customerName) {
             const leadId = crypto.randomUUID();
@@ -715,7 +739,7 @@ export default defineBackground(() => {
               customer_name: customerName,
               phone: parsedLead.phone || msg.payload?.phone || null,
               email: parsedLead.email || msg.payload?.email || null,
-              vehicle_interest: parsedLead.vehicle_interest || msg.payload?.vehicle_interest || msg.payload?.vehicle || null,
+              vehicle_interest: parsedLead.vehicle_interest || msg.payload?.vehicle_interest || msg.payload?.vehicle || looseFallback.vehicle_interest || null,
               source_platform: msg.payload.platform || 'unknown',
               source_raw_text: (msg.payload.raw_text || '').slice(0, 5000),
               status: 'captured',
@@ -1992,13 +2016,11 @@ ${contextBlock}${vehicleCtx}
 
 The customer said: "${payload.situation}"
 
-Provide a concise coaching response (3-5 sentences max):
-1. Acknowledge the objection
-2. Explain the best approach to handle it
-3. Give an example of what the rep should say back
-4. If relevant, suggest a next action
+Answer like a veteran floor manager talking to a rep between ups. No bullets. No academic framing. No "it usually means." Keep it direct, punchy, and practical.
 
-Keep it practical and direct — this rep is on the floor right now.`;
+Give them exactly what to do next and one line they can say back.
+
+Keep it to 3-5 short sentences.`;
 
   const apiBase = await getResolvedApiUrl();
   const result = await generateViaProxy(
@@ -2073,30 +2095,14 @@ async function handleContextReply(payload: { image: string; direction: string })
     ? { 'X-Rep-Token': repAuthToken }
     : undefined;
 
-  // Use /v1/generate with vision content blocks
-  const imageMediaType = payload.image.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
-  const base64Data = payload.image.replace(/^data:image\/\w+;base64,/, '');
-
   let resp: Response;
   try {
-    resp = await signedFetch(`${PROXY_URL}/v1/generate`, {
+    const apiBase = await getResolvedApiUrl();
+    resp = await signedFetch(`${apiBase}/api/context-reply`, {
       dealer_token: dealerToken,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: imageMediaType, data: base64Data } },
-          { type: 'text', text: `Look at this screenshot of a conversation. ${payload.direction}\n\nGenerate a natural reply based on what you see in the screenshot. Keep it conversational and direct.` }
-        ]
-      }],
-      max_tokens: 800,
-      model: 'claude-sonnet-4-20250514',
-      platform: 'context_reply',
       rep_name: (settings.rep_name as string | undefined) || null,
-      workflow_type: 'context_reply',
-      customer_name: null,
-      customer_email: null,
-      vehicle: null,
-      lead_id: null,
+      image: payload.image,
+      direction: payload.direction || 'Write a natural reply based on the screenshot.',
     }, repTokenHeader);
   } catch (e: any) {
     telemetry.trackError(e, { flow: 'context_reply_vision' });

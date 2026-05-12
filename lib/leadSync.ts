@@ -47,7 +47,7 @@ export async function syncPendingLeads(): Promise<{ synced: number; failed: numb
       source_platform: lead.source_platform,
       source_raw_text: lead.source_raw_text,
       status: lead.status,
-      captured_at: lead.captured_at,
+      captured_at: typeof lead.captured_at === 'number' ? new Date(lead.captured_at).toISOString() : lead.captured_at,
       has_trade_in: lead.has_trade_in || false,
       finance_intent: lead.finance_intent || false,
       extracted_trade_in: lead.extracted_trade_in || null,

@@ -327,6 +327,13 @@ function setActiveToolSection(root: HTMLElement, activeTool: string | null): voi
 
   const title = toolsPanel.querySelector('.tools-title') as HTMLElement | null;
   if (title) title.textContent = toolLabel(activeTool);
+
+  if (activeTool === 'coach') {
+    const output = root.querySelector('#o8-coach-output') as HTMLElement | null;
+    if (output && !output.textContent?.trim()) {
+      output.innerHTML = '<div class="tool-result" style="color:#64748b">What objection are you facing?</div>';
+    }
+  }
 }
 
 function applyFeatureGates(root: HTMLElement): void {
@@ -689,7 +696,7 @@ function wireHandlers(root: HTMLElement): void {
       const stats = el('o8-stats-panel'); if (stats) stats.style.display = 'none';
       const lead = el('o8-lead-panel'); if (lead) lead.style.display = 'none';
       if (toolsPanel) toolsPanel.style.display = 'flex';
-      setActiveToolSection(root, null);
+      setActiveToolSection(root, 'coach');
     };
   }
   if (toolsBack) toolsBack.onclick = () => { setActiveToolSection(root, null); toolsPanel!.style.display = 'none'; el('o8-quick')!.style.display = 'flex'; };
