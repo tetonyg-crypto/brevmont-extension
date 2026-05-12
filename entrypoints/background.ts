@@ -38,6 +38,7 @@ import { hasCompleteActivation } from './lib/activationState';
 import { leadDb } from '../lib/leadDb';
 import { syncPendingLeads, getSyncStats } from '../lib/leadSync';
 import type { LocalLead } from '../lib/types/lead';
+import { getLegacyFeatureFlagsForTier } from '../lib/featureGate';
 
 initSentry();
 
@@ -263,7 +264,7 @@ export default defineBackground(() => {
       browser.storage.local.get(['brevmont_tier', 'brevmont_features', 'brevmont_last_heartbeat']).then(data => {
         const stale = !data.brevmont_last_heartbeat || (Date.now() - data.brevmont_last_heartbeat > 30 * 60 * 1000);
         const tier = stale ? (data.brevmont_tier || 'free') : (data.brevmont_tier || 'free');
-        sendResponse({ tier, features: data.brevmont_features || getTierFeatures(tier) });
+        sendResponse({ tier, features: getTierFeatures(tier) });
       }).catch(() => sendResponse({ tier: 'free', features: getTierFeatures('free') }));
       return true;
     }
@@ -392,6 +393,7 @@ export default defineBackground(() => {
     if (msg.type === 'MARK_OUTCOME') {
       (async () => {
         try {
+          await requireFeature('lead_capture', 'Deal outcomes');
           const settings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'dealership']);
           const resp = await signedFetch(`${PROXY_URL}/api/outcome`, {
             dealer_token: settings.dealer_token || '',
@@ -417,6 +419,7 @@ export default defineBackground(() => {
     if (msg.type === 'COACH_ME') {
       (async () => {
         try {
+          await requireFeature('voice_coach', 'Coach Me');
           addBreadcrumb('coaching', 'User requested coaching', { situation: msg.payload?.situation });
           const result = await handleCoach(msg.payload);
           addBreadcrumb('coaching', 'Coaching response received');
@@ -607,6 +610,7 @@ export default defineBackground(() => {
     if (msg.type === 'PARSE_LEAD') {
       (async () => {
         try {
+          await requireFeature('lead_capture', 'Lead capture');
           const dealerToken = await resolveDealerToken();
           if (!dealerToken && !msg.payload?.customer_name && !msg.payload?.name) {
             sendResponse({ error: 'No dealer_token' });
@@ -1042,8 +1046,10 @@ export default defineBackground(() => {
       if (resp.ok) {
         const data = await resp.json();
         const tier = data.tier || 'floor';
+        const previous = await browser.storage.local.get(['brevmont_tier']);
         const storageUpdate: Record<string, any> = {
           brevmont_tier: tier,
+          dealership_tier: tier,
           brevmont_features: data.features || getTierFeatures(tier),
           brevmont_last_heartbeat: Date.now(),
         };
@@ -1052,6 +1058,9 @@ export default defineBackground(() => {
           storageUpdate.brevmont_usage = data.usage;
         }
         await browser.storage.local.set(storageUpdate);
+        if (previous.brevmont_tier && previous.brevmont_tier !== tier) {
+          browser.runtime.sendMessage({ type: 'TIER_CHANGED', tier }).catch(() => {});
+        }
         const qSize = await getDexieQueueCount();
         if (qSize > 0) {
           await processQueue(apiUrl).catch(() => {});
@@ -1238,6 +1247,8 @@ export default defineBackground(() => {
         rep_email?: string;
         rep_name?: string;
         rep_id?: string;
+        tier?: string;
+        plan?: string;
       };
 
       if (cookieValue.startsWith('inst_')) {
@@ -1288,6 +1299,10 @@ export default defineBackground(() => {
         rep_email: data.rep_email || '',
         rep_name: repName,
         rep_id: data.rep_id || '',
+        brevmont_tier: data.tier || 'free',
+        dealership_tier: data.tier || 'free',
+        dealership_plan: data.plan || data.tier || 'free',
+        brevmont_features: getTierFeatures(data.tier || 'free'),
         profile_onboarded: true,
         profile_onboarding: null,
         activated_at: Date.now(),
@@ -1304,6 +1319,9 @@ export default defineBackground(() => {
         rep_name: repName,
         dealership: dealershipName,
         dealership_id: data.dealership_id || '',
+        brevmont_tier: data.tier || 'free',
+        dealership_tier: data.tier || 'free',
+        dealership_plan: data.plan || data.tier || 'free',
         profile_onboarded: true,
         brevmont_extension_role: 'rep',
       });
@@ -2091,62 +2109,13 @@ async function reportError(errorType: string, errorMessage: string) {
 
 // ===== FEATURE GATING =====
 function getTierFeatures(tier: string) {
-  // Normalize legacy tier names
-  if (tier === 'core') tier = 'floor';
-  if (tier === 'pro') tier = 'command';
-  if (tier === 'elite') tier = 'group';
-
-  const base: Record<string, boolean> = {
-    vinsolutions: true,
-    generation: true,
-    basic_logging: true,
-    gm_dashboard: false,
-    ghost_leads: false,
-    rep_leaderboard: false,
-    objection_tracking: false,
-    facebook: false,
-    gmail: false,
-    linkedin: false,
-    voice_coach: false,
-    command_mode: false,
-    context_reply: false,
-    voice_dictation: false,
-    campaigns: false,
-    multi_location: false,
-    owner_dashboard: false,
-    priority_support: false,
-    automated_reactivation: false
-  };
-
-  if (tier === 'command' || tier === 'group') {
-    base.gm_dashboard = true;
-    base.ghost_leads = true;
-    base.rep_leaderboard = true;
-    base.objection_tracking = true;
-    base.facebook = true;
-    base.gmail = true;
-    base.linkedin = true;
-    base.voice_coach = true;
-    base.command_mode = true;
-    base.context_reply = true;
-    base.voice_dictation = true;
-  }
-
-  if (tier === 'group') {
-    base.campaigns = true;
-    base.multi_location = true;
-    base.owner_dashboard = true;
-    base.priority_support = true;
-    base.automated_reactivation = true;
-  }
-
-  return base;
+  return getLegacyFeatureFlagsForTier(tier);
 }
 
-async function requireFeature(feature: 'command_mode' | 'context_reply', label: string): Promise<void> {
-  const data = await browser.storage.local.get(['brevmont_tier', 'brevmont_features']);
+async function requireFeature(feature: string, label: string): Promise<void> {
+  const data = await browser.storage.local.get(['brevmont_tier']);
   const tier = String(data.brevmont_tier || 'free');
-  const features = (data.brevmont_features || getTierFeatures(tier)) as Record<string, boolean>;
+  const features = getTierFeatures(tier) as Record<string, boolean>;
   if (tier === 'free' || features[feature] !== true) {
     throw new Error(`${label} is available on paid Brevmont plans.`);
   }

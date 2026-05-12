@@ -78,6 +78,8 @@ let repSession: {
   rep_name: string;
   dealership_id: string;
   dealership_name: string;
+  tier?: string;
+  plan?: string;
 } | null = null;
 let profileData = {
   identity: { firstName:'', lastName:'', jobTitle:'', customTitle:'', yearsExperience:'' },
@@ -214,6 +216,9 @@ async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
     try {
       await chrome.storage.local.set({
         brevmont_extension_role: (data.rep_id || data.rep_auth_token) ? 'rep' : 'manager',
+        brevmont_tier: data.tier || 'free',
+        dealership_tier: data.tier || 'free',
+        dealership_plan: data.plan || data.tier || 'free',
       });
     } catch (_) { /* noop */ }
     // Mark onboarded so the popup/options pages don't re-prompt.
@@ -229,6 +234,9 @@ async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
         rep_name: data.rep_name || data.rep_email || 'Rep',
         dealership: data.dealership_name || '',
         dealership_id: data.dealership_id || '',
+        brevmont_tier: data.tier || 'free',
+        dealership_tier: data.tier || 'free',
+        dealership_plan: data.plan || data.tier || 'free',
         profile_onboarded: true,
         brevmont_extension_role: (data.rep_id || data.rep_auth_token) ? 'rep' : 'manager',
       });
@@ -283,6 +291,9 @@ async function tryAutoConfigFromCookie(): Promise<boolean> {
       profile_onboarded: true,
       profile_onboarding: null,
       brevmont_extension_role: 'rep',
+      brevmont_tier: data.tier || 'free',
+      dealership_tier: data.tier || 'free',
+      dealership_plan: data.plan || data.tier || 'free',
       [SETUP_KEY]: true,
     };
     if (data.license_secret) {
@@ -307,6 +318,9 @@ async function tryAutoConfigFromCookie(): Promise<boolean> {
       rep_name: repName,
       dealership: dealershipName,
       dealership_id: data.dealership_id || '',
+      brevmont_tier: data.tier || 'free',
+      dealership_tier: data.tier || 'free',
+      dealership_plan: data.plan || data.tier || 'free',
       profile_onboarded: true,
       brevmont_extension_role: 'rep',
     });
@@ -660,6 +674,8 @@ async function validateRepToken(token: string) {
       rep_name: data.rep_name || '',
       dealership_id: data.dealership_id || '',
       dealership_name: data.dealership || data.dealership_name || profileData.dealership.name || '',
+      tier: data.tier || 'free',
+      plan: data.plan || data.tier || 'free',
     };
 
     // Persist license credentials so the extension can sign requests immediately
@@ -669,6 +685,9 @@ async function validateRepToken(token: string) {
       license_revoked: false,
       profile_onboarded: true,
       profile_onboarding: null,
+      brevmont_tier: data.tier || 'free',
+      dealership_tier: data.tier || 'free',
+      dealership_plan: data.plan || data.tier || 'free',
       [SETUP_KEY]: true,
     };
     if (data.license_key) toStore.license_key = data.license_key;
@@ -692,6 +711,9 @@ async function validateRepToken(token: string) {
         rep_name: data.rep_name || typedName || 'Rep',
         dealership: repSession.dealership_name || '',
         dealership_id: data.dealership_id || '',
+        brevmont_tier: data.tier || 'free',
+        dealership_tier: data.tier || 'free',
+        dealership_plan: data.plan || data.tier || 'free',
         profile_onboarded: true,
         brevmont_extension_role: 'rep',
       });
@@ -771,10 +793,20 @@ async function finish() {
     if (repSession.rep_name) payload.rep_name = repSession.rep_name;
     if (repSession.dealership_id) payload.dealership_id = repSession.dealership_id;
     if (repSession.dealership_name) payload.dealership = repSession.dealership_name;
+    if (repSession.tier) {
+      payload.brevmont_tier = repSession.tier;
+      payload.dealership_tier = repSession.tier;
+      payload.dealership_plan = repSession.plan || repSession.tier;
+    }
     try {
       await chrome.storage.local.set({
         rep_auth_token: repSession.rep_auth_token,
         brevmont_rep_auth_token: repSession.rep_auth_token,
+        ...(repSession.tier ? {
+          brevmont_tier: repSession.tier,
+          dealership_tier: repSession.tier,
+          dealership_plan: repSession.plan || repSession.tier,
+        } : {}),
       });
     } catch (_) { /* noop */ }
   }

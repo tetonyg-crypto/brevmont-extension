@@ -13,6 +13,7 @@ import { getPanelHTML } from '../lib/panelUI';
 import { getPanelCSS } from '../lib/panelCSS';
 import { clearJwtCache } from '../../lib/jwtCache';
 import { clearAuth } from '../../lib/storage';
+import { getFeatureAccess } from '../../lib/featureGate';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
@@ -53,6 +54,9 @@ const AUTH_SYNC_KEYS = [
   'profile_onboarded',
   'profile',
   'install_token',
+  'brevmont_tier',
+  'dealership_tier',
+  'dealership_plan',
 ];
 
 async function clearCredentialsForReconnect(): Promise<void> {
@@ -65,6 +69,11 @@ async function clearCredentialsForReconnect(): Promise<void> {
       'license_revoked_at',
       'license_revoked_message',
       'brevmont_jwt_cache',
+      'brevmont_tier',
+      'dealership_tier',
+      'dealership_plan',
+      'brevmont_features',
+      'brevmont_usage',
     ]),
   ]);
 }
@@ -287,24 +296,59 @@ async function ensureGenerationAllowed(root: HTMLElement): Promise<boolean> {
 }
 
 // ─── Build panel DOM ─────────────────────────────────────────────────────────
+function setDisplay(root: HTMLElement, selector: string, visible: boolean): void {
+  const node = root.querySelector(selector) as HTMLElement | null;
+  if (node) node.style.display = visible ? '' : 'none';
+}
+
 function applyFeatureGates(root: HTMLElement): void {
-  chrome.storage.local.get(['brevmont_tier', 'brevmont_features']).then(data => {
-    const tier = String(data.brevmont_tier || 'free');
-    const features = (data.brevmont_features || {}) as Record<string, boolean>;
+  getFeatureAccess().then(access => {
+    setDisplay(root, '#o8-lead-btn', access.addLead);
+    setDisplay(root, '#o8-lead-panel', access.addLead);
+    setDisplay(root, '#o8-outcome-section', access.markOutcome);
+    setDisplay(root, '.inline-links', access.coachMe || access.stats || access.settings);
+    setDisplay(root, '#o8-tools-btn-inline', access.coachMe);
+    setDisplay(root, '#o8-tools-panel', access.coachMe || access.notifications || access.screenshotCapture || access.commandMode);
+    setDisplay(root, '#o8-stats-btn-inline', access.stats);
+    setDisplay(root, '#o8-stats-panel', access.stats);
+    setDisplay(root, '#o8-settings-btn-inline', access.settings);
+    setDisplay(root, '#o8-settings-panel', access.settings);
+
     const gates = [
-      { selector: '[data-tool="context"]', content: '#tool-context', allowed: tier !== 'free' && features.context_reply === true },
-      { selector: '[data-tool="command"]', content: '#tool-command', allowed: tier !== 'free' && features.command_mode === true },
+      { tab: '[data-tool="coach"]', content: '#tool-coach', allowed: access.coachMe },
+      { tab: '[data-tool="alerts"]', content: '#tool-alerts', allowed: access.notifications },
+      { tab: '[data-tool="context"]', content: '#tool-context', allowed: access.screenshotCapture },
+      { tab: '[data-tool="command"]', content: '#tool-command', allowed: access.commandMode },
     ];
+
     for (const gate of gates) {
-      const tab = root.querySelector(gate.selector) as HTMLElement | null;
-      const content = root.querySelector(gate.content) as HTMLElement | null;
-      if (tab) tab.style.display = gate.allowed ? '' : 'none';
-      if (content && !gate.allowed) content.style.display = 'none';
+      setDisplay(root, gate.tab, gate.allowed);
+      setDisplay(root, gate.content, gate.allowed);
+    }
+
+    if (!access.coachMe && !access.notifications && !access.screenshotCapture && !access.commandMode) {
+      const toolsPanel = root.querySelector('#o8-tools-panel') as HTMLElement | null;
+      if (toolsPanel) toolsPanel.style.display = 'none';
     }
   }).catch(() => {
-    for (const selector of ['[data-tool="context"]', '[data-tool="command"]', '#tool-context', '#tool-command']) {
-      const node = root.querySelector(selector) as HTMLElement | null;
-      if (node) node.style.display = 'none';
+    for (const selector of [
+      '#o8-lead-btn',
+      '#o8-lead-panel',
+      '#o8-outcome-section',
+      '.inline-links',
+      '#o8-tools-panel',
+      '#o8-stats-panel',
+      '#o8-settings-panel',
+      '[data-tool="coach"]',
+      '[data-tool="alerts"]',
+      '[data-tool="context"]',
+      '[data-tool="command"]',
+      '#tool-coach',
+      '#tool-alerts',
+      '#tool-context',
+      '#tool-command',
+    ]) {
+      setDisplay(root, selector, false);
     }
   });
 }
@@ -1632,6 +1676,16 @@ chrome.tabs.onUpdated.addListener(async (_tabId, changeInfo) => {
     const root = document.getElementById('sp-root');
     if (root && root.style.display !== 'none') updatePlatformBadge(root);
   }
+});
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type !== 'TIER_CHANGED') return false;
+  const root = document.getElementById('sp-root');
+  if (root && root.style.display !== 'none') {
+    applyFeatureGates(root);
+    updateUsageCounter(root);
+  }
+  return false;
 });
 
 // ─── VinSolutions coexistence: show info banner when DOM sidebar is also active ─
