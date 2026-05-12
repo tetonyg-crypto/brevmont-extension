@@ -882,6 +882,10 @@ document.getElementById('btn-open')!.addEventListener('click', () => openBrevmon
 document.querySelectorAll('#s2-role .tone-card[data-role]').forEach(c =>
   c.addEventListener('click', () => setAuthRole(((c as HTMLElement).dataset.role as 'manager' | 'rep') || 'manager'))
 );
+setTimeout(() => {
+  const help = document.getElementById('install-stuck-help');
+  if (help && currentStep === 2) help.style.display = 'block';
+}, 120000);
 document.querySelectorAll('#s2-salt button').forEach(b => b.addEventListener('click', () => setSalt(b.textContent!.toLowerCase())));
 document.querySelectorAll('#s3-emoji button').forEach(b => b.addEventListener('click', () => setEmoji(b.textContent!.toLowerCase())));
 document.querySelectorAll('.tone-card[data-tone]').forEach(c => c.addEventListener('click', () => setTone(c as HTMLElement)));
