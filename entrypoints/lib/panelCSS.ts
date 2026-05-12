@@ -80,6 +80,15 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .upgrade-prompt .upgrade-btn { display:inline-block; padding:8px 16px; background:#0D6E6E; color:#fff; border-radius:6px; font-size:12px; font-weight:600; text-decoration:none; cursor:pointer; border:none; }
 .upgrade-prompt .upgrade-btn:hover { background:#0A5555; }
 .upgrade-prompt .upgrade-phone { font-size:11px; color:#78350f; margin-top:6px; }
+.version-update-banner { margin:8px 12px 0; padding:10px 11px; border:1px solid #D6E4E4; border-radius:9px; background:#F0FAFA; color:#0F1419; font-size:12px; line-height:1.4; }
+.version-update-banner.force { border-color:#FCA5A5; background:#FEF2F2; }
+.version-update-title { font-size:11px; font-weight:800; color:#0D6E6E; text-transform:uppercase; letter-spacing:0.7px; margin-bottom:3px; }
+.version-update-banner.force .version-update-title { color:#991B1B; }
+.version-update-copy { color:#4B5563; margin-bottom:8px; }
+.version-update-btn { border:0; border-radius:7px; background:#0D6E6E; color:#fff; font-size:11px; font-weight:700; padding:7px 9px; cursor:pointer; font-family:inherit; }
+.version-update-btn:hover { background:#0A5555; }
+.version-update-banner.force .version-update-btn { background:#991B1B; }
+.version-update-banner.force .version-update-btn:hover { background:#7F1D1D; }
 .outputs { padding:0 14px; overflow-y:auto; flex:0 0 auto; }
 .outputs:not(:empty) { padding:8px 14px; flex:1 1 auto; min-height:0; }
 .out-card { background:#fff; border:1px solid #E5E7EB; border-radius:12px; padding:10px 12px; margin-bottom:8px; }

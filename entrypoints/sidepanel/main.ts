@@ -23,6 +23,16 @@ interface PlatformContext {
   url: string;
 }
 
+interface VersionStatus {
+  locked?: boolean;
+  deprecated?: boolean;
+  updateRequired?: boolean;
+  forceUpdate?: boolean;
+  message?: string | null;
+  latest?: string | null;
+  downloadUrl?: string | null;
+}
+
 // ─── State ───────────────────────────────────────────────────────────────────
 let currentPlatform: PlatformContext = { platform: 'unknown', tabId: -1, url: '' };
 let isGenerating = false;
@@ -215,6 +225,67 @@ function showUpgradePrompt(root: HTMLElement, message: string, upgradeUrl?: stri
   `;
 }
 
+function normalizeVersionStatus(raw: unknown): VersionStatus | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as VersionStatus;
+  const forceUpdate = Boolean(value.forceUpdate || value.locked);
+  const updateRequired = Boolean(value.updateRequired || value.deprecated || forceUpdate);
+  if (!updateRequired && !forceUpdate) return null;
+  return {
+    ...value,
+    updateRequired,
+    forceUpdate,
+    message: value.message || (forceUpdate ? 'Please update Brevmont to continue.' : 'A new version of Brevmont is available.'),
+    downloadUrl: value.downloadUrl || 'https://api.brevmont.com/api/extension-download',
+  };
+}
+
+async function getVersionStatus(): Promise<VersionStatus | null> {
+  const data = await chrome.storage.local.get('brevmont_version_status');
+  return normalizeVersionStatus(data.brevmont_version_status);
+}
+
+async function applyVersionStatus(root: HTMLElement): Promise<void> {
+  const existing = root.querySelector('#o8-version-update-banner');
+  if (existing) existing.remove();
+
+  const status = await getVersionStatus();
+  if (!status) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'o8-version-update-banner';
+  banner.className = `version-update-banner${status.forceUpdate ? ' force' : ''}`;
+  banner.innerHTML = `
+    <div class="version-update-title">${status.forceUpdate ? 'Update required' : 'Update available'}</div>
+    <div class="version-update-copy">${esc(status.message || '')}</div>
+    <button id="o8-version-download" class="version-update-btn" type="button">Download latest${status.latest ? ` v${esc(String(status.latest))}` : ''}</button>
+  `;
+
+  const header = root.querySelector('.header');
+  if (header) header.insertAdjacentElement('afterend', banner);
+  else root.prepend(banner);
+
+  const download = banner.querySelector('#o8-version-download') as HTMLButtonElement | null;
+  if (download) {
+    download.onclick = () => chrome.tabs.create({ url: status.downloadUrl || 'https://api.brevmont.com/api/extension-download' });
+  }
+
+  if (status.forceUpdate) {
+    root.querySelectorAll<HTMLButtonElement>('#o8-generate,#o8-coach-btn,#o8-cmd-execute,#o8-ctx-generate').forEach((button) => {
+      button.disabled = true;
+      button.title = 'Update Brevmont to continue generating.';
+    });
+  }
+}
+
+async function ensureGenerationAllowed(root: HTMLElement): Promise<boolean> {
+  const status = await getVersionStatus();
+  if (!status?.forceUpdate) return true;
+  await applyVersionStatus(root);
+  showToast(root, 'Update Brevmont to continue generating.');
+  return false;
+}
+
 // ─── Build panel DOM ─────────────────────────────────────────────────────────
 function applyFeatureGates(root: HTMLElement): void {
   chrome.storage.local.get(['brevmont_tier', 'brevmont_features']).then(data => {
@@ -262,6 +333,7 @@ function renderPanel(): void {
   updateUsageCounter(root);
   applyFeatureGates(root);
   showAccessEndedBanner(root);
+  applyVersionStatus(root).catch(() => {});
 }
 
 async function applyFirstUseGuide(root: HTMLElement): Promise<void> {
@@ -766,6 +838,7 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
 
 // ─── Generate ────────────────────────────────────────────────────────────────
 async function doGenerate(root: HTMLElement): Promise<void> {
+  if (!(await ensureGenerationAllowed(root))) return;
   if (isGenerating) return;
   isGenerating = true;
 
@@ -966,6 +1039,7 @@ function showToast(root: HTMLElement, msg: string): void {
 
 // ─── Coach ────────────────────────────────────────────────────────────────────
 async function doCoach(root: HTMLElement): Promise<void> {
+  if (!(await ensureGenerationAllowed(root))) return;
   const input = (root.querySelector('#o8-coach-input') as HTMLTextAreaElement)?.value.trim();
   if (!input) {
     showToast(root, 'Type a sales scenario first, then click Coach Me.');
@@ -1057,6 +1131,7 @@ async function loadAlerts(root: HTMLElement): Promise<void> {
 
 // ─── Command ─────────────────────────────────────────────────────────────────
 async function doCommand(root: HTMLElement): Promise<void> {
+  if (!(await ensureGenerationAllowed(root))) return;
   const input = (root.querySelector('#o8-cmd-input') as HTMLTextAreaElement)?.value.trim();
   if (!input) return;
   const status = root.querySelector('#o8-cmd-status') as HTMLElement;
@@ -1153,6 +1228,7 @@ function wireContextTool(root: HTMLElement): void {
 
   if (genBtn) {
     genBtn.onclick = async () => {
+      if (!(await ensureGenerationAllowed(root))) return;
       if (!screenshotData) return;
       const direction = directionInput?.value.trim() || '';
       output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Analyzing screenshot...</div>';

@@ -80,8 +80,9 @@ export default defineContentScript({
     // ===== VERSION GATE =====
     try {
       const vs = await browser.storage.local.get('brevmont_version_status');
-      const status = vs?.brevmont_version_status as { locked?: boolean; latest?: string; message?: string } | undefined;
-      if (status?.locked && document.body && !document.getElementById('brevmont-version-lock')) {
+      const status = vs?.brevmont_version_status as { locked?: boolean; forceUpdate?: boolean; latest?: string; message?: string; downloadUrl?: string } | undefined;
+      const forceUpdate = Boolean(status?.forceUpdate || status?.locked);
+      if (forceUpdate && document.body && !document.getElementById('brevmont-version-lock')) {
         const overlay = document.createElement('div');
         overlay.id = 'brevmont-version-lock';
         overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(15,20,25,0.92);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif;';
@@ -90,13 +91,15 @@ export default defineContentScript({
             <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#0D6E6E;margin-bottom:12px;font-weight:700;">BREVMONT UPDATE REQUIRED</div>
             <h2 style="font-size:22px;font-weight:800;margin:0 0 10px;line-height:1.25;">Please update the extension</h2>
             <p style="font-size:14px;line-height:1.55;margin:0 0 18px;color:#3A3F43;">${status.message || 'This version of Brevmont is no longer supported.'}</p>
-            <p style="font-size:12px;line-height:1.5;margin:0 0 20px;color:#5A6066;">Head to the Chrome Web Store or contact <a href="mailto:team@brevmont.com" style="color:#0D6E6E;">team@brevmont.com</a> for the current build.</p>
-            <button id="brevmont-version-lock-dismiss" style="background:transparent;border:1px solid #D3CFC5;color:#3A3F43;padding:8px 14px;border-radius:8px;font-size:12px;cursor:pointer;">Dismiss for this tab</button>
+            <p style="font-size:12px;line-height:1.5;margin:0 0 20px;color:#5A6066;">Download the latest build, then reload this page.</p>
+            <button id="brevmont-version-lock-download" style="background:#0D6E6E;border:0;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">Download latest</button>
           </div>
         `;
         document.body.appendChild(overlay);
-        const dismiss = document.getElementById('brevmont-version-lock-dismiss');
-        if (dismiss) dismiss.addEventListener('click', () => overlay.remove(), { once: true });
+        const download = document.getElementById('brevmont-version-lock-download');
+        if (download) download.addEventListener('click', () => {
+          window.open(status.downloadUrl || 'https://api.brevmont.com/api/extension-download', '_blank', 'noopener');
+        });
         return;
       }
     } catch (_err) {

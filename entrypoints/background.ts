@@ -1350,6 +1350,28 @@ export default defineBackground(() => {
       const chromeMatch = navigator.userAgent.match(/Chrome\/([\d.]+)/);
       const settings = await browser.storage.sync.get(['dealer_token']);
 
+      const publicStatus = await fetch(
+        `${PROXY_URL}/api/extension-status?current_version=${encodeURIComponent(manifest.version || 'unknown')}`,
+        { headers: { 'X-Extension-Version': manifest.version || 'unknown' } },
+      ).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+
+      if (publicStatus && typeof publicStatus === 'object') {
+        const updateRequired = Boolean(publicStatus.update_required || publicStatus.required);
+        const forceUpdate = Boolean(publicStatus.force_update);
+        await browser.storage.local.set({
+          brevmont_version_status: {
+            locked: forceUpdate,
+            deprecated: updateRequired && !forceUpdate,
+            updateRequired,
+            forceUpdate,
+            message: String(publicStatus.update_message || (forceUpdate ? 'Please update Brevmont to continue.' : 'A new version of Brevmont is available.')),
+            latest: publicStatus.latest || publicStatus.version || null,
+            downloadUrl: publicStatus.download_url || `${PROXY_URL}/api/extension-download`,
+          }
+        });
+        return;
+      }
+
       const resp = await signedFetch(`${PROXY_URL}/v1/heartbeat/version`, {
         dealer_token: settings.dealer_token || '',
         extension_version: manifest.version || '1.9.2',
@@ -1371,11 +1393,14 @@ export default defineBackground(() => {
       await browser.storage.local.set({
         brevmont_version_status: {
           locked: belowMinimum,
+          updateRequired: belowMinimum || Boolean(data.deprecated),
+          forceUpdate: belowMinimum,
           deprecated: data.deprecated,
           message: belowMinimum
             ? `Version ${manifest.version} is no longer supported. Please update to ${data.latest_version}.`
             : data.deprecated ? data.deprecation_notice : null,
           latest: data.latest_version,
+          downloadUrl: `${PROXY_URL}/api/extension-download`,
         }
       });
     } catch (e) {
