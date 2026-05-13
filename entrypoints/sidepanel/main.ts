@@ -205,6 +205,21 @@ function normalizeOutputType(outputType?: string): 'text' | 'email' | 'crm_note'
   return 'text';
 }
 
+function hasVehicleOrBuyingSignal(rawText: unknown): boolean {
+  const raw = String(rawText || '');
+  return /\b(?:19|20)\d{2}\s*(?:Chevrolet|Chevy|Subaru|Toyota|Ford|Ram|Dodge|Jeep|GMC|Honda|Nissan|Hyundai|Kia|BMW|Mercedes|Buick|Cadillac|Lexus|Acura|Audi|Volvo|Mazda|Chrysler|Lincoln|Infiniti|Volkswagen|VW|Porsche|Tesla|Rivian|Tacoma|Silverado|Tahoe|Suburban|F-?150|Camry|Corolla|Accord|Civic|Telluride|Sorento|Sportage)\b/i.test(raw)
+    || /\b(?:buy|purchase|quote|price|pricing|payment|finance|lease|trade(?:-?in)?|test drive|appointment|interested|availability|in stock|inventory|fleet|company car|work truck|vehicle inquiry|looking for|need|want)\b/i.test(raw);
+}
+
+function looksLikeSystemSender(rawText: unknown): boolean {
+  const raw = String(rawText || '').toLowerCase();
+  return /(?:brevmont\.com|onboarding@|no-?reply|donotreply|mailer-daemon|mailchimp|sendgrid|twilio|stripe|google calendar|calendly|resend|postmark|mailgun)/i.test(raw);
+}
+
+function isSystemPasteWithoutBuyingSignal(rawText: unknown): boolean {
+  return looksLikeSystemSender(rawText) && !hasVehicleOrBuyingSignal(rawText);
+}
+
 function downloadCsvFile(filename: string, rows: unknown[][]): void {
   const csv = rows.map(row => row.map(csvField).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -1930,6 +1945,14 @@ function wireLeadCapture(root: HTMLElement): void {
     pasteParseBtn.onclick = async () => {
       const input = (root.querySelector('#o8-lead-paste-input') as HTMLTextAreaElement)?.value?.trim();
       if (!input) return;
+      if (isSystemPasteWithoutBuyingSignal(input)) {
+        showLeadResult(root, {
+          is_lead: false,
+          intent: 'not_a_lead',
+          notes: "This looks like a system email. Paste a customer's contact info instead.",
+        });
+        return;
+      }
       pasteParseBtn.innerHTML = '<span class="gen-spinner"></span> Pulling details…';
       pasteParseBtn.disabled = true;
       try {

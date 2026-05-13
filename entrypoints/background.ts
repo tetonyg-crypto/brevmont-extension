@@ -62,6 +62,27 @@ function parseLooseLeadText(rawText: unknown): { customer_name?: string | null; 
   };
 }
 
+function hasVehicleOrBuyingSignal(rawText: unknown): boolean {
+  const raw = String(rawText || '');
+  return /\b(?:19|20)\d{2}\s*(?:Chevrolet|Chevy|Subaru|Toyota|Ford|Ram|Dodge|Jeep|GMC|Honda|Nissan|Hyundai|Kia|BMW|Mercedes|Buick|Cadillac|Lexus|Acura|Audi|Volvo|Mazda|Chrysler|Lincoln|Infiniti|Volkswagen|VW|Porsche|Tesla|Rivian|Tacoma|Silverado|Tahoe|Suburban|F-?150|Camry|Corolla|Accord|Civic|Telluride|Sorento|Sportage)\b/i.test(raw)
+    || /\b(?:buy|purchase|quote|price|pricing|payment|finance|lease|trade(?:-?in)?|test drive|appointment|interested|availability|in stock|inventory|fleet|company car|work truck|vehicle inquiry|looking for|need|want)\b/i.test(raw);
+}
+
+function looksLikeSystemSender(rawText: unknown): boolean {
+  const raw = String(rawText || '').toLowerCase();
+  return /(?:brevmont\.com|onboarding@|no-?reply|donotreply|mailer-daemon|mailchimp|sendgrid|twilio|stripe|google calendar|calendly|resend|postmark|mailgun)/i.test(raw);
+}
+
+function shouldPersistPartialLead(payload: any): boolean {
+  const rawText = payload?.raw_text || '';
+  const platform = String(payload?.platform || '').toLowerCase();
+  const hasPartial = Boolean(payload?.customer_name || payload?.customerName || payload?.name || payload?.phone || payload?.email || payload?.vehicle_interest || payload?.vehicle);
+  if (!hasPartial) return false;
+  if (looksLikeSystemSender(rawText) && !hasVehicleOrBuyingSignal(rawText)) return false;
+  if (payload?.phone || payload?.email || payload?.vehicle_interest || payload?.vehicle) return true;
+  return /^(facebook|messenger|linkedin|instagram|unknown)$/.test(platform);
+}
+
 initSentry();
 
 export default defineBackground(() => {
@@ -723,7 +744,17 @@ export default defineBackground(() => {
 
           // Save parsed lead locally in Dexie for Lead Inbox
           const parsedLead = data.lead || {};
-          if (parsedLead.is_lead === false || parsedLead.intent === 'not_a_lead') {
+          const allowPartialFallback = shouldPersistPartialLead(msg.payload);
+          const leadForSave = allowPartialFallback && (parsedLead.is_lead === false || parsedLead.intent === 'not_a_lead')
+            ? {
+                ...parsedLead,
+                is_lead: true,
+                intent: msg.payload?.vehicle_interest || msg.payload?.vehicle ? 'general_inquiry' : 'individual_buyer',
+                confidence: parsedLead.confidence || 'low',
+                notes: 'Low confidence — verify this is a customer',
+              }
+            : parsedLead;
+          if ((parsedLead.is_lead === false || parsedLead.intent === 'not_a_lead') && !allowPartialFallback) {
             sendResponse(data);
             return;
           }
@@ -734,33 +765,33 @@ export default defineBackground(() => {
             msg.payload?.name ||
             looseFallback.customer_name ||
             null;
-          const customerName = parsedLead.customer_name || parsedLead.name || fallbackName;
+          const customerName = leadForSave.customer_name || leadForSave.name || fallbackName;
 
           if (customerName) {
             const leadId = crypto.randomUUID();
             const localLead: LocalLead = {
               id: leadId,
               customer_name: customerName,
-              phone: parsedLead.phone || msg.payload?.phone || null,
-              email: parsedLead.email || msg.payload?.email || null,
-              vehicle_interest: parsedLead.vehicle_interest || msg.payload?.vehicle_interest || msg.payload?.vehicle || looseFallback.vehicle_interest || null,
+              phone: leadForSave.phone || msg.payload?.phone || null,
+              email: leadForSave.email || msg.payload?.email || null,
+              vehicle_interest: leadForSave.vehicle_interest || msg.payload?.vehicle_interest || msg.payload?.vehicle || looseFallback.vehicle_interest || null,
               source_platform: msg.payload.platform || 'unknown',
               source_raw_text: (msg.payload.raw_text || '').slice(0, 5000),
               status: 'captured',
               captured_at: Date.now(),
               sync_status: 'pending',
               updated_at: Date.now(),
-              has_trade_in: parsedLead.has_trade_in || false,
-              finance_intent: parsedLead.finance_intent || false,
-              extracted_trade_in: parsedLead.extracted_trade_in || parsedLead.trade_in_vehicle || null,
-              extracted_urgency: parsedLead.extracted_urgency || parsedLead.urgency || null,
+              has_trade_in: leadForSave.has_trade_in || false,
+              finance_intent: leadForSave.finance_intent || false,
+              extracted_trade_in: leadForSave.extracted_trade_in || leadForSave.trade_in_vehicle || null,
+              extracted_urgency: leadForSave.extracted_urgency || leadForSave.urgency || null,
               pipeline_stage: 'captured',
               heat_score: 0, // Server computes real score on sync
               metadata: {
-                company: parsedLead.company || null,
-                intent: parsedLead.intent || null,
-                confidence: parsedLead.confidence || null,
-                is_lead: parsedLead.is_lead !== false,
+                company: leadForSave.company || null,
+                intent: leadForSave.intent || null,
+                confidence: leadForSave.confidence || null,
+                is_lead: leadForSave.is_lead !== false,
               },
             };
             await leadDb.captured_leads.put(localLead);
@@ -769,7 +800,7 @@ export default defineBackground(() => {
             data = {
               ...data,
               lead: {
-                ...parsedLead,
+                ...leadForSave,
                 id: leadId,
                 customer_name: customerName,
                 phone: localLead.phone,
@@ -784,10 +815,10 @@ export default defineBackground(() => {
                 finance_intent: localLead.finance_intent,
                 extracted_trade_in: localLead.extracted_trade_in,
                 extracted_urgency: localLead.extracted_urgency,
-                company: parsedLead.company || null,
-                intent: parsedLead.intent || null,
-                confidence: parsedLead.confidence || null,
-                is_lead: parsedLead.is_lead !== false,
+                company: leadForSave.company || null,
+                intent: leadForSave.intent || null,
+                confidence: leadForSave.confidence || null,
+                is_lead: leadForSave.is_lead !== false,
               },
             };
           }

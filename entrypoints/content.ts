@@ -1249,7 +1249,20 @@ export default defineContentScript({
           let rawText = '';
           if (isFacebook) {
             const main = document.querySelector('[role="main"]') as HTMLElement | null;
-            rawText = main?.innerText || document.body?.innerText || '';
+            const facebookName = safeExtractContactName();
+            const authorText = Array.from(document.querySelectorAll('[role="main"] h1, [role="main"] h2, [role="main"] strong, [aria-label*="Profile picture of"], [aria-label*="Conversation with"]'))
+              .map((el) => {
+                const label = el.getAttribute('aria-label') || '';
+                return [label, (el as HTMLElement).innerText || el.textContent || ''].filter(Boolean).join(' ');
+              })
+              .filter(Boolean)
+              .slice(0, 20)
+              .join('\n');
+            rawText = [
+              facebookName ? `Profile name: ${facebookName}` : '',
+              authorText,
+              main?.innerText || document.body?.innerText || '',
+            ].filter(Boolean).join('\n');
           } else if (isLinkedIn) {
             const thread = document.querySelector('.msg-s-message-list-content, [class*="msg-thread"], [class*="message-list"], .msg-conversations-container__thread-view, [class*="scaffold-layout__detail"]') as HTMLElement | null;
             rawText = thread?.innerText || document.body?.innerText || '';
