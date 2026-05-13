@@ -399,6 +399,30 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (msg.type === 'GET_GENERATION_STATUS') {
+      (async () => {
+        try {
+          const status = await handleGenerationStatus();
+          sendResponse({ ok: true, ...status });
+        } catch (err: any) {
+          sendResponse({ ok: false, error: err?.message || 'status_unavailable' });
+        }
+      })();
+      return true;
+    }
+
+    if (msg.type === 'INVITE_GM') {
+      (async () => {
+        try {
+          const result = await handleInviteGm(msg.payload || {});
+          sendResponse({ ok: true, ...result });
+        } catch (err: any) {
+          sendResponse({ ok: false, error: err?.message || 'invite_failed' });
+        }
+      })();
+      return true;
+    }
+
     if (msg.type === 'CHECK_FEATURES') {
       browser.storage.local.get(['brevmont_tier', 'brevmont_features', 'brevmont_last_heartbeat']).then(data => {
         const stale = !data.brevmont_last_heartbeat || (Date.now() - data.brevmont_last_heartbeat > 30 * 60 * 1000);
@@ -2054,6 +2078,47 @@ function buildGenerateProxyBody(
     generation_id: metadata?.generation_id ?? null,
     lead_id: metadata?.lead_id ?? null,
   };
+}
+
+async function handleGenerationStatus(): Promise<any> {
+  const base = (await getResolvedApiUrl()).replace(/\/$/, '');
+  const resp = await signedGet(`${base}/v1/generate/status`);
+  await handleRevocationResponse(resp);
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw new Error(data?.error || `status_${resp.status}`);
+  }
+
+  const limit = Number(data.limit ?? data.generations_limit ?? 500);
+  const used = Number(data.used ?? data.generations_used ?? 0);
+  const remaining = Number(data.remaining ?? Math.max(0, limit - used));
+  const tier = String(data.tier || 'free_trial');
+  await browser.storage.local.set({
+    brevmont_tier: tier,
+    brevmont_usage: {
+      generations_used: used,
+      generations_limit: limit,
+      generations_remaining: remaining,
+      resets_at: data.resets_at || null,
+    },
+  });
+  return { tier, limit, used, remaining, resets_at: data.resets_at || null };
+}
+
+async function handleInviteGm(payload: any): Promise<any> {
+  const gmEmail = String(payload?.gm_email || payload?.email || '').trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(gmEmail)) {
+    throw new Error('Enter a valid GM email.');
+  }
+  const base = (await getResolvedApiUrl()).replace(/\/$/, '');
+  const resp = await signedFetch(`${base}/api/v1/invite-gm`, { gm_email: gmEmail });
+  await handleRevocationResponse(resp);
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    if (resp.status === 429) throw new Error('You already sent a GM request this month.');
+    throw new Error(data?.error || `invite_${resp.status}`);
+  }
+  return data;
 }
 
 // --- Generate via Proxy ---
