@@ -111,13 +111,85 @@ function esc(s: string) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+const DISPLAY_LABELS: Record<string, string> = {
+  NO_OBJECTION: 'No objection raised',
+  PRICE_TOO_HIGH: 'Price too high',
+  PAYMENT_SHOCK: 'Payment shock',
+  SPOUSE_NOT_HERE: 'Spouse not present',
+  JUST_LOOKING: 'Just looking',
+  TRADE_VALUE: 'Trade value concern',
+  CREDIT: 'Credit concern',
+  FOUND_CHEAPER: 'Found it cheaper',
+  NEED_TO_THINK: 'Needs to think',
+  captured: 'Captured',
+  contacted: 'Contacted',
+  appointment_set: 'Appt set',
+  showed: 'Showed',
+  sold: 'Sold',
+  lost: 'Lost',
+  logged_to_crm: 'Logged to CRM',
+  text: 'Text follow-up',
+  text_message: 'Text follow-up',
+  email: 'Email follow-up',
+  crm: 'CRM note',
+  crm_note: 'CRM note',
+  coach: 'Coach',
+  command: 'Ask Anything',
+  screenshot_reply: 'Screenshot reply',
+  gmail: 'Gmail',
+  facebook: 'Facebook',
+  messenger: 'Messenger',
+  linkedin: 'LinkedIn',
+  vinsolutions: 'Dealer CRM',
+  whatsapp: 'WhatsApp',
+  instagram: 'Instagram',
+  extension: 'Extension',
+};
+
+function stripMarkdownText(value: unknown): string {
+  return String(value ?? '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getDisplayLabel(value: unknown): string {
+  const raw = stripMarkdownText(value);
+  if (!raw || /^[-\s]+$/.test(raw)) return '';
+  if (DISPLAY_LABELS[raw]) return DISPLAY_LABELS[raw];
+  const lower = raw.toLowerCase();
+  if (DISPLAY_LABELS[lower]) return DISPLAY_LABELS[lower];
+  return lower
+    .replace(/^crm[._-]/, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function displayText(value: unknown, fallback = 'No data yet'): string {
+  const text = stripMarkdownText(value);
+  if (!text || /^[-\s]+$/.test(text) || /^(null|undefined)$/i.test(text)) return fallback;
+  return text;
+}
+
+function optionalDisplayText(value: unknown): string {
+  const text = displayText(value, '');
+  return text === 'No data yet' ? '' : text;
+}
+
 function csvField(value: unknown): string {
   const s = value == null ? '' : String(value);
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 function truncateCsv(value: unknown, max = 500): string {
-  const s = value == null ? '' : String(value).replace(/\s+/g, ' ').trim();
+  const s = stripMarkdownText(value);
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 
@@ -1183,6 +1255,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
 function addOutput(root: HTMLElement, label: string, content: string, outputType?: string, generationId?: string): void {
   const outputs = root.querySelector('#o8-outputs')!;
   const card = document.createElement('div');
+  const visibleContent = stripMarkdownText(content) || content;
   card.className = 'out-card';
   if (generationId) card.dataset.generationId = generationId;
   if (outputType) {
@@ -1190,8 +1263,8 @@ function addOutput(root: HTMLElement, label: string, content: string, outputType
     card.classList.add('tab-visible');
   }
   card.innerHTML = `
-    <div class="out-label">${esc(label)}</div>
-    <textarea class="out-textarea" rows="${outputType === 'email' ? 16 : outputType === 'crm' ? 8 : 5}" readonly>${esc(content)}</textarea>
+    <div class="out-label">${esc(getDisplayLabel(label) || label)}</div>
+    <textarea class="out-textarea" rows="${outputType === 'email' ? 16 : outputType === 'crm' ? 8 : 5}" readonly>${esc(visibleContent)}</textarea>
     <div class="out-actions">
       <button class="out-action out-primary">Copy</button>
       ${currentPlatform.platform !== 'unknown' ? '<button class="out-action out-primary">Inject</button>' : ''}
@@ -1304,7 +1377,7 @@ async function doCoach(root: HTMLElement): Promise<void> {
       output.innerHTML = '<div class="tool-result" style="color:#ef4444">Empty response from Coach. Try again.</div>';
       return;
     }
-    output.innerHTML = `<div class="tool-result">${esc(text)}</div>`;
+    output.innerHTML = `<div class="tool-result">${esc(displayText(text, 'No coaching response returned.'))}</div>`;
   } catch (e: any) {
     output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
   } finally {
@@ -1390,7 +1463,7 @@ async function doCommand(root: HTMLElement): Promise<void> {
       status.innerHTML = '<div class="tool-result" style="color:#ef4444">Empty response. Try again.</div>';
       return;
     }
-    status.innerHTML = `<div class="tool-result">${esc(text)}</div>`;
+    status.innerHTML = `<div class="tool-result">${esc(displayText(text, 'No answer returned.'))}</div>`;
   } catch (e: any) {
     status.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
   }
@@ -1487,7 +1560,8 @@ function wireContextTool(root: HTMLElement): void {
           output.innerHTML = '<div class="tool-result" style="color:#ef4444">Empty response. Try again.</div>';
           return;
         }
-        output.innerHTML = `<div class="out-card"><div class="out-label">SCREENSHOT REPLY</div><textarea class="out-textarea" rows="5" readonly>${esc(replyText)}</textarea><div class="out-actions"><button class="out-action out-primary">Copy</button><button class="out-action out-regen">Regen</button></div></div>`;
+        const cleanReply = displayText(replyText, 'No screenshot reply returned.');
+        output.innerHTML = `<div class="out-card"><div class="out-label">Screenshot reply</div><textarea class="out-textarea" rows="5" readonly>${esc(cleanReply)}</textarea><div class="out-actions"><button class="out-action out-primary">Copy</button><button class="out-action out-regen">Regen</button></div></div>`;
         output.querySelector('.out-primary')?.addEventListener('click', async () => { await navigator.clipboard.writeText(replyText); const b = output.querySelector('.out-primary'); if (b) { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 2000); } });
         output.querySelector('.out-regen')?.addEventListener('click', () => genBtn.click());
       } catch (e: any) {
@@ -1506,11 +1580,7 @@ const PIPELINE_STAGES = ['captured', 'contacted', 'appointment_set', 'showed', '
 type PipelineStage = typeof PIPELINE_STAGES[number];
 
 function stageLabelMap(stage: string): string {
-  const map: Record<string, string> = {
-    captured: 'Captured', contacted: 'Contacted', appointment_set: 'Appt Set',
-    showed: 'Showed', sold: 'Sold', lost: 'Lost',
-  };
-  return map[stage] || stage;
+  return getDisplayLabel(stage) || 'Captured';
 }
 
 function stageBadgeStyle(stage: string): string {
@@ -1536,9 +1606,9 @@ function getNextStage(current: string): PipelineStage | null {
 function showLeadResult(root: HTMLElement, lead: any): void {
   const result = root.querySelector('#o8-lead-result') as HTMLElement;
   if (!result || !lead) return;
-  const name = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.name || lead.customer_name || 'Unknown';
-  const vehicle = lead.vehicle_of_interest || lead.vehicle_interest || '';
-  const rawText = lead.source_raw_text || '';
+  const name = displayText([lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.name || lead.customer_name, 'Unknown lead');
+  const vehicle = optionalDisplayText(lead.vehicle_of_interest || lead.vehicle_interest);
+  const rawText = stripMarkdownText(lead.source_raw_text || '');
   const leadId = lead.id || null;
   const pipelineStage = lead.pipeline_stage || 'captured';
   const heatScore = lead.heat_score ?? null;
@@ -1554,7 +1624,7 @@ function showLeadResult(root: HTMLElement, lead: any): void {
     ${vehicle ? '<br/><span style="color:#2563eb;font-size:11px">' + esc(vehicle) + '</span>' : ''}
     <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
       <span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:600;${stageBadgeStyle(pipelineStage)}">${esc(stageLabelMap(pipelineStage))}</span>
-      ${heatScore !== null ? `<span style="display:inline-flex;align-items:center;gap:2px;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;${heatScore >= 70 ? 'background:#FEF2F2;color:#DC2626' : heatScore >= 40 ? 'background:#FFF7ED;color:#EA580C' : 'background:#F1F5F9;color:#64748B'}">🔥 ${heatScore}</span>` : ''}
+    ${heatScore !== null ? `<span style="display:inline-flex;align-items:center;gap:2px;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;${heatScore >= 70 ? 'background:#FEF2F2;color:#DC2626' : heatScore >= 40 ? 'background:#FFF7ED;color:#EA580C' : 'background:#F1F5F9;color:#64748B'}">Heat ${heatScore}</span>` : ''}
       ${hasTrade ? '<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:500;background:#FFFBEB;color:#92400E">Trade-in</span>' : ''}
       ${hasFinance ? '<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:500;background:#EEF2FF;color:#4338CA">Finance</span>' : ''}
     </div>
@@ -1588,7 +1658,7 @@ function showLeadResult(root: HTMLElement, lead: any): void {
       if (mainInput) {
         mainInput.value = `Follow up with ${name}. ` +
           (vehicle ? `Vehicle interest: ${vehicle}. ` : '') +
-          (lead.source_platform ? `Source: ${lead.source_platform}. ` : '') +
+          (lead.source_platform ? `Source: ${getDisplayLabel(lead.source_platform)}. ` : '') +
           (lead.phone ? `Phone: ${lead.phone}. ` : '') +
           (rawText ? `Original context: ${rawText.substring(0, 200)}` : '');
       }
@@ -1608,14 +1678,14 @@ function showLeadResult(root: HTMLElement, lead: any): void {
     logCrmBtn.addEventListener('click', async () => {
       const noteText = [
         `[Brevmont Lead Capture]`,
-        `Source: ${lead.source_platform || 'Extension'}`,
+        `Source: ${getDisplayLabel(lead.source_platform) || 'Extension'}`,
         `Name: ${name}`,
         lead.phone ? `Phone: ${lead.phone}` : null,
         lead.email ? `Email: ${lead.email}` : null,
         vehicle ? `Vehicle Interest: ${vehicle}` : null,
         `Captured: ${lead.captured_at ? new Date(lead.captured_at).toLocaleDateString() : 'Now'}`,
         ``,
-        `--- Original Context ---`,
+        `Original context:`,
         rawText?.substring(0, 500) || 'No additional context',
       ].filter(Boolean).join('\n');
 
@@ -1647,7 +1717,7 @@ function showLeadResult(root: HTMLElement, lead: any): void {
       }
 
       // Update button state
-      logCrmBtn.textContent = 'Logged ✓';
+      logCrmBtn.textContent = 'Logged';
       logCrmBtn.disabled = true;
       logCrmBtn.style.background = '#065F46';
     });
@@ -1882,7 +1952,7 @@ async function openStats(root: HTMLElement): Promise<void> {
           </div>
         </div>
         <div style="background:#FFF7ED;border-radius:8px;padding:10px;text-align:center;margin-bottom:8px;">
-          <div style="font-size:20px;font-weight:700;color:#92400E;">&mdash;</div>
+          <div style="font-size:14px;font-weight:700;color:#92400E;">No rank yet</div>
           <div style="font-size:10px;color:#4B5563;text-transform:uppercase;font-weight:600;">Floor Rank</div>
         </div>
         <div style="text-align:center;margin-top:4px;"><button id="o8-export-csv" style="background:none;border:none;color:#0D6E6E;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:underline;">Export to CSV</button></div>`;
@@ -1895,10 +1965,10 @@ async function openStats(root: HTMLElement): Promise<void> {
             ['Date', 'Workflow Type', 'Rep Input', 'AI Output', 'Channel'],
             ...history.map((event: any) => [
               event.created_at || event.server_ts || '',
-              event.workflow_type || event.output_type || '',
+              getDisplayLabel(event.workflow_type || event.output_type || ''),
               truncateCsv(event.scenario_input || event.rep_input || ''),
               truncateCsv(event.ai_output || event.output || ''),
-              event.platform || '',
+              getDisplayLabel(event.platform || ''),
             ]),
           ];
           downloadCsvFile(`brevmont-stats-${new Date().toISOString().slice(0, 10)}.csv`, rows);
