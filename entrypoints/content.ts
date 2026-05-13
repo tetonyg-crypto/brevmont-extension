@@ -483,6 +483,17 @@ export default defineContentScript({
 
     // Only inject in top frame
     if (window !== window.top) return;
+    const brevmontState = ((window as any).__BREVMONT_CONTENT_SCRIPT_STATE = (window as any).__BREVMONT_CONTENT_SCRIPT_STATE || {}) as {
+      initialized?: boolean;
+      messageListenerRegistered?: boolean;
+      lastInjectedText?: string;
+      lastInjectedTime?: number;
+    };
+    if (brevmontState.initialized) {
+      dlog('[Brevmont] Content script already initialized; skipping duplicate registration');
+      return;
+    }
+    brevmontState.initialized = true;
 
     // ===== POPUP INJECTION FUNCTIONS (VinSolutions only) =====
 
@@ -1180,6 +1191,7 @@ export default defineContentScript({
       const bodyEl = findGmailComposeBody();
       if (!bodyEl) return false;
       const parsed = splitGeneratedEmail(content, subject);
+      if (isDuplicateInject(content || parsed.body)) return true;
       safeInjectText(bodyEl, parsed.body || content);
       if (parsed.subject) {
         const subjectEl = findGmailSubjectInput();
@@ -1188,19 +1200,33 @@ export default defineContentScript({
       return true;
     }
 
+    function isDuplicateInject(content: string): boolean {
+      const text = String(content || '');
+      if (!text.trim()) return false;
+      const now = Date.now();
+      if (text === brevmontState.lastInjectedText && now - Number(brevmontState.lastInjectedTime || 0) < 3000) {
+        console.log('Brevmont: duplicate inject blocked');
+        return true;
+      }
+      brevmontState.lastInjectedText = text;
+      brevmontState.lastInjectedTime = now;
+      return false;
+    }
+
     async function injectContent(parsed: any): Promise<boolean> {
-      const { action, content, subject } = parsed;
-      if ((action === 'write_email' || PLATFORM === 'gmail') && isGmail) return injectGmailEmail(content || '', subject);
-      if ((action === 'write_facebook_message' || PLATFORM === 'facebook') && isFacebook) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { safeInjectText(box, content); return true; } }
-      if ((action === 'write_linkedin_message' || PLATFORM === 'linkedin') && isLinkedIn) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { safeInjectText(box, content); return true; } }
-      if (PLATFORM === 'whatsapp') { const box = document.querySelector('div[contenteditable="true"][data-tab="10"]') as HTMLElement ?? document.querySelector('footer div[contenteditable="true"]') as HTMLElement; if (box) { safeInjectText(box, content); return true; } }
-      if (isInstagram) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement ?? document.querySelector('textarea[placeholder]') as HTMLElement; if (box) { safeInjectText(box, content); return true; } }
+      const { action, subject } = parsed;
+      const content = String(parsed.content || '');
+      if ((action === 'write_email' || PLATFORM === 'gmail') && isGmail) return injectGmailEmail(content, subject);
+      if ((action === 'write_facebook_message' || PLATFORM === 'facebook') && isFacebook) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
+      if ((action === 'write_linkedin_message' || PLATFORM === 'linkedin') && isLinkedIn) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
+      if (PLATFORM === 'whatsapp') { const box = document.querySelector('div[contenteditable="true"][data-tab="10"]') as HTMLElement ?? document.querySelector('footer div[contenteditable="true"]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
+      if (isInstagram) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement ?? document.querySelector('textarea[placeholder]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
       if (action === 'log_crm_note' && isVinSolutions) return await pasteIntoCRM(content || '');
       return false;
     }
 
     // ===== MESSAGE LISTENER (Side Panel + Background bridge) =====
-    browser.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
+    const handleBrevmontMessage = (msg: any, _sender: any, sendResponse: any): boolean | void => {
       if (msg.type === 'GET_CRM_PAGE_CONTEXT') {
         try {
           const path = window.location.pathname || '';
@@ -1375,7 +1401,12 @@ export default defineContentScript({
         }
         return false;
       }
-    });
+    };
+
+    if (!brevmontState.messageListenerRegistered) {
+      browser.runtime.onMessage.addListener(handleBrevmontMessage);
+      brevmontState.messageListenerRegistered = true;
+    }
 
     // ===== NETWORK INTERCEPTION (VinSolutions) =====
     if (isVinSolutions) {

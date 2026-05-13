@@ -43,8 +43,8 @@ import { getLegacyFeatureFlagsForTier } from '../lib/featureGate';
 function parseLooseLeadText(rawText: unknown): { customer_name?: string | null; vehicle_interest?: string | null } {
   const raw = String(rawText || '').trim();
   if (!raw) return {};
-  const spacedVehicle = raw.match(/\b((?:19|20)\d{2}\s+[A-Z][A-Za-z0-9-]*(?:\s+[A-Z][A-Za-z0-9-]*){0,4})\b/);
-  const gluedVehicle = raw.match(/\b((?:19|20)\d{2})([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z0-9-]*){0,3})\b/);
+  const spacedVehicle = raw.match(/\b((?:19|20)\d{2}\s+[A-Z][A-Za-z0-9-]*(?:\s+[A-Z][A-Za-z0-9-]*){0,4})\b/i);
+  const gluedVehicle = raw.match(/\b((?:19|20)\d{2})([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z0-9-]*){0,3})\b/i);
   const vehicle = spacedVehicle?.[1]?.trim()
     || (gluedVehicle ? `${gluedVehicle[1]} ${gluedVehicle[2]}`.trim() : null);
   const vehicleNeedle = spacedVehicle?.[0] || gluedVehicle?.[0] || vehicle || '';
@@ -2310,13 +2310,17 @@ async function handleVoiceReply(payload: { transcription: string }) {
     } catch {}
   }
 
-  const voiceMessage = `[Voice dictation — clean up filler words and extract intent]\nRep said: "${payload.transcription}"\nGenerate a professional text message reply based on their intent. Keep it 2-3 sentences max.`;
+  const voiceVehicle = parseLooseLeadText(payload.transcription).vehicle_interest || null;
+  const vehicleInstruction = voiceVehicle
+    ? `\nVehicle mentioned by rep: ${voiceVehicle}\nAlways reference this vehicle in the generated follow-up.`
+    : '';
+  const voiceMessage = `[Voice dictation — clean up filler words and extract intent]\nRep said: "${payload.transcription}"${vehicleInstruction}\nGenerate a professional text message reply based on their intent. Keep it 2-3 sentences max.`;
 
   const metadata = {
     rep_name: repName,
     workflow_type: 'voice_reply',
     customer_name: null,
-    vehicle: null
+    vehicle: voiceVehicle
   };
 
   const voiceBase = await getResolvedApiUrl();

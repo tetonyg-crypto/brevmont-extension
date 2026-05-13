@@ -213,6 +213,14 @@ function hasVehicleOrBuyingSignal(rawText: unknown): boolean {
     || /\b(?:buy|purchase|quote|price|pricing|payment|finance|lease|trade(?:-?in)?|test drive|appointment|interested|availability|in stock|inventory|fleet|company car|work truck|vehicle inquiry|looking for|need|want)\b/i.test(raw);
 }
 
+function extractVehicleMention(rawText: unknown): string | null {
+  const raw = String(rawText || '');
+  const yearMakeModel = raw.match(/\b((?:19|20)\d{2}\s+(?:Chevrolet|Chevy|Subaru|Toyota|Ford|Ram|Dodge|Jeep|GMC|Honda|Nissan|Hyundai|Kia|BMW|Mercedes|Buick|Cadillac|Lexus|Acura|Audi|Volvo|Mazda|Chrysler|Lincoln|Infiniti|Volkswagen|VW|Porsche|Tesla|Rivian)\s+[A-Za-z0-9-]+(?:\s+[A-Za-z0-9-]+){0,2})\b/i);
+  const yearModel = raw.match(/\b((?:19|20)\d{2}\s+(?:Tacoma|Tundra|Camry|Corolla|RAV4|Highlander|Silverado|Sierra|Suburban|Tahoe|Colorado|Equinox|Malibu|F-?150|F-?250|Explorer|Escape|Bronco|Wrangler|Cherokee|Grand Cherokee|Pilot|Civic|Accord|CR-V|Telluride|Sorento|Sportage|Outback|Forester|Crosstrek|Ascent|Model [3YSX]))\b/i);
+  const modelOnly = raw.match(/\b(Silverado|Telluride|Tahoe|Suburban|Tacoma|Tundra|Camry|Corolla|RAV4|Highlander|Sierra|Colorado|Equinox|Malibu|F-?150|F-?250|Explorer|Escape|Bronco|Wrangler|Grand Cherokee|Cherokee|Pilot|Civic|Accord|CR-V|Sorento|Sportage|Outback|Forester|Crosstrek|Ascent|Model [3YSX])\b/i);
+  return (yearMakeModel?.[1] || yearModel?.[1] || modelOnly?.[1] || null)?.replace(/\s+/g, ' ').trim() || null;
+}
+
 function looksLikeSystemSender(rawText: unknown): boolean {
   const raw = String(rawText || '').toLowerCase();
   return /(?:brevmont\.com|onboarding@|no-?reply|donotreply|mailer-daemon|mailchimp|sendgrid|twilio|stripe|google calendar|calendly|resend|postmark|mailgun)/i.test(raw);
@@ -1077,11 +1085,11 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
     // Permission was granted before — start recognition with timeout guard.
     const recognition = new SR();
     recognition.continuous = true;
-    recognition.interimResults = true;
+    recognition.interimResults = false;
     recognition.lang = 'en-US';
 
     let finalTranscript = '';
-    const existingText = input.value;
+    const existingText = input.value.trim();
     let started = false;
 
     // Timeout guard: if onstart hasn't fired within 1500ms, Chrome silently
@@ -1108,17 +1116,18 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
     };
 
     recognition.onresult = (event: any) => {
-      let interimTranscript = '';
+      let nextFinalTranscript = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalTranscript += transcript + ' ';
-        } else {
-          interimTranscript += transcript;
+          nextFinalTranscript += `${transcript.trim()} `;
         }
       }
-      input.value = existingText + finalTranscript + interimTranscript;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
+      if (nextFinalTranscript.trim()) {
+        finalTranscript = `${finalTranscript} ${nextFinalTranscript}`.trim();
+        input.value = [existingText, finalTranscript].filter(Boolean).join(' ');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
     };
 
     recognition.onerror = (event: any) => {
@@ -1195,17 +1204,19 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   } catch {}
 
   const _generationId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const repInputVehicle = extractVehicleMention(input);
+  const vehicleForGeneration = leadContext.vehicle || leadContext.vehicleOfInterest || repInputVehicle || null;
 
   const _meta: Record<string, any> = {
     workflow_type: type === 'all' ? 'all' : type,
     customer_name: leadContext.customerName || null,
-    vehicle: leadContext.vehicle || null,
+    vehicle: vehicleForGeneration,
     customer_phone: leadContext.phone || null,
     customer_email: leadContext.email || null,
     email: leadContext.email || null,
     vehicle_make: leadContext.vehicleMake || null,
     vehicle_model: leadContext.vehicleModel || null,
-    vehicle_of_interest: leadContext.vehicleOfInterest || leadContext.vehicle || null,
+    vehicle_of_interest: vehicleForGeneration,
     lead_source: leadContext.source || null,
     generation_id: _generationId,
     lead_id: (root as any).__pendingLeadId || null,
@@ -1215,7 +1226,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     const response = await safeSend({
       type: 'GENERATE_OUTPUT',
       payload: {
-        type, leadContext, repInput: input + (leadContext.vehicle ? '' : '\n[SYSTEM: No vehicle of interest detected. Do not mention or invent a vehicle in the response.]'),
+        type, leadContext, repInput: input + (vehicleForGeneration ? '' : '\n[SYSTEM: No vehicle of interest detected. Do not mention or invent a vehicle in the response.]'),
         repName: '', dealership: '', platform: currentPlatform.platform, tone, goal,
         metadata: _meta,
         lead_id: (root as any).__pendingLeadId || null,
@@ -1335,9 +1346,13 @@ function addOutput(root: HTMLElement, label: string, content: string, outputType
   });
 
   // Inject — send to content script
-  const injectBtn = card.querySelectorAll('.out-primary')[1] as HTMLElement | undefined;
+  const injectBtn = card.querySelectorAll('.out-primary')[1] as HTMLButtonElement | undefined;
   if (injectBtn) {
+    let injectLocked = false;
     injectBtn.addEventListener('click', async () => {
+      if (injectLocked) return;
+      injectLocked = true;
+      injectBtn.disabled = true;
       const ta = card.querySelector('.out-textarea') as HTMLTextAreaElement;
       const status = card.querySelector('.out-status') as HTMLElement;
       try {
@@ -1365,7 +1380,11 @@ function addOutput(root: HTMLElement, label: string, content: string, outputType
         status.textContent = e.message || 'Inject failed';
         status.style.color = '#ef4444';
       }
-      setTimeout(() => { status.textContent = ''; }, 2000);
+      setTimeout(() => {
+        status.textContent = '';
+        injectLocked = false;
+        injectBtn.disabled = false;
+      }, 2000);
     });
   }
 
