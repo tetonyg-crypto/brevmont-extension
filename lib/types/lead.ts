@@ -17,7 +17,15 @@ export interface CapturedLead {
   extracted_trade_in?: string | null;
   extracted_urgency?: string | null;
   pipeline_stage?: string;
+  lead_stage_at_capture?: string | null;
   heat_score?: number;
+  appointment_at?: string | null;
+  upcoming_reminders?: Array<{
+    id: string;
+    input?: string | null;
+    reminder_time?: string | null;
+    created_at?: string | null;
+  }>;
   metadata?: Record<string, any>;
 }
 

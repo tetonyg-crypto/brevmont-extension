@@ -83,6 +83,38 @@ function shouldPersistPartialLead(payload: any): boolean {
   return /^(facebook|messenger|linkedin|instagram|unknown)$/.test(platform);
 }
 
+function objectionCategoryFromText(value: unknown): string | null {
+  const raw = String(value || '').toLowerCase();
+  if (!raw.trim()) return null;
+  if (/price|too high|expensive|cheaper/.test(raw)) return 'PRICE_TOO_HIGH';
+  if (/payment|monthly|rate|apr/.test(raw)) return 'PAYMENT_SHOCK';
+  if (/spouse|wife|husband|partner/.test(raw)) return 'SPOUSE_NOT_HERE';
+  if (/trade/.test(raw)) return 'TRADE_VALUE';
+  if (/credit|score|approval/.test(raw)) return 'CREDIT';
+  if (/just looking/.test(raw)) return 'JUST_LOOKING';
+  if (/think|sleep on|not sure/.test(raw)) return 'NEED_TO_THINK';
+  return null;
+}
+
+async function logToolEvent(
+  eventType: 'ask_anything' | 'coach_me' | 'reminder_set' | 'screenshot_reply',
+  input: string,
+  output: string,
+  metadata: Record<string, any> = {},
+): Promise<void> {
+  try {
+    const apiBase = await getResolvedApiUrl();
+    await signedFetch(`${apiBase}/api/v1/tool-event`, {
+      event_type: eventType,
+      input,
+      output,
+      metadata,
+    });
+  } catch (err) {
+    console.warn('[Brevmont] tool event log failed:', (err as Error)?.message || err);
+  }
+}
+
 initSentry();
 
 export default defineBackground(() => {
@@ -614,11 +646,21 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'SET_ALERT') {
-      browser.storage.local.get('brevmont_alerts').then(data => {
-        const alerts = data.brevmont_alerts || [];
-        alerts.push({ id: Date.now().toString(), task: msg.payload.task, alertTime: msg.payload.alertTime, dismissed: false });
-        browser.storage.local.set({ brevmont_alerts: alerts }).then(() => sendResponse({ ok: true }));
-      }).catch(() => sendResponse({ error: 'Failed to set alert' }));
+      (async () => {
+        try {
+          const data = await browser.storage.local.get('brevmont_alerts');
+          const alerts = data.brevmont_alerts || [];
+          alerts.push({ id: Date.now().toString(), task: msg.payload.task, alertTime: msg.payload.alertTime, dismissed: false });
+          await browser.storage.local.set({ brevmont_alerts: alerts });
+          await logToolEvent('reminder_set', msg.payload.task || '', '', {
+            reminder_time: msg.payload.alertTime ? new Date(msg.payload.alertTime).toISOString() : null,
+            platform: 'unknown',
+          });
+          sendResponse({ ok: true });
+        } catch {
+          sendResponse({ error: 'Failed to set alert' });
+        }
+      })();
       return true;
     }
 
@@ -786,12 +828,14 @@ export default defineBackground(() => {
               extracted_trade_in: leadForSave.extracted_trade_in || leadForSave.trade_in_vehicle || null,
               extracted_urgency: leadForSave.extracted_urgency || leadForSave.urgency || null,
               pipeline_stage: 'captured',
+              lead_stage_at_capture: msg.payload?.lead_stage_at_capture || null,
               heat_score: 0, // Server computes real score on sync
               metadata: {
                 company: leadForSave.company || null,
                 intent: leadForSave.intent || null,
                 confidence: leadForSave.confidence || null,
                 is_lead: leadForSave.is_lead !== false,
+                lead_stage_at_capture: msg.payload?.lead_stage_at_capture || null,
               },
             };
             await leadDb.captured_leads.put(localLead);
@@ -819,6 +863,7 @@ export default defineBackground(() => {
                 intent: leadForSave.intent || null,
                 confidence: leadForSave.confidence || null,
                 is_lead: leadForSave.is_lead !== false,
+                lead_stage_at_capture: localLead.lead_stage_at_capture || null,
               },
             };
           }
@@ -833,6 +878,28 @@ export default defineBackground(() => {
     }
 
     // ── Lead Inbox: GET_LOCAL_LEADS — return all local leads from Dexie ──
+    if (msg.type === 'UPDATE_LOCAL_LEAD_STAGE_AT_CAPTURE') {
+      (async () => {
+        try {
+          const { leadId, stage } = msg.payload || {};
+          if (!leadId || !stage) { sendResponse({ error: 'Missing leadId or stage' }); return; }
+          const lead = await leadDb.captured_leads.get(leadId);
+          const metadata = { ...(lead?.metadata || {}), lead_stage_at_capture: stage };
+          await leadDb.captured_leads.update(leadId, {
+            lead_stage_at_capture: stage,
+            metadata,
+            sync_status: 'pending',
+            updated_at: Date.now(),
+          });
+          syncPendingLeads().catch((e) => console.warn('[leadSync] stage-at-capture sync failed:', e));
+          sendResponse({ ok: true });
+        } catch (e: any) {
+          sendResponse({ error: e.message });
+        }
+      })();
+      return true;
+    }
+
     if (msg.type === 'GET_LOCAL_LEADS') {
       (async () => {
         try {
@@ -2112,6 +2179,11 @@ Keep it to 3-5 short sentences.`;
     undefined,
     apiBase
   );
+  await logToolEvent('coach_me', payload.situation || '', result.text, {
+    objection_category: objectionCategoryFromText(payload.situation),
+    parsed_vehicle: payload.vehicleContext || null,
+    platform: 'unknown',
+  });
   return { coaching: result.text };
 }
 
@@ -2152,6 +2224,11 @@ Provide a direct, actionable answer. Keep it concise (2-4 sentences). If the que
     undefined,
     apiBase
   );
+  await logToolEvent('ask_anything', payload.command || '', result.text, {
+    parsed_vehicle: payload.vehicleContext || null,
+    current_url: payload.currentUrl || null,
+    platform: 'unknown',
+  });
   return { parsed: { action: 'answer', content: result.text }, text: result.text };
 }
 
@@ -2209,6 +2286,9 @@ async function handleContextReply(payload: { image: string; direction: string })
     || data.content?.[0]?.text
     || '';
   if (!text) throw new Error('Empty response. Try again.');
+  await logToolEvent('screenshot_reply', payload.direction || '', text, {
+    platform: 'unknown',
+  });
   return { reply: text };
 }
 

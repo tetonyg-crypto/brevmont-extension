@@ -1725,6 +1725,9 @@ function renderLeadCard(lead: any, index: number): string {
   const stage = String(lead.pipeline_stage || lead.status || 'captured');
   const lastContact = lead.last_contacted_at || lead.last_activity_at || lead.captured_at;
   const appointment = lead.appointment_at ? `<div style="font-size:11px;color:#7C3AED;margin-top:6px;font-weight:700;">Appt: ${esc(new Date(lead.appointment_at).toLocaleString())}</div>` : '';
+  const reminder = Array.isArray(lead.upcoming_reminders) && lead.upcoming_reminders[0]
+    ? `<div style="font-size:11px;color:#0D6E6E;margin-top:6px;font-weight:700;">&#128338; ${esc(lead.upcoming_reminders[0].input || 'Follow-up reminder')} ${lead.upcoming_reminders[0].reminder_time ? `â€” ${esc(new Date(lead.upcoming_reminders[0].reminder_time).toLocaleString())}` : ''}</div>`
+    : '';
   return `
     <div class="my-lead-card" data-lead-id="${esc(lead.id)}" data-lead-index="${index}">
       <div style="display:flex;align-items:start;justify-content:space-between;gap:8px;">
@@ -1741,6 +1744,7 @@ function renderLeadCard(lead: any, index: number): string {
         <span class="lead-pill" style="${stageBadgeStyle(stage)}">${esc(stageLabelMap(stage))}</span>
       </div>
       ${appointment}
+      ${reminder}
       <button class="lead-primary-action" data-action="generate">Generate Follow-up</button>
       <div class="lead-secondary-row">
         <button class="lead-secondary-action" data-action="contacted">→ Contacted</button>
@@ -1934,6 +1938,17 @@ function showLeadResult(root: HTMLElement, lead: any): void {
     ${vehicle ? '<br/><span style="color:#2563eb;font-size:11px">' + esc(vehicle) + '</span>' : ''}
     ${isFleet ? '<div style="margin-top:6px;color:#0D6E6E;font-size:11px;font-weight:600">This may represent multiple vehicle purchases.</div>' : ''}
     ${confidenceNote ? `<div style="margin-top:6px;color:#92400E;font-size:11px;background:#FFFBEB;border-radius:5px;padding:5px 7px">${esc(confidenceNote)}</div>` : ''}
+    <div style="margin-top:8px;padding:8px;border:1px solid #E2E8F0;border-radius:8px;background:#F8FAFC">
+      <div style="font-size:11px;color:#334155;font-weight:800;margin-bottom:6px;">Where is this lead at?</div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        ${[
+          ['fresh_contact', 'Fresh contact'],
+          ['in_conversation', 'In conversation'],
+          ['be_back', 'Be-back'],
+          ['internet_lead', 'Internet lead'],
+        ].map(([stageKey, label]) => `<button class="stage-capture-chip" data-stage-capture="${stageKey}" style="border:1px solid ${lead.lead_stage_at_capture === stageKey ? '#0D6E6E' : '#CBD5E1'};background:${lead.lead_stage_at_capture === stageKey ? '#E6F4F1' : '#fff'};color:#0F172A;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer;">${esc(label)}</button>`).join('')}
+      </div>
+    </div>
     <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
       <span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:600;${stageBadgeStyle(pipelineStage)}">${esc(stageLabelMap(pipelineStage))}</span>
       ${intent ? `<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;background:#E0F2FE;color:#0369A1">${esc(getDisplayLabel(intent))}</span>` : ''}
@@ -1962,6 +1977,23 @@ function showLeadResult(root: HTMLElement, lead: any): void {
       setTimeout(() => { (copyBtn as HTMLElement).textContent = 'Copy'; }, 2000);
     });
   }
+
+  result.querySelectorAll<HTMLButtonElement>('.stage-capture-chip').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const stage = button.dataset.stageCapture;
+      if (!stage) return;
+      lead.lead_stage_at_capture = stage;
+      if (leadId) {
+        try {
+          await safeSend({ type: 'UPDATE_LOCAL_LEAD_STAGE_AT_CAPTURE', payload: { leadId, stage } });
+        } catch {
+          /* optional context should never block the lead card */
+        }
+      }
+      showLeadResult(root, lead);
+      showToast(root, 'Lead context saved');
+    });
+  });
 
   // Feature 2: Generate Follow-Up — pre-fill main input with lead context + pass lead_id
   const followUpBtn = result.querySelector('#o8-lead-followup');
