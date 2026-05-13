@@ -91,6 +91,27 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .version-update-btn:hover { background:#0A5555; }
 .version-update-banner.force .version-update-btn { background:#991B1B; }
 .version-update-banner.force .version-update-btn:hover { background:#7F1D1D; }
+.challenge-banner { margin:8px 12px 0; padding:10px 11px; border:1px solid #BAE6FD; border-radius:10px; background:#F0F9FF; color:#0F172A; font-size:12px; line-height:1.35; }
+.challenge-title { font-size:10px; font-weight:800; color:#0369A1; letter-spacing:.08em; text-transform:uppercase; margin-bottom:4px; display:flex; justify-content:space-between; gap:8px; }
+.challenge-close { border:0; background:transparent; color:#64748B; cursor:pointer; font-size:14px; line-height:1; padding:0; }
+.challenge-bar { height:7px; border-radius:999px; background:#E0F2FE; overflow:hidden; margin-top:7px; }
+.challenge-fill { height:100%; border-radius:999px; background:#0D6E6E; transition:width .2s ease; }
+.nav-count { display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; margin-left:4px; border-radius:999px; background:#DC2626; color:#fff; font-size:10px; font-weight:800; padding:0 4px; }
+.my-lead-card { border:1px solid #E5E7EB; border-radius:10px; padding:10px; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+.my-lead-card + .my-lead-card { margin-top:8px; }
+.your-lead-badge { display:inline-flex; align-items:center; padding:2px 7px; border-radius:999px; background:#ECFDF5; color:#047857; font-size:9px; font-weight:900; letter-spacing:.07em; text-transform:uppercase; }
+.lead-card-title { font-size:14px; font-weight:800; color:#111827; line-height:1.25; }
+.lead-card-meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.lead-pill { display:inline-flex; align-items:center; gap:3px; border-radius:999px; padding:2px 7px; font-size:10px; font-weight:700; background:#F1F5F9; color:#475569; }
+.lead-primary-action { width:100%; border:0; border-radius:8px; background:#0D6E6E; color:#fff; padding:9px; margin-top:9px; font-size:12px; font-weight:800; font-family:inherit; cursor:pointer; }
+.lead-primary-action:hover { background:#0A5555; }
+.lead-secondary-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; margin-top:6px; }
+.lead-secondary-action { border:1px solid #E5E7EB; border-radius:7px; background:#fff; color:#475569; padding:7px 4px; font-size:10px; font-weight:700; font-family:inherit; cursor:pointer; }
+.lead-secondary-action:hover { background:#F8FAFC; color:#0D6E6E; }
+.going-dark-card { border:1px solid #FCD34D; border-radius:10px; padding:10px; background:#FFFBEB; color:#92400E; font-size:12px; line-height:1.35; }
+.standing-card { border:1px solid #E5E7EB; border-radius:10px; padding:10px; background:#fff; margin-bottom:8px; }
+.standing-tier { font-size:18px; font-weight:900; color:#0F172A; }
+.standing-list { margin-top:7px; display:flex; flex-direction:column; gap:4px; font-size:11px; color:#475569; }
 .outputs { padding:0 14px; overflow-y:auto; flex:0 0 auto; }
 .outputs:not(:empty) { padding:8px 14px; flex:1 1 auto; min-height:0; }
 .out-card { background:#fff; border:1px solid #E5E7EB; border-radius:12px; padding:10px 12px; margin-bottom:8px; }

@@ -60,6 +60,7 @@ export function getPanelHTML(platform: Platform): string {
   <button id="o8-lead-btn" class="lead-btn">+ Lead</button>
   <span id="o8-close" class="close">&times;</span>
 </div>
+<div id="o8-challenge-banner" class="challenge-banner" style="display:none"></div>
 <div id="o8-quick" class="quick-mode">
   ${customerCard}
   <div class="input-section">
@@ -96,7 +97,7 @@ export function getPanelHTML(platform: Platform): string {
   <button id="o8-outcome-btn" class="gen-btn" style="background:#34C759; font-size:12px; padding:8px;">Mark Outcome</button>
   <div id="o8-outcome-status" style="font-size:11px; color:#64748b; text-align:center; margin-top:4px;"></div>
 </div>` : ''}
-    <div class="inline-links"><button id="o8-tools-btn-inline" class="link-btn nav-link">&#x1F4AC; Coach</button><span class="link-sep">|</span><button id="o8-stats-btn-inline" class="link-btn nav-link">&#x1F4CA; My Stats</button><span class="link-sep">|</span><button id="o8-settings-btn-inline" class="link-btn nav-link">&#x2699;&#xFE0F; Settings</button></div>
+    <div class="inline-links"><button id="o8-my-leads-btn-inline" class="link-btn nav-link">My Leads<span id="o8-my-leads-count" class="nav-count" style="display:none"></span></button><span class="link-sep">|</span><button id="o8-tools-btn-inline" class="link-btn nav-link">&#x1F4AC; Coach</button><span class="link-sep">|</span><button id="o8-stats-btn-inline" class="link-btn nav-link">&#x1F4CA; My Stats</button><span class="link-sep">|</span><button id="o8-settings-btn-inline" class="link-btn nav-link">&#x2699;&#xFE0F; Settings</button></div>
     <div class="tcpa-inline">You review and send. Follow your store's texting rules.</div>
   </div>
   <div id="o8-outputs" class="outputs"></div>
@@ -118,6 +119,13 @@ export function getPanelHTML(platform: Platform): string {
   <div class="tools-header"><button id="o8-stats-back" class="back-btn">&larr; Back</button><span class="tools-title">My Stats</span></div>
   <div id="o8-stats-content" class="tool-section" style="padding:12px;">
     <div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading stats...</div>
+  </div>
+</div>
+<div id="o8-my-leads-panel" class="tools-panel" style="display:none">
+  <div class="tools-header"><button id="o8-my-leads-back" class="back-btn">&larr; Back</button><span class="tools-title">My Leads</span></div>
+  <div id="o8-going-dark-alerts" class="tool-section" style="padding:12px 14px 0;display:none"></div>
+  <div id="o8-my-leads-content" class="tool-section" style="padding:12px 14px;">
+    <div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading your pipeline...</div>
   </div>
 </div>
 <div id="o8-settings-panel" class="tools-panel" style="display:none">

@@ -37,6 +37,8 @@ interface VersionStatus {
 // ─── State ───────────────────────────────────────────────────────────────────
 let currentPlatform: PlatformContext = { platform: 'unknown', tabId: -1, url: '' };
 let isGenerating = false;
+let challengePollTimer: number | null = null;
+const dismissedChallengeIds = new Set<string>();
 const FIRST_GENERATION_KEY = 'first_generation_completed';
 const ONBOARDING_BANNER_DISMISSED_KEY = 'onboarding_banner_dismissed';
 const FIRST_GENERATION_EXAMPLE = 'Follow up with John about the Silverado, he wanted to think about the payment';
@@ -471,6 +473,13 @@ function setDisplay(root: HTMLElement, selector: string, visible: boolean): void
   if (node) node.style.display = visible ? '' : 'none';
 }
 
+function hidePrimaryPanels(root: HTMLElement): void {
+  ['#o8-tools-panel', '#o8-stats-panel', '#o8-settings-panel', '#o8-lead-panel', '#o8-my-leads-panel'].forEach((selector) => {
+    const node = root.querySelector(selector) as HTMLElement | null;
+    if (node) node.style.display = 'none';
+  });
+}
+
 function toolLabel(tool: string | null): string {
   switch (tool) {
     case 'coach': return 'Coach';
@@ -510,7 +519,9 @@ function applyFeatureGates(root: HTMLElement): void {
     setDisplay(root, '#o8-lead-btn', access.addLead);
     if (!access.addLead) setDisplay(root, '#o8-lead-panel', false);
     setDisplay(root, '#o8-outcome-section', access.markOutcome);
-    setDisplay(root, '.inline-links', access.coachMe || access.stats || access.settings);
+    setDisplay(root, '.inline-links', access.addLead || access.coachMe || access.stats || access.settings);
+    setDisplay(root, '#o8-my-leads-btn-inline', access.addLead);
+    if (!access.addLead) setDisplay(root, '#o8-my-leads-panel', false);
     setDisplay(root, '#o8-tools-btn-inline', access.coachMe);
     if (!(access.coachMe || access.notifications || access.screenshotCapture || access.commandMode)) setDisplay(root, '#o8-tools-panel', false);
     setDisplay(root, '#o8-stats-btn-inline', access.stats);
@@ -546,6 +557,7 @@ function applyFeatureGates(root: HTMLElement): void {
       '#o8-tools-panel',
       '#o8-stats-panel',
       '#o8-settings-panel',
+      '#o8-my-leads-panel',
       '[data-tool="coach"]',
       '[data-tool="alerts"]',
       '[data-tool="context"]',
@@ -585,6 +597,8 @@ function renderPanel(): void {
   applyFeatureGates(root);
   showAccessEndedBanner(root);
   applyVersionStatus(root).catch(() => {});
+  startChallengePolling(root);
+  renderMyLeads(root).catch(() => {});
 }
 
 async function applyFirstUseGuide(root: HTMLElement): Promise<void> {
@@ -805,6 +819,7 @@ function wireHandlers(root: HTMLElement): void {
       const tp = el('o8-tools-panel'); if (tp) tp.style.display = 'none';
       const stats = el('o8-stats-panel'); if (stats) stats.style.display = 'none';
       const lead = el('o8-lead-panel'); if (lead) lead.style.display = 'none';
+      const myLeads = el('o8-my-leads-panel'); if (myLeads) myLeads.style.display = 'none';
       if (settingsPanel) settingsPanel.style.display = 'flex';
     };
   }
@@ -864,6 +879,7 @@ function wireHandlers(root: HTMLElement): void {
       const sp = el('o8-settings-panel'); if (sp) sp.style.display = 'none';
       const stats = el('o8-stats-panel'); if (stats) stats.style.display = 'none';
       const lead = el('o8-lead-panel'); if (lead) lead.style.display = 'none';
+      const myLeads = el('o8-my-leads-panel'); if (myLeads) myLeads.style.display = 'none';
       if (toolsPanel) toolsPanel.style.display = 'flex';
       setActiveToolSection(root, 'coach');
     };
@@ -895,6 +911,13 @@ function wireHandlers(root: HTMLElement): void {
   const statsBtnInline = el('o8-stats-btn-inline');
   if (statsBtnInline) statsBtnInline.onclick = () => openStats(root);
   if (statsBack) statsBack.onclick = () => { statsPanel!.style.display = 'none'; el('o8-quick')!.style.display = 'flex'; };
+
+  // My Leads panel
+  const myLeadsPanel = el('o8-my-leads-panel');
+  const myLeadsBack = el('o8-my-leads-back');
+  const myLeadsBtn = el('o8-my-leads-btn-inline');
+  if (myLeadsBtn) myLeadsBtn.onclick = () => openMyLeads(root);
+  if (myLeadsBack) myLeadsBack.onclick = () => { if (myLeadsPanel) myLeadsPanel.style.display = 'none'; el('o8-quick')!.style.display = 'flex'; };
 
   // Coach
   const coachBtn = el('o8-coach-btn');
@@ -1610,6 +1633,261 @@ function stageBadgeStyle(stage: string): string {
   return map[stage] || 'background:#F1F5F9;color:#475569;';
 }
 
+function timeAgo(value: unknown): string {
+  const date = value ? new Date(String(value)) : null;
+  if (!date || Number.isNaN(date.getTime())) return 'no recent contact';
+  const diff = Date.now() - date.getTime();
+  if (diff < 60 * 60 * 1000) return 'today';
+  const hours = Math.floor(diff / (60 * 60 * 1000));
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'yesterday';
+  return `${days} days ago`;
+}
+
+function leadSourceLabel(value: unknown): string {
+  const raw = String(value || '').toLowerCase();
+  if (raw.includes('gmail')) return 'Gmail';
+  if (raw.includes('facebook') || raw.includes('messenger')) return 'Facebook';
+  if (raw.includes('voice')) return 'Voice';
+  if (raw.includes('scan')) return 'Scan';
+  if (raw.includes('paste')) return 'Paste';
+  return getDisplayLabel(raw || 'extension') || 'Saved';
+}
+
+function tierBadge(tier: unknown): string {
+  const raw = String(tier || 'bronze').toLowerCase();
+  if (raw === 'gold') return 'Gold';
+  if (raw === 'silver') return 'Silver';
+  return 'Bronze';
+}
+
+function renderChallengeBanner(root: HTMLElement, challenges: any[]): void {
+  const banner = root.querySelector('#o8-challenge-banner') as HTMLElement | null;
+  if (!banner) return;
+  const active = (challenges || []).find((challenge) => challenge && !dismissedChallengeIds.has(challenge.id));
+  if (!active) {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+    return;
+  }
+  const target = Math.max(1, Number(active.goal_target || 1));
+  const progress = Math.max(0, Number(active.progress || 0));
+  const percent = Math.min(100, Math.round((progress / target) * 100));
+  const goalLabel = active.goal_type === 'lead_capture'
+    ? `Capture ${target} leads`
+    : active.goal_type === 'appt_set'
+      ? `Set ${target} appointments`
+      : active.goal_type === 'follow_ups'
+        ? `Write ${target} follow-ups`
+        : `Hit ${target}`;
+  banner.innerHTML = `
+    <div class="challenge-title"><span>Flash Challenge Active</span><button class="challenge-close" id="o8-challenge-dismiss" type="button" aria-label="Dismiss challenge">&times;</button></div>
+    <div style="font-weight:800;color:#0F172A">${esc(goalLabel)} &rarr; ${esc(active.reward_description || 'Reward')}</div>
+    <div class="challenge-bar"><div class="challenge-fill" style="width:${percent}%"></div></div>
+    <div style="margin-top:5px;color:#475569;font-size:11px">${progress} / ${target} &nbsp; ${Math.max(0, target - progress)} to go</div>
+  `;
+  banner.style.display = 'block';
+  const dismiss = banner.querySelector('#o8-challenge-dismiss') as HTMLButtonElement | null;
+  if (dismiss) dismiss.onclick = () => {
+    if (active.id) dismissedChallengeIds.add(active.id);
+    banner.style.display = 'none';
+  };
+  if (progress >= target) {
+    banner.querySelector('.challenge-title span')!.textContent = 'Challenge Complete';
+    const bold = banner.querySelector('div[style*="font-weight"]') as HTMLElement | null;
+    if (bold) bold.textContent = 'Great work. Challenge complete.';
+  }
+}
+
+async function refreshChallengeBanner(root: HTMLElement): Promise<void> {
+  try {
+    const resp = await safeSend({ type: 'GET_REP_CHALLENGES' });
+    renderChallengeBanner(root, Array.isArray(resp?.challenges) ? resp.challenges : []);
+  } catch {
+    renderChallengeBanner(root, []);
+  }
+}
+
+function startChallengePolling(root: HTMLElement): void {
+  if (challengePollTimer !== null) window.clearInterval(challengePollTimer);
+  void refreshChallengeBanner(root);
+  challengePollTimer = window.setInterval(() => {
+    const liveRoot = document.getElementById('sp-root');
+    if (liveRoot) void refreshChallengeBanner(liveRoot);
+  }, 2000);
+}
+
+function renderLeadCard(lead: any, index: number): string {
+  const customer = displayText(lead.customer_name, 'Unknown customer');
+  const vehicle = optionalDisplayText(lead.vehicle_interest);
+  const heat = Number(lead.heat_score ?? 0);
+  const stage = String(lead.pipeline_stage || lead.status || 'captured');
+  const lastContact = lead.last_contacted_at || lead.last_activity_at || lead.captured_at;
+  const appointment = lead.appointment_at ? `<div style="font-size:11px;color:#7C3AED;margin-top:6px;font-weight:700;">Appt: ${esc(new Date(lead.appointment_at).toLocaleString())}</div>` : '';
+  return `
+    <div class="my-lead-card" data-lead-id="${esc(lead.id)}" data-lead-index="${index}">
+      <div style="display:flex;align-items:start;justify-content:space-between;gap:8px;">
+        <div>
+          <div class="lead-card-title">${esc(customer)}</div>
+          ${vehicle ? `<div style="font-size:12px;color:#475569;margin-top:2px;">${esc(vehicle)}</div>` : ''}
+        </div>
+        <span class="your-lead-badge">YOUR LEAD</span>
+      </div>
+      <div class="lead-card-meta">
+        <span class="lead-pill">&#128293; ${heat}</span>
+        <span class="lead-pill">${esc(timeAgo(lastContact))}</span>
+        <span class="lead-pill">${esc(leadSourceLabel(lead.source_platform))}</span>
+        <span class="lead-pill" style="${stageBadgeStyle(stage)}">${esc(stageLabelMap(stage))}</span>
+      </div>
+      ${appointment}
+      <button class="lead-primary-action" data-action="generate">Generate Follow-up</button>
+      <div class="lead-secondary-row">
+        <button class="lead-secondary-action" data-action="contacted">→ Contacted</button>
+        <button class="lead-secondary-action" data-action="appt">Set Appt</button>
+        <button class="lead-secondary-action" data-action="lost">Mark Lost</button>
+      </div>
+      <div class="appt-inline" style="display:none;margin-top:8px;">
+        <input type="datetime-local" class="appt-input" style="width:100%;padding:8px;border:1px solid #E5E7EB;border-radius:7px;font-size:12px;font-family:inherit;" />
+        <button class="lead-primary-action" data-action="save-appt" style="margin-top:6px;">Save Appointment</button>
+      </div>
+    </div>
+  `;
+}
+
+async function renderMyLeads(root: HTMLElement): Promise<void> {
+  const content = root.querySelector('#o8-my-leads-content') as HTMLElement | null;
+  const alerts = root.querySelector('#o8-going-dark-alerts') as HTMLElement | null;
+  const count = root.querySelector('#o8-my-leads-count') as HTMLElement | null;
+  if (!content) return;
+  content.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading your pipeline...</div>';
+
+  try {
+    const resp = await safeSend({ type: 'GET_MY_LEADS' });
+    const leads = Array.isArray(resp?.leads) ? resp.leads : [];
+    leads.sort((a: any, b: any) => {
+      const heat = Number(b.heat_score || 0) - Number(a.heat_score || 0);
+      if (heat !== 0) return heat;
+      const aTime = new Date(a.last_contacted_at || a.last_activity_at || a.captured_at || 0).getTime();
+      const bTime = new Date(b.last_contacted_at || b.last_activity_at || b.captured_at || 0).getTime();
+      return aTime - bTime;
+    });
+    (root as any).__myLeads = leads;
+
+    const goingDark = leads.filter((lead: any) => lead.going_dark);
+    if (count && goingDark.length) {
+      count.textContent = String(goingDark.length);
+      count.style.display = 'inline-flex';
+    } else if (count) {
+      count.style.display = 'none';
+    }
+
+    if (alerts) {
+      if (goingDark.length) {
+        const lead = goingDark[0];
+        alerts.style.display = 'flex';
+        alerts.innerHTML = `
+          <div class="going-dark-card">
+            <div style="font-weight:900;color:#92400E;">Don't lose this one — they're going cold.</div>
+            <div style="margin-top:3px;">${esc(displayText(lead.customer_name, 'This lead'))} hasn't heard from you in ${esc(timeAgo(lead.last_contacted_at || lead.last_activity_at || lead.captured_at))}.</div>
+            <div style="font-size:11px;color:#78350F;margin-top:2px;">${esc(optionalDisplayText(lead.vehicle_interest) || 'General follow-up')} — Heat ${Number(lead.heat_score || 0)}</div>
+          </div>`;
+      } else {
+        alerts.style.display = 'none';
+        alerts.innerHTML = '';
+      }
+    }
+
+    if (!leads.length) {
+      content.innerHTML = '<div style="text-align:center;color:#64748b;font-size:12px;padding:24px;line-height:1.5;">Your pipeline will show the leads you capture here.</div>';
+      return;
+    }
+
+    const showAll = Boolean((root as any).__myLeadsShowAll);
+    const visible = showAll ? leads : leads.slice(0, 7);
+    content.innerHTML = `
+      <div style="font-size:11px;color:#64748B;margin-bottom:8px;">Your leads, sorted by heat and who needs attention first.</div>
+      ${visible.map(renderLeadCard).join('')}
+      ${leads.length > 7 ? `<button id="o8-my-leads-show-more" class="lead-secondary-action" style="width:100%;margin-top:10px;">${showAll ? 'Show top 7' : `Show more (${leads.length - 7})`}</button>` : ''}
+    `;
+    wireMyLeadCardActions(root);
+  } catch (err: any) {
+    content.innerHTML = `<div style="text-align:center;color:#EF4444;font-size:12px;padding:24px;">Could not load your pipeline. ${esc(err?.message || '')}</div>`;
+  }
+}
+
+function wireMyLeadCardActions(root: HTMLElement): void {
+  const content = root.querySelector('#o8-my-leads-content') as HTMLElement | null;
+  if (!content) return;
+  const showMore = content.querySelector('#o8-my-leads-show-more') as HTMLButtonElement | null;
+  if (showMore) {
+    showMore.onclick = () => {
+      (root as any).__myLeadsShowAll = !Boolean((root as any).__myLeadsShowAll);
+      void renderMyLeads(root);
+    };
+  }
+
+  content.querySelectorAll<HTMLElement>('.my-lead-card').forEach((card) => {
+    const leadId = card.dataset.leadId;
+    const index = Number(card.dataset.leadIndex || 0);
+    const lead = ((root as any).__myLeads || [])[index];
+    card.querySelectorAll<HTMLButtonElement>('button[data-action]').forEach((button) => {
+      button.onclick = async () => {
+        const action = button.dataset.action;
+        if (!leadId || !lead) return;
+        if (action === 'generate') {
+          const input = root.querySelector('#o8-input') as HTMLTextAreaElement | null;
+          const customer = displayText(lead.customer_name, 'this customer');
+          const vehicle = optionalDisplayText(lead.vehicle_interest);
+          const stage = stageLabelMap(lead.pipeline_stage || 'captured').toLowerCase();
+          if (input) {
+            input.value = `Follow up with ${customer}${vehicle ? ` about the ${vehicle}` : ''}. Current stage: ${stage}.`;
+            input.focus();
+          }
+          (root as any).__pendingLeadId = leadId;
+          hidePrimaryPanels(root);
+          const quick = root.querySelector('#o8-quick') as HTMLElement | null;
+          if (quick) quick.style.display = 'flex';
+          showToast(root, 'Lead context loaded. Hit Generate.');
+          return;
+        }
+        if (action === 'appt') {
+          const box = card.querySelector('.appt-inline') as HTMLElement | null;
+          if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
+          return;
+        }
+        if (action === 'lost' && !confirm('Mark this lead lost?')) return;
+        if (action === 'save-appt') {
+          const input = card.querySelector('.appt-input') as HTMLInputElement | null;
+          if (!input?.value) {
+            showToast(root, 'Pick a date and time first.');
+            return;
+          }
+          await safeSend({ type: 'CHANGE_LEAD_STAGE', payload: { leadId, stage: 'appointment_set', appointment_at: new Date(input.value).toISOString() } });
+          showToast(root, 'Appointment saved');
+          await renderMyLeads(root);
+          return;
+        }
+        const stage = action === 'contacted' ? 'contacted' : action === 'lost' ? 'lost' : null;
+        if (stage) {
+          await safeSend({ type: 'CHANGE_LEAD_STAGE', payload: { leadId, stage } });
+          showToast(root, stage === 'contacted' ? 'Marked contacted' : 'Marked lost');
+          await renderMyLeads(root);
+        }
+      };
+    });
+  });
+}
+
+async function openMyLeads(root: HTMLElement): Promise<void> {
+  const quick = root.querySelector('#o8-quick') as HTMLElement | null;
+  if (quick) quick.style.display = 'none';
+  hidePrimaryPanels(root);
+  const panel = root.querySelector('#o8-my-leads-panel') as HTMLElement | null;
+  if (panel) panel.style.display = 'flex';
+  await renderMyLeads(root);
+}
+
 function getNextStage(current: string): PipelineStage | null {
   const mainFlow: PipelineStage[] = ['captured', 'contacted', 'appointment_set', 'showed', 'sold'];
   const idx = mainFlow.indexOf(current as PipelineStage);
@@ -1819,6 +2097,7 @@ function wireLeadCapture(root: HTMLElement): void {
     const tp = root.querySelector('#o8-tools-panel') as HTMLElement; if (tp) tp.style.display = 'none';
     const sp = root.querySelector('#o8-settings-panel') as HTMLElement; if (sp) sp.style.display = 'none';
     const stats = root.querySelector('#o8-stats-panel') as HTMLElement; if (stats) stats.style.display = 'none';
+    const myLeads = root.querySelector('#o8-my-leads-panel') as HTMLElement; if (myLeads) myLeads.style.display = 'none';
     const result = root.querySelector('#o8-lead-result') as HTMLElement; if (result) result.style.display = 'none';
     const emptyMsg = root.querySelector('#o8-scan-empty') as HTMLElement; if (emptyMsg) emptyMsg.style.display = 'none';
     activateLeadTab('scan');
@@ -1972,6 +2251,7 @@ async function openStats(root: HTMLElement): Promise<void> {
   const tp = root.querySelector('#o8-tools-panel') as HTMLElement; if (tp) tp.style.display = 'none';
   const sp = root.querySelector('#o8-settings-panel') as HTMLElement; if (sp) sp.style.display = 'none';
   const lp = root.querySelector('#o8-lead-panel') as HTMLElement; if (lp) lp.style.display = 'none';
+  const ml = root.querySelector('#o8-my-leads-panel') as HTMLElement; if (ml) ml.style.display = 'none';
   const statsPanel = root.querySelector('#o8-stats-panel') as HTMLElement;
   if (statsPanel) statsPanel.style.display = 'flex';
   const statsContent = root.querySelector('#o8-stats-content') as HTMLElement;
@@ -1982,6 +2262,21 @@ async function openStats(root: HTMLElement): Promise<void> {
       const total = resp.total ?? 0;
       const today = resp.today_count ?? 0;
       const isZero = total === 0 && today === 0;
+      const standing = resp.floor_standing || {};
+      const tier = tierBadge(standing.tier);
+      const score = Number(standing.score || 0);
+      const pointsToNext = Number(standing.points_to_next_tier || 0);
+      const topReps = Array.isArray(standing.top_reps) ? standing.top_reps : [];
+      const personAbove = standing.person_above;
+      const streak = Number(resp.streak || 0);
+      const streakText = streak > 0
+        ? `🔥 ${streak}-day streak`
+        : resp.last_active_date
+          ? 'Streak ended. Start a new one today.'
+          : 'Start your streak today — generate a follow-up';
+      const topHtml = topReps.length
+        ? topReps.map((rep: any) => `<div style="display:flex;justify-content:space-between;"><span>${esc(rep.name || 'Rep')}</span><strong>${Number(rep.score || 0)}</strong></div>`).join('')
+        : '<div style="color:#94a3b8">Write follow-ups to light up the floor.</div>';
       statsContent.innerHTML = `
         ${isZero ? '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:16px 8px 8px;line-height:1.5;">Write your first follow-up to start tracking stats.</div>' : ''}
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
@@ -1994,9 +2289,21 @@ async function openStats(root: HTMLElement): Promise<void> {
             <div style="font-size:10px;color:#4B5563;text-transform:uppercase;font-weight:600;">Today</div>
           </div>
         </div>
-        <div style="background:#FFF7ED;border-radius:8px;padding:10px;text-align:center;margin-bottom:8px;">
-          <div style="font-size:14px;font-weight:700;color:#92400E;">No rank yet</div>
-          <div style="font-size:10px;color:#4B5563;text-transform:uppercase;font-weight:600;">Floor Rank</div>
+        <div class="standing-card">
+          <div style="font-size:10px;color:#4B5563;text-transform:uppercase;font-weight:800;letter-spacing:.06em;">Floor Standing</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
+            <div class="standing-tier">${esc(tier)}</div>
+            <div style="font-size:18px;font-weight:900;color:#0D6E6E;">${score} pts</div>
+          </div>
+          <div style="font-size:11px;color:#64748B;margin-top:4px;">${pointsToNext > 0 ? `${pointsToNext} point${pointsToNext === 1 ? '' : 's'} to the next tier.` : 'Protect your tier this week.'}</div>
+          <div class="standing-list">
+            <div style="font-weight:800;color:#0F172A;">Top of the floor</div>
+            ${topHtml}
+            ${personAbove ? `<div style="border-top:1px solid #E5E7EB;margin-top:4px;padding-top:5px;">${esc(personAbove.name || 'Someone')} is just ahead at <strong>${Number(personAbove.score || 0)}</strong>.</div>` : ''}
+          </div>
+        </div>
+        <div class="standing-card" style="background:#FFF7ED;border-color:#FED7AA;text-align:center;">
+          <div style="font-size:14px;font-weight:900;color:#92400E;">${esc(streakText)}</div>
         </div>
         <div style="text-align:center;margin-top:4px;"><button id="o8-export-csv" style="background:none;border:none;color:#0D6E6E;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:underline;">Export to CSV</button></div>`;
       // Wire CSV export button

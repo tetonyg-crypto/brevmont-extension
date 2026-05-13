@@ -880,10 +880,10 @@ export default defineBackground(() => {
     if (msg.type === 'CHANGE_LEAD_STAGE') {
       (async () => {
         try {
-          const { leadId, stage } = msg.payload;
+          const { leadId, stage, appointment_at } = msg.payload;
           if (!leadId || !stage) { sendResponse({ error: 'Missing leadId or stage' }); return; }
 
-          const resp = await signedPatch(`${PROXY_URL}/api/v1/leads/${leadId}/stage`, { stage });
+          const resp = await signedPatch(`${PROXY_URL}/api/v1/leads/${leadId}/stage`, { stage, appointment_at });
 
           if (!resp.ok) {
             const err = await resp.json().catch(() => ({ error: resp.statusText }));
@@ -897,12 +897,13 @@ export default defineBackground(() => {
           try {
             await leadDb.captured_leads.update(leadId, {
               pipeline_stage: stage,
+              ...(appointment_at ? { appointment_at } : {}),
               sync_status: 'synced',
               updated_at: Date.now(),
             });
           } catch { /* lead may not be in local DB — that's fine */ }
 
-          sendResponse({ success: true, lead: data.lead });
+          sendResponse({ success: true, lead: data.lead || data });
         } catch (e: any) {
           sendResponse({ error: e.message });
         }
@@ -911,6 +912,34 @@ export default defineBackground(() => {
     }
 
     // ── Lead Inbox: SYNC_LEADS — manual sync trigger ──
+    if (msg.type === 'GET_MY_LEADS') {
+      (async () => {
+        try {
+          const resp = await signedGet(`${PROXY_URL}/api/v1/rep/leads`);
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(data.error || `My Leads API returned ${resp.status}`);
+          sendResponse(data);
+        } catch (e: any) {
+          sendResponse({ leads: [], error: e.message });
+        }
+      })();
+      return true;
+    }
+
+    if (msg.type === 'GET_REP_CHALLENGES') {
+      (async () => {
+        try {
+          const resp = await signedGet(`${PROXY_URL}/api/v1/rep/challenges`);
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(data.error || `Challenges API returned ${resp.status}`);
+          sendResponse(data);
+        } catch (e: any) {
+          sendResponse({ challenges: [], error: e.message });
+        }
+      })();
+      return true;
+    }
+
     if (msg.type === 'SYNC_LEADS') {
       (async () => {
         try {
