@@ -1606,8 +1606,18 @@ function getNextStage(current: string): PipelineStage | null {
 function showLeadResult(root: HTMLElement, lead: any): void {
   const result = root.querySelector('#o8-lead-result') as HTMLElement;
   if (!result || !lead) return;
-  const name = displayText([lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.name || lead.customer_name, 'Unknown lead');
-  const vehicle = optionalDisplayText(lead.vehicle_of_interest || lead.vehicle_interest);
+  if (lead.is_lead === false || lead.intent === 'not_a_lead') {
+    result.style.display = 'block';
+    result.innerHTML = `<div class="tool-result" style="color:#64748B;text-align:center;padding:14px;line-height:1.45;">${esc(lead.notes || 'No buying intent detected. If this is a customer, use Voice or Paste tab.')}</div>`;
+    return;
+  }
+
+  const company = optionalDisplayText(lead.company);
+  const intent = String(lead.intent || '').toLowerCase();
+  const confidence = String(lead.confidence || '').toLowerCase();
+  const isFleet = intent === 'fleet_inquiry' || !!company;
+  const name = displayText([lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.name || lead.customer_name || company, 'Unknown lead');
+  const vehicle = optionalDisplayText(lead.vehicle_of_interest || lead.vehicle_interest || lead.vehicle);
   const rawText = stripMarkdownText(lead.source_raw_text || '');
   const leadId = lead.id || null;
   const pipelineStage = lead.pipeline_stage || 'captured';
@@ -1615,16 +1625,26 @@ function showLeadResult(root: HTMLElement, lead: any): void {
   const hasTrade = lead.has_trade_in || false;
   const hasFinance = lead.finance_intent || false;
   const nextStage = getNextStage(pipelineStage);
+  const confidenceNote =
+    confidence === 'medium'
+      ? 'Possible lead — review before saving'
+      : confidence === 'low'
+        ? 'Low confidence — verify this is a customer'
+        : '';
 
   result.style.display = 'block';
   result.innerHTML = `<div class="tool-result">
-    <strong>${esc(name)}</strong>
+    ${isFleet ? '<div style="display:inline-block;margin-bottom:6px;padding:2px 8px;border-radius:9999px;background:#0D6E6E;color:#fff;font-size:10px;font-weight:700;letter-spacing:.04em">FLEET INQUIRY</div><br/>' : ''}
+    ${company ? `<strong>${esc(company)}</strong>${name && name !== company ? `<br/><span style="font-size:12px;color:#64748B">${esc(name)}</span>` : ''}` : `<strong>${esc(name)}</strong>`}
     ${lead.phone ? '<br/>' + esc(lead.phone) : ''}
     ${lead.email ? '<br/>' + esc(lead.email) : ''}
     ${vehicle ? '<br/><span style="color:#2563eb;font-size:11px">' + esc(vehicle) + '</span>' : ''}
+    ${isFleet ? '<div style="margin-top:6px;color:#0D6E6E;font-size:11px;font-weight:600">This may represent multiple vehicle purchases.</div>' : ''}
+    ${confidenceNote ? `<div style="margin-top:6px;color:#92400E;font-size:11px;background:#FFFBEB;border-radius:5px;padding:5px 7px">${esc(confidenceNote)}</div>` : ''}
     <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
       <span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:600;${stageBadgeStyle(pipelineStage)}">${esc(stageLabelMap(pipelineStage))}</span>
-    ${heatScore !== null ? `<span style="display:inline-flex;align-items:center;gap:2px;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;${heatScore >= 70 ? 'background:#FEF2F2;color:#DC2626' : heatScore >= 40 ? 'background:#FFF7ED;color:#EA580C' : 'background:#F1F5F9;color:#64748B'}">Heat ${heatScore}</span>` : ''}
+      ${intent ? `<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;background:#E0F2FE;color:#0369A1">${esc(getDisplayLabel(intent))}</span>` : ''}
+      ${heatScore !== null ? `<span style="display:inline-flex;align-items:center;gap:2px;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;${heatScore >= 70 ? 'background:#FEF2F2;color:#DC2626' : heatScore >= 40 ? 'background:#FFF7ED;color:#EA580C' : 'background:#F1F5F9;color:#64748B'}">Heat ${heatScore}</span>` : ''}
       ${hasTrade ? '<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:500;background:#FFFBEB;color:#92400E">Trade-in</span>' : ''}
       ${hasFinance ? '<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:500;background:#EEF2FF;color:#4338CA">Finance</span>' : ''}
     </div>

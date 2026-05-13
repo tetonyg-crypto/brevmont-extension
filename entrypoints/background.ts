@@ -62,12 +62,6 @@ function parseLooseLeadText(rawText: unknown): { customer_name?: string | null; 
   };
 }
 
-function looksLikeSystemSender(rawText: unknown): boolean {
-  const raw = String(rawText || '').toLowerCase();
-  if (!raw.trim()) return false;
-  return /\b(no-?reply|do-?not-?reply|donotreply|onboarding)\b/.test(raw) || /@?brevmont\.com\b/.test(raw);
-}
-
 initSentry();
 
 export default defineBackground(() => {
@@ -707,10 +701,6 @@ export default defineBackground(() => {
       (async () => {
         try {
           await requireFeature('lead_capture', 'Lead capture');
-          if (looksLikeSystemSender(msg.payload?.raw_text)) {
-            sendResponse({ error: "This looks like a system email. Paste a customer's contact info instead." });
-            return;
-          }
           const dealerToken = await resolveDealerToken();
           if (!dealerToken && !msg.payload?.customer_name && !msg.payload?.name) {
             sendResponse({ error: 'No dealer_token' });
@@ -733,6 +723,10 @@ export default defineBackground(() => {
 
           // Save parsed lead locally in Dexie for Lead Inbox
           const parsedLead = data.lead || {};
+          if (parsedLead.is_lead === false || parsedLead.intent === 'not_a_lead') {
+            sendResponse(data);
+            return;
+          }
           const looseFallback = parseLooseLeadText(msg.payload?.raw_text);
           const fallbackName =
             msg.payload?.customer_name ||
@@ -762,6 +756,12 @@ export default defineBackground(() => {
               extracted_urgency: parsedLead.extracted_urgency || parsedLead.urgency || null,
               pipeline_stage: 'captured',
               heat_score: 0, // Server computes real score on sync
+              metadata: {
+                company: parsedLead.company || null,
+                intent: parsedLead.intent || null,
+                confidence: parsedLead.confidence || null,
+                is_lead: parsedLead.is_lead !== false,
+              },
             };
             await leadDb.captured_leads.put(localLead);
             // Fire-and-forget background sync
@@ -784,6 +784,10 @@ export default defineBackground(() => {
                 finance_intent: localLead.finance_intent,
                 extracted_trade_in: localLead.extracted_trade_in,
                 extracted_urgency: localLead.extracted_urgency,
+                company: parsedLead.company || null,
+                intent: parsedLead.intent || null,
+                confidence: parsedLead.confidence || null,
+                is_lead: parsedLead.is_lead !== false,
               },
             };
           }

@@ -226,7 +226,13 @@ export default defineContentScript({
         ? attrEmail.split('@')[0].replace(/[._+-]+/g, ' ').replace(/\s+/g, ' ').trim()
         : null;
       const customerName = cleanName || safeExtractContactName() || emailLocalName;
+      const subject = (
+        (document.querySelector('h2.hP, .hP, [data-legacy-thread-id] h2') as HTMLElement | null)?.innerText ||
+        (document.querySelector('[role="main"] h2') as HTMLElement | null)?.innerText ||
+        ''
+      ).replace(/\s+/g, ' ').trim();
       const rawPrefix = [
+        subject ? `Subject: ${subject}` : '',
         customerName ? `Sender name: ${customerName}` : '',
         attrEmail ? `Sender email: ${attrEmail}` : '',
       ].filter(Boolean).join('\n');
