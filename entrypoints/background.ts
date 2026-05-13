@@ -62,6 +62,12 @@ function parseLooseLeadText(rawText: unknown): { customer_name?: string | null; 
   };
 }
 
+function looksLikeSystemSender(rawText: unknown): boolean {
+  const raw = String(rawText || '').toLowerCase();
+  if (!raw.trim()) return false;
+  return /\b(no-?reply|do-?not-?reply|donotreply|onboarding)\b/.test(raw) || /@?brevmont\.com\b/.test(raw);
+}
+
 initSentry();
 
 export default defineBackground(() => {
@@ -701,6 +707,10 @@ export default defineBackground(() => {
       (async () => {
         try {
           await requireFeature('lead_capture', 'Lead capture');
+          if (looksLikeSystemSender(msg.payload?.raw_text)) {
+            sendResponse({ error: "This looks like a system email. Paste a customer's contact info instead." });
+            return;
+          }
           const dealerToken = await resolveDealerToken();
           if (!dealerToken && !msg.payload?.customer_name && !msg.payload?.name) {
             sendResponse({ error: 'No dealer_token' });
@@ -925,11 +935,15 @@ export default defineBackground(() => {
           const headers: Record<string, string> = { 'Content-Type': 'application/json' };
           if (token) headers['Authorization'] = `Bearer ${token}`;
           if (repToken) headers['X-Rep-Token'] = repToken;
-          await fetch(`${PROXY_URL}/api/v1/events`, {
+          const resp = await fetch(`${PROXY_URL}/api/v1/events`, {
             method: 'POST',
             headers,
             body: JSON.stringify(payload),
           });
+          if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw new Error(body.error || `event_log_failed_${resp.status}`);
+          }
           sendResponse({ ok: true });
         } catch (e: any) {
           sendResponse({ ok: false, error: e.message });
@@ -992,7 +1006,9 @@ export default defineBackground(() => {
     if (msg.type === 'CAPTURE_SCREENSHOT') {
       (async () => {
         try {
-          const dataUrl = await chrome.tabs.captureVisibleTab(undefined as any, { format: 'png' });
+          const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          const windowId = typeof activeTab?.windowId === 'number' ? activeTab.windowId : undefined;
+          const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'png' });
           sendResponse({ image: dataUrl });
         } catch (e: any) {
           sendResponse({ error: e.message || 'Screenshot capture failed' });

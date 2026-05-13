@@ -85,7 +85,7 @@ function detectPlatformFromURL(url: string): Platform {
   if (url.includes('vinsolutions') || url.includes('coxautoinc')) return 'vinsolutions';
   if (url.includes('mail.google.com')) return 'gmail';
   if (url.includes('messenger.com') || url.includes('facebook.com/messages') || url.includes('facebook.com/marketplace/t/')) return 'facebook';
-  if (url.includes('facebook.com')) return 'unknown';
+  if (url.includes('facebook.com')) return 'facebook';
   if (url.includes('linkedin.com')) return 'linkedin';
   if (url.includes('instagram.com/direct')) return 'instagram';
   if (url.includes('instagram.com')) return 'unknown';
@@ -98,7 +98,7 @@ function getBadge(platform: Platform) {
   switch (platform) {
     case 'vinsolutions': return { label: 'Dealer CRM', color: '#0D6E6E', bg: '#F0EFFF' };
     case 'gmail': return { label: 'Gmail', color: '#dc2626', bg: '#fef2f2' };
-    case 'facebook': return { label: 'Messenger', color: '#1877f2', bg: '#eff6ff' };
+    case 'facebook': return { label: 'Facebook', color: '#1877f2', bg: '#eff6ff' };
     case 'linkedin': return { label: 'LinkedIn', color: '#0a66c2', bg: '#eff6ff' };
     case 'whatsapp': return { label: 'WhatsApp', color: '#25D366', bg: '#f0fdf4' };
     case 'instagram': return { label: 'Instagram', color: '#E1306C', bg: '#fef2f8' };
@@ -109,6 +109,41 @@ function getBadge(platform: Platform) {
 // ─── Escape HTML ─────────────────────────────────────────────────────────────
 function esc(s: string) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function csvField(value: unknown): string {
+  const s = value == null ? '' : String(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function truncateCsv(value: unknown, max = 500): string {
+  const s = value == null ? '' : String(value).replace(/\s+/g, ' ').trim();
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+function normalizeEventPlatform(platform: Platform): string {
+  if (platform === 'facebook') return 'messenger';
+  if (platform === 'gmail' || platform === 'linkedin' || platform === 'vinsolutions') return platform;
+  return 'unknown';
+}
+
+function normalizeOutputType(outputType?: string): 'text' | 'email' | 'crm_note' {
+  if (outputType === 'email') return 'email';
+  if (outputType === 'crm') return 'crm_note';
+  return 'text';
+}
+
+function downloadCsvFile(filename: string, rows: unknown[][]): void {
+  const csv = rows.map(row => row.map(csvField).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 // ─── Send message to background and get response ─────────────────────────────
@@ -1088,13 +1123,13 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       addOutput(root, 'Error', response.error);
     } else {
       const sec = response.sections;
-      if (selected.includes('text') && sec?.text) addOutput(root, 'MESSAGE', sec.text, 'text');
-      if (selected.includes('email') && sec?.email) addOutput(root, 'EMAIL', sec.email, 'email');
+      if (selected.includes('text') && sec?.text) addOutput(root, 'MESSAGE', sec.text, 'text', _generationId);
+      if (selected.includes('email') && sec?.email) addOutput(root, 'EMAIL', sec.email, 'email', _generationId);
       if (selected.includes('crm') && sec?.crm) {
         if (sec.crm.trim() === 'NO_NEW_NOTE') showToast(root, 'Nothing new to log. Last note covers this.');
-        else addOutput(root, 'CRM NOTE', sec.crm, 'crm');
+        else addOutput(root, 'CRM NOTE', sec.crm, 'crm', _generationId);
       }
-      if (!sec?.text && !sec?.email && !sec?.crm) addOutput(root, 'GENERATION', response.text || 'Generation returned empty.');
+      if (!sec?.text && !sec?.email && !sec?.crm) addOutput(root, 'GENERATION', response.text || 'Generation returned empty.', 'text', _generationId);
 
       // Auto-activate first tab
       const tabOrder: Array<'text' | 'email' | 'crm'> = ['text', 'email', 'crm'];
@@ -1113,8 +1148,8 @@ async function doGenerate(root: HTMLElement): Promise<void> {
             type: 'LOG_HONEST_EVENT',
             payload: {
               event_type: 'generation.created',
-              platform: currentPlatform.platform,
-              output_type: o.key === 'text' ? 'sms' : o.key === 'email' ? 'email' : 'crm_note',
+              platform: normalizeEventPlatform(currentPlatform.platform),
+              output_type: o.key === 'text' ? 'text' : o.key === 'email' ? 'email' : 'crm_note',
               generation_id: _generationId,
               customer_context: { name: _meta.customer_name, vehicle: _meta.vehicle },
               output_length: (o.content || '').length,
@@ -1145,10 +1180,11 @@ async function doGenerate(root: HTMLElement): Promise<void> {
 }
 
 // ─── Add output card ─────────────────────────────────────────────────────────
-function addOutput(root: HTMLElement, label: string, content: string, outputType?: string): void {
+function addOutput(root: HTMLElement, label: string, content: string, outputType?: string, generationId?: string): void {
   const outputs = root.querySelector('#o8-outputs')!;
   const card = document.createElement('div');
   card.className = 'out-card';
+  if (generationId) card.dataset.generationId = generationId;
   if (outputType) {
     card.setAttribute('data-output-type', outputType);
     card.classList.add('tab-visible');
@@ -1168,6 +1204,19 @@ function addOutput(root: HTMLElement, label: string, content: string, outputType
   card.querySelector('.out-primary')!.addEventListener('click', async () => {
     const ta = card.querySelector('.out-textarea') as HTMLTextAreaElement;
     await navigator.clipboard.writeText(ta.value);
+    const generation_id = card.dataset.generationId || null;
+    if (generation_id) {
+      safeSend({
+        type: 'LOG_HONEST_EVENT',
+        payload: {
+          event_type: 'generation.copied',
+          platform: normalizeEventPlatform(currentPlatform.platform),
+          output_type: normalizeOutputType(outputType),
+          generation_id,
+          output_length: ta.value.length,
+        },
+      }).catch(() => {});
+    }
     const status = card.querySelector('.out-status') as HTMLElement;
     status.textContent = 'Copied';
     status.style.color = '#16a34a';
@@ -1181,10 +1230,24 @@ function addOutput(root: HTMLElement, label: string, content: string, outputType
       const ta = card.querySelector('.out-textarea') as HTMLTextAreaElement;
       const status = card.querySelector('.out-status') as HTMLElement;
       try {
-        await sendToContent({
+        const resp = await sendToContent({
           type: 'INJECT_CONTENT',
           payload: { content: ta.value, outputType: outputType || 'text', platform: currentPlatform.platform },
         });
+        if (resp && resp.ok === false) throw new Error('No compose or CRM field found. Open the field and try Inject again.');
+        const generation_id = card.dataset.generationId || null;
+        if (generation_id) {
+          safeSend({
+            type: 'LOG_HONEST_EVENT',
+            payload: {
+              event_type: 'generation.pasted',
+              platform: normalizeEventPlatform(currentPlatform.platform),
+              output_type: normalizeOutputType(outputType),
+              generation_id,
+              output_length: ta.value.length,
+            },
+          }).catch(() => {});
+        }
         status.textContent = 'Injected';
         status.style.color = '#16a34a';
       } catch (e: any) {
@@ -1825,7 +1888,23 @@ async function openStats(root: HTMLElement): Promise<void> {
         <div style="text-align:center;margin-top:4px;"><button id="o8-export-csv" style="background:none;border:none;color:#0D6E6E;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:underline;">Export to CSV</button></div>`;
       // Wire CSV export button
       const csvBtn = statsContent.querySelector('#o8-export-csv') as HTMLElement;
-      if (csvBtn) csvBtn.onclick = () => showToast(root, 'CSV export coming soon.');
+      if (csvBtn) {
+        csvBtn.onclick = () => {
+          const history = Array.isArray(resp.history) ? resp.history : [];
+          const rows: unknown[][] = [
+            ['Date', 'Workflow Type', 'Rep Input', 'AI Output', 'Channel'],
+            ...history.map((event: any) => [
+              event.created_at || event.server_ts || '',
+              event.workflow_type || event.output_type || '',
+              truncateCsv(event.scenario_input || event.rep_input || ''),
+              truncateCsv(event.ai_output || event.output || ''),
+              event.platform || '',
+            ]),
+          ];
+          downloadCsvFile(`brevmont-stats-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+          showToast(root, 'CSV downloaded');
+        };
+      }
     }
   } catch {
     if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#EF4444;font-size:12px;padding:24px;">Could not load stats.</div>';

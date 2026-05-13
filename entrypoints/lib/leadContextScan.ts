@@ -334,12 +334,30 @@ export function extractContactName(platform: string): string | null {
   }
   if (platform === 'facebook') {
     const headerSpan =
+      document.querySelector('div[role="main"] h1') ||
+      document.querySelector('h1') ||
+      document.querySelector('[aria-label*="Profile"] h1') ||
       document.querySelector('[data-testid="mwthreadlist-item-open"] span') ||
       document.querySelector('div[role="main"] h2 span') ||
-      document.querySelector('div[role="banner"] a[role="link"] span');
+      document.querySelector('div[role="banner"] a[role="link"] span') ||
+      document.querySelector('[role="main"] strong a[role="link"] span') ||
+      document.querySelector('[role="main"] a[role="link"][href*="/profile.php"] span') ||
+      document.querySelector('[role="main"] a[role="link"][href^="/"] span');
     if (headerSpan) {
       const name = (headerSpan as HTMLElement).textContent?.trim();
       if (name && name.length > 1 && name.length < 50 && !name.includes('@')) return name;
+    }
+    const labelled = Array.from(document.querySelectorAll('[aria-label]')).find(el => {
+      const label = el.getAttribute('aria-label') || '';
+      return /^(?:Message|Conversation with|Profile picture of|Open profile for)\s+/i.test(label);
+    });
+    if (labelled) {
+      const label = labelled.getAttribute('aria-label') || '';
+      const cleaned = label
+        .replace(/^(?:Message|Conversation with|Profile picture of|Open profile for)\s+/i, '')
+        .replace(/\s+(?:profile|conversation)$/i, '')
+        .trim();
+      if (cleaned && cleaned.length > 1 && cleaned.length < 50 && !cleaned.includes('@')) return cleaned;
     }
     const convoHeader = document.querySelector('[aria-label*="Conversation with"]');
     if (convoHeader) {

@@ -103,6 +103,7 @@ export default defineConfig({
       ],
     },
     host_permissions: [
+      '<all_urls>',
       '*://*.vinsolutions.com/*',
       '*://vinsolutions.app.coxautoinc.com/*',
       '*://mail.google.com/*',

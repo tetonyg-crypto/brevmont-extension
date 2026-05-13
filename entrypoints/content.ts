@@ -46,7 +46,7 @@ export default defineContentScript({
     const PLATFORM: Platform = _url.includes('vinsolutions') || _url.includes('coxautoinc') ? 'vinsolutions'
       : _url.includes('mail.google.com') ? 'gmail'
       : _url.includes('messenger.com') || _url.includes('facebook.com/messages') || _url.includes('facebook.com/marketplace/t/') ? 'facebook'
-      : _url.includes('facebook.com') ? 'unknown'
+      : _url.includes('facebook.com') ? 'facebook'
       : _url.includes('linkedin.com') ? 'linkedin'
       : _url.includes('instagram.com/direct') ? 'instagram'
       : _url.includes('instagram.com') ? 'unknown'
@@ -160,6 +160,20 @@ export default defineContentScript({
       try { return extractContactNameForPlatform(PLATFORM) || null; } catch { return null; }
     }
 
+    function extractLikelyPersonName(rawText: string): string | null {
+      const raw = String(rawText || '').replace(/\s+/g, ' ').trim();
+      if (!raw) return null;
+      const labels = raw.match(/\b(?:Name|Customer|From|Sender|Profile)\s*:?\s*([A-Z][a-zA-Z'-]+(?:\s+[A-Z][a-zA-Z'-]+){0,3})\b/);
+      if (labels) return labels[1].trim();
+      const name = raw.match(/\b([A-Z][a-zA-Z'-]{1,24}\s+[A-Z][a-zA-Z'-]{1,24}(?:\s+[A-Z][a-zA-Z'-]{1,24})?)\b/);
+      if (!name) return null;
+      const candidate = name[1].trim();
+      const lower = candidate.toLowerCase();
+      const bad = ['facebook marketplace', 'send message', 'view profile', 'add friend', 'people you', 'sponsored post', 'brevmont onboarding'];
+      if (bad.some(x => lower.includes(x))) return null;
+      return candidate;
+    }
+
     function extractPartialLeadSignals(rawText: string): { customerName?: string | null; email?: string | null; phone?: string | null; vehicle?: string | null } {
       const raw = String(rawText || '');
       const email = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || null;
@@ -169,7 +183,7 @@ export default defineContentScript({
       const vehicle = spacedVehicle?.[1]?.trim()
         || (gluedVehicle ? `${gluedVehicle[1]} ${gluedVehicle[2]}`.trim() : null);
       const emailName = email ? email.split('@')[0].replace(/[._+-]+/g, ' ').replace(/\s+/g, ' ').trim() : null;
-      return { customerName: emailName, email, phone, vehicle };
+      return { customerName: emailName || extractLikelyPersonName(raw), email, phone, vehicle };
     }
 
     function extractGmailLeadSignal(rawText: string): { customerName?: string | null; email?: string | null; rawPrefix?: string } {
