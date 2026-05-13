@@ -947,10 +947,15 @@ export default defineBackground(() => {
     if (msg.type === 'CHANGE_LEAD_STAGE') {
       (async () => {
         try {
-          const { leadId, stage, appointment_at } = msg.payload;
+          const { leadId, stage, appointment_at, lost_reason, lost_reason_detail } = msg.payload || {};
           if (!leadId || !stage) { sendResponse({ error: 'Missing leadId or stage' }); return; }
 
-          const resp = await signedPatch(`${PROXY_URL}/api/v1/leads/${leadId}/stage`, { stage, appointment_at });
+          const resp = await signedPatch(`${PROXY_URL}/api/v1/leads/${leadId}/stage`, {
+            stage,
+            appointment_at,
+            lost_reason,
+            lost_reason_detail,
+          });
 
           if (!resp.ok) {
             const err = await resp.json().catch(() => ({ error: resp.statusText }));
@@ -959,18 +964,22 @@ export default defineBackground(() => {
           }
 
           const data = await resp.json();
+          const lead = data.lead || data;
 
           // Update local DB if lead exists there
           try {
             await leadDb.captured_leads.update(leadId, {
               pipeline_stage: stage,
               ...(appointment_at ? { appointment_at } : {}),
+              ...(lost_reason ? { lost_reason } : {}),
+              ...(lost_reason_detail !== undefined ? { lost_reason_detail: lost_reason_detail || null } : {}),
+              ...(stage === 'lost' ? { lost_at: lead.lost_at || data.lost_at || new Date().toISOString() } : {}),
               sync_status: 'synced',
               updated_at: Date.now(),
             });
           } catch { /* lead may not be in local DB — that's fine */ }
 
-          sendResponse({ success: true, lead: data.lead || data });
+          sendResponse({ success: true, lead });
         } catch (e: any) {
           sendResponse({ error: e.message });
         }
@@ -982,7 +991,8 @@ export default defineBackground(() => {
     if (msg.type === 'GET_MY_LEADS') {
       (async () => {
         try {
-          const resp = await signedGet(`${PROXY_URL}/api/v1/rep/leads`);
+          const stage = msg.payload?.stage ? `?stage=${encodeURIComponent(String(msg.payload.stage))}` : '';
+          const resp = await signedGet(`${PROXY_URL}/api/v1/rep/leads${stage}`);
           const data = await resp.json().catch(() => ({}));
           if (!resp.ok) throw new Error(data.error || `My Leads API returned ${resp.status}`);
           sendResponse(data);

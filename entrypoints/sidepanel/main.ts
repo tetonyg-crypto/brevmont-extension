@@ -1635,9 +1635,129 @@ function wireContextTool(root: HTMLElement): void {
 // ─── Pipeline stage helpers ──────────────────────────────────────────────────
 const PIPELINE_STAGES = ['captured', 'contacted', 'appointment_set', 'showed', 'sold', 'lost'] as const;
 type PipelineStage = typeof PIPELINE_STAGES[number];
+type LostReasonKey =
+  | 'bought_elsewhere'
+  | 'price'
+  | 'payment'
+  | 'credit'
+  | 'trade_value'
+  | 'inventory'
+  | 'lost_contact'
+  | 'timing'
+  | 'bad_lead'
+  | 'duplicate';
+
+const LOST_REASON_OPTIONS: Array<{ value: LostReasonKey; label: string }> = [
+  { value: 'bought_elsewhere', label: 'Bought elsewhere' },
+  { value: 'price', label: 'Price too high' },
+  { value: 'payment', label: 'Payment too high' },
+  { value: 'credit', label: 'Credit issues' },
+  { value: 'trade_value', label: 'Trade value too low' },
+  { value: 'inventory', label: 'Vehicle not available' },
+  { value: 'lost_contact', label: 'Lost contact' },
+  { value: 'timing', label: 'Not ready to buy' },
+  { value: 'bad_lead', label: 'Bad lead / not real' },
+  { value: 'duplicate', label: 'Duplicate' },
+];
 
 function stageLabelMap(stage: string): string {
   return getDisplayLabel(stage) || 'Captured';
+}
+
+function lostReasonLabel(reason: unknown): string {
+  const raw = String(reason || '').toLowerCase().trim();
+  return LOST_REASON_OPTIONS.find((option) => option.value === raw)?.label || getDisplayLabel(raw);
+}
+
+function renderMyLeadsFilterControls(filter: 'active' | 'lost'): string {
+  return `
+    <div class="my-leads-filter-row" role="tablist" aria-label="Lead filter">
+      <button class="my-leads-filter-btn ${filter === 'active' ? 'active' : ''}" data-stage-filter="active" type="button">Active</button>
+      <button class="my-leads-filter-btn ${filter === 'lost' ? 'active' : ''}" data-stage-filter="lost" type="button">Lost</button>
+    </div>
+  `;
+}
+
+function openLostReasonModal(
+  root: HTMLElement,
+  lead: any,
+  onConfirm: (payload: { lost_reason: LostReasonKey; lost_reason_detail?: string }) => Promise<void>,
+): void {
+  root.querySelector('.lost-reason-backdrop')?.remove();
+  const customer = displayText(lead?.customer_name, 'this lead');
+  const modal = document.createElement('div');
+  modal.className = 'lost-reason-backdrop';
+  modal.innerHTML = `
+    <div class="lost-reason-modal" role="dialog" aria-modal="true" aria-labelledby="lost-reason-title">
+      <div class="lost-reason-header">
+        <div>
+          <div id="lost-reason-title" class="lost-reason-title">Why are you marking this lead lost?</div>
+          <div class="lost-reason-subtitle">${esc(customer)}</div>
+        </div>
+        <button class="lost-reason-close" type="button" aria-label="Cancel">&times;</button>
+      </div>
+      <div class="lost-reason-grid">
+        ${LOST_REASON_OPTIONS.map((option) => `
+          <button class="lost-reason-option" type="button" data-lost-reason="${esc(option.value)}">${esc(option.label)}</button>
+        `).join('')}
+      </div>
+      <label class="lost-reason-note-label" for="lost-reason-note">Optional</label>
+      <textarea id="lost-reason-note" class="lost-reason-note" rows="3" maxlength="1000" placeholder="Add a note..."></textarea>
+      <div class="lost-reason-error" aria-live="polite"></div>
+      <div class="lost-reason-actions">
+        <button class="lost-reason-cancel" type="button">Cancel</button>
+        <button class="lost-reason-confirm" type="button" disabled>Mark Lost</button>
+      </div>
+    </div>
+  `;
+  root.appendChild(modal);
+
+  let selected: LostReasonKey | null = null;
+  const confirm = modal.querySelector('.lost-reason-confirm') as HTMLButtonElement;
+  const cancel = modal.querySelector('.lost-reason-cancel') as HTMLButtonElement;
+  const close = modal.querySelector('.lost-reason-close') as HTMLButtonElement;
+  const note = modal.querySelector('#lost-reason-note') as HTMLTextAreaElement;
+  const error = modal.querySelector('.lost-reason-error') as HTMLElement;
+  const dismiss = () => modal.remove();
+  cancel.onclick = dismiss;
+  close.onclick = dismiss;
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) dismiss();
+  });
+
+  modal.querySelectorAll<HTMLButtonElement>('.lost-reason-option').forEach((button) => {
+    button.onclick = () => {
+      const value = button.dataset.lostReason as LostReasonKey | undefined;
+      if (!value) return;
+      selected = value;
+      modal.querySelectorAll('.lost-reason-option').forEach((el) => el.classList.toggle('selected', el === button));
+      confirm.disabled = false;
+      error.textContent = '';
+    };
+  });
+
+  confirm.onclick = async () => {
+    if (!selected) return;
+    confirm.disabled = true;
+    cancel.disabled = true;
+    close.disabled = true;
+    confirm.textContent = 'Saving...';
+    error.textContent = '';
+    try {
+      const detail = note.value.trim();
+      await onConfirm({
+        lost_reason: selected,
+        ...(detail ? { lost_reason_detail: detail } : {}),
+      });
+      modal.remove();
+    } catch (err: any) {
+      error.textContent = err?.message || 'Could not mark lost. Try again.';
+      confirm.disabled = false;
+      cancel.disabled = false;
+      close.disabled = false;
+      confirm.textContent = 'Mark Lost';
+    }
+  };
 }
 
 function stageBadgeStyle(stage: string): string {
@@ -1742,19 +1862,29 @@ function renderLeadCard(lead: any, index: number): string {
   const vehicle = optionalDisplayText(lead.vehicle_interest);
   const heat = Number(lead.heat_score ?? 0);
   const stage = String(lead.pipeline_stage || lead.status || 'captured');
+  const isLost = stage === 'lost';
   const lastContact = lead.last_contacted_at || lead.last_activity_at || lead.captured_at;
   const appointment = lead.appointment_at ? `<div style="font-size:11px;color:#7C3AED;margin-top:6px;font-weight:700;">Appt: ${esc(new Date(lead.appointment_at).toLocaleString())}</div>` : '';
   const reminder = Array.isArray(lead.upcoming_reminders) && lead.upcoming_reminders[0]
     ? `<div style="font-size:11px;color:#0D6E6E;margin-top:6px;font-weight:700;">&#128338; ${esc(lead.upcoming_reminders[0].input || 'Follow-up reminder')} ${lead.upcoming_reminders[0].reminder_time ? `â€” ${esc(new Date(lead.upcoming_reminders[0].reminder_time).toLocaleString())}` : ''}</div>`
     : '';
+  const lostReason = lostReasonLabel(lead.lost_reason);
+  const lostDetail = optionalDisplayText(lead.lost_reason_detail);
+  const lostAt = lead.lost_at ? new Date(lead.lost_at).toLocaleString() : '';
+  const lostBlock = isLost ? `
+      <div class="lost-lead-detail">
+        <div><strong>Reason:</strong> ${esc(lostReason || 'Lost')}</div>
+        ${lostDetail ? `<div>${esc(lostDetail)}</div>` : ''}
+        ${lostAt ? `<div class="lost-lead-time">Lost ${esc(lostAt)}</div>` : ''}
+      </div>` : '';
   return `
-    <div class="my-lead-card" data-lead-id="${esc(lead.id)}" data-lead-index="${index}">
+    <div class="my-lead-card ${isLost ? 'lost' : ''}" data-lead-id="${esc(lead.id)}" data-lead-index="${index}">
       <div style="display:flex;align-items:start;justify-content:space-between;gap:8px;">
         <div>
           <div class="lead-card-title">${esc(customer)}</div>
           ${vehicle ? `<div style="font-size:12px;color:#475569;margin-top:2px;">${esc(vehicle)}</div>` : ''}
         </div>
-        <span class="your-lead-badge">YOUR LEAD</span>
+        <span class="${isLost ? 'lost-lead-badge' : 'your-lead-badge'}">${isLost ? 'LOST' : 'YOUR LEAD'}</span>
       </div>
       <div class="lead-card-meta">
         <span class="lead-pill">&#128293; ${heat}</span>
@@ -1764,6 +1894,7 @@ function renderLeadCard(lead: any, index: number): string {
       </div>
       ${appointment}
       ${reminder}
+      ${lostBlock}
       <button class="lead-primary-action" data-action="generate">Generate Follow-up</button>
       <div class="lead-secondary-row">
         <button class="lead-secondary-action" data-action="contacted">→ Contacted</button>
@@ -1786,9 +1917,15 @@ async function renderMyLeads(root: HTMLElement): Promise<void> {
   content.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading your pipeline...</div>';
 
   try {
-    const resp = await safeSend({ type: 'GET_MY_LEADS' });
+    const leadFilter: 'active' | 'lost' = (root as any).__myLeadsStageFilter === 'lost' ? 'lost' : 'active';
+    const resp = await safeSend({ type: 'GET_MY_LEADS', payload: { stage: leadFilter } });
     const leads = Array.isArray(resp?.leads) ? resp.leads : [];
     leads.sort((a: any, b: any) => {
+      if (leadFilter === 'lost') {
+        const aLost = new Date(a.lost_at || a.last_activity_at || a.captured_at || 0).getTime();
+        const bLost = new Date(b.lost_at || b.last_activity_at || b.captured_at || 0).getTime();
+        return bLost - aLost;
+      }
       const heat = Number(b.heat_score || 0) - Number(a.heat_score || 0);
       if (heat !== 0) return heat;
       const aTime = new Date(a.last_contacted_at || a.last_activity_at || a.captured_at || 0).getTime();
@@ -1797,7 +1934,7 @@ async function renderMyLeads(root: HTMLElement): Promise<void> {
     });
     (root as any).__myLeads = leads;
 
-    const goingDark = leads.filter((lead: any) => lead.going_dark);
+    const goingDark = leadFilter === 'active' ? leads.filter((lead: any) => lead.going_dark) : [];
     if (count && goingDark.length) {
       count.textContent = String(goingDark.length);
       count.style.display = 'inline-flex';
@@ -1822,14 +1959,22 @@ async function renderMyLeads(root: HTMLElement): Promise<void> {
     }
 
     if (!leads.length) {
-      content.innerHTML = '<div style="text-align:center;color:#64748b;font-size:12px;padding:24px;line-height:1.5;">Your pipeline will show the leads you capture here.</div>';
+      content.innerHTML = `
+        ${renderMyLeadsFilterControls(leadFilter)}
+        <div style="text-align:center;color:#64748b;font-size:12px;padding:24px;line-height:1.5;">
+          ${leadFilter === 'lost' ? 'No lost leads yet.' : 'Your pipeline will show the leads you capture here.'}
+        </div>`;
+      wireMyLeadCardActions(root);
       return;
     }
 
     const showAll = Boolean((root as any).__myLeadsShowAll);
     const visible = showAll ? leads : leads.slice(0, 7);
     content.innerHTML = `
-      <div style="font-size:11px;color:#64748B;margin-bottom:8px;">Your leads, sorted by heat and who needs attention first.</div>
+      ${renderMyLeadsFilterControls(leadFilter)}
+      <div style="font-size:11px;color:#64748B;margin-bottom:8px;">
+        ${leadFilter === 'lost' ? 'Lost leads stay tucked away with the reason preserved.' : 'Your active leads, sorted by heat and who needs attention first.'}
+      </div>
       ${visible.map(renderLeadCard).join('')}
       ${leads.length > 7 ? `<button id="o8-my-leads-show-more" class="lead-secondary-action" style="width:100%;margin-top:10px;">${showAll ? 'Show top 7' : `Show more (${leads.length - 7})`}</button>` : ''}
     `;
@@ -1842,6 +1987,14 @@ async function renderMyLeads(root: HTMLElement): Promise<void> {
 function wireMyLeadCardActions(root: HTMLElement): void {
   const content = root.querySelector('#o8-my-leads-content') as HTMLElement | null;
   if (!content) return;
+  content.querySelectorAll<HTMLButtonElement>('[data-stage-filter]').forEach((button) => {
+    button.onclick = () => {
+      const stageFilter = button.dataset.stageFilter === 'lost' ? 'lost' : 'active';
+      (root as any).__myLeadsStageFilter = stageFilter;
+      (root as any).__myLeadsShowAll = false;
+      void renderMyLeads(root);
+    };
+  });
   const showMore = content.querySelector('#o8-my-leads-show-more') as HTMLButtonElement | null;
   if (showMore) {
     showMore.onclick = () => {
@@ -1879,7 +2032,19 @@ function wireMyLeadCardActions(root: HTMLElement): void {
           if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
           return;
         }
-        if (action === 'lost' && !confirm('Mark this lead lost?')) return;
+        if (action === 'lost') {
+          openLostReasonModal(root, lead, async ({ lost_reason, lost_reason_detail }) => {
+            await safeSend({
+              type: 'CHANGE_LEAD_STAGE',
+              payload: { leadId, stage: 'lost', lost_reason, lost_reason_detail },
+            });
+            card.classList.add('my-lead-card-exiting');
+            await sleep(300);
+            showToast(root, `${displayText(lead.customer_name, 'Lead')} marked as lost. Moved to Lost tab.`);
+            await renderMyLeads(root);
+          });
+          return;
+        }
         if (action === 'save-appt') {
           const input = card.querySelector('.appt-input') as HTMLInputElement | null;
           if (!input?.value) {
@@ -1891,7 +2056,7 @@ function wireMyLeadCardActions(root: HTMLElement): void {
           await renderMyLeads(root);
           return;
         }
-        const stage = action === 'contacted' ? 'contacted' : action === 'lost' ? 'lost' : null;
+        const stage = action === 'contacted' ? 'contacted' : null;
         if (stage) {
           await safeSend({ type: 'CHANGE_LEAD_STAGE', payload: { leadId, stage } });
           showToast(root, stage === 'contacted' ? 'Marked contacted' : 'Marked lost');
@@ -2108,19 +2273,24 @@ function showLeadResult(root: HTMLElement, lead: any): void {
 
   const lostBtn = result.querySelector('#o8-lead-lost') as HTMLButtonElement;
   if (lostBtn && leadId) {
-    lostBtn.addEventListener('click', async () => {
-      lostBtn.disabled = true;
-      lostBtn.textContent = '...';
-      try {
-        await safeSend({ type: 'CHANGE_LEAD_STAGE', payload: { leadId, stage: 'lost' } });
-        lead.pipeline_stage = 'lost';
-        showLeadResult(root, lead);
-        showToast(root, 'Marked as lost');
-      } catch (e: any) {
-        showToast(root, e.message || 'Stage change failed');
-        lostBtn.disabled = false;
-        lostBtn.textContent = 'Mark Lost';
-      }
+    lostBtn.addEventListener('click', () => {
+      openLostReasonModal(root, lead, async ({ lost_reason, lost_reason_detail }) => {
+        lostBtn.disabled = true;
+        lostBtn.textContent = '...';
+        try {
+          await safeSend({ type: 'CHANGE_LEAD_STAGE', payload: { leadId, stage: 'lost', lost_reason, lost_reason_detail } });
+          lead.pipeline_stage = 'lost';
+          lead.lost_reason = lost_reason;
+          lead.lost_reason_detail = lost_reason_detail || null;
+          lead.lost_at = new Date().toISOString();
+          showLeadResult(root, lead);
+          showToast(root, `${displayText(lead.customer_name, 'Lead')} marked as lost. Moved to Lost tab.`);
+        } catch (e) {
+          lostBtn.disabled = false;
+          lostBtn.textContent = 'Mark Lost';
+          throw e;
+        }
+      });
     });
   }
 }
