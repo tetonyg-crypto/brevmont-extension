@@ -98,7 +98,6 @@ export function getPanelHTML(platform: Platform): string {
   <div id="o8-outcome-status" style="font-size:11px; color:#64748b; text-align:center; margin-top:4px;"></div>
 </div>` : ''}
     <div class="inline-links"><button id="o8-my-leads-btn-inline" class="link-btn nav-link">My Leads<span id="o8-my-leads-count" class="nav-count" style="display:none"></span></button><span class="link-sep">|</span><button id="o8-tools-btn-inline" class="link-btn nav-link">&#x1F4AC; Coach</button><span class="link-sep">|</span><button id="o8-stats-btn-inline" class="link-btn nav-link">&#x1F4CA; My Stats</button><span class="link-sep">|</span><button id="o8-settings-btn-inline" class="link-btn nav-link">&#x2699;&#xFE0F; Settings</button></div>
-    <div class="tcpa-inline">You review and send. Follow your store's texting rules.</div>
   </div>
   <div id="o8-outputs" class="outputs"></div>
 </div>

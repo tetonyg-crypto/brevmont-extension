@@ -33,7 +33,7 @@ export const copy = {
   // ---------------------------------------------------------------------------
   onboarding: {
     title: 'Set up Brevmont',
-    subtitle: "Four short questions. Two minutes. Then you're inside your CRM writing pitches.",
+    subtitle: "Four short questions. Two minutes. Then your sidebar co-pilot is ready to write pitches.",
 
     // Step 1 — identity
     step1: {
