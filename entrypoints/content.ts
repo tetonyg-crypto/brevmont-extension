@@ -444,6 +444,123 @@ export default defineContentScript({
       target.dispatchEvent(new Event('blur', { bubbles: true }));
     }
 
+    function stripEmailMarkdownPreserveLines(value: unknown): string {
+      return String(value ?? '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .replace(/^#{1,6}\s+/gm, '')
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/\*([^*]+)\*/g, '$1')
+        .replace(/__([^_]+)__/g, '$1')
+        .replace(/_([^_]+)_/g, '$1')
+        .replace(/`([^`]+)`/g, '$1')
+        .split('\n')
+        .map(line => line.replace(/[ \t]+/g, ' ').trimEnd())
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    }
+
+    function escapeHtml(value: string): string {
+      return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function restoreSignatureLineBreaks(text: string): string {
+      const lines = text.split('\n');
+      const lastIndex = lines.length - 1;
+      const lastLine = lines[lastIndex] || '';
+      const dealerTail = '(?:Subaru|Ford|Chevrolet|Chevy|Toyota|Honda|Hyundai|Kia|GMC|Jeep|Dodge|Ram|Nissan|Mazda|Cadillac|Buick|Lincoln|Lexus|Acura|BMW|Mercedes|Volkswagen|VW|Motors|Auto|Autos|Dealership|Group|Store)';
+      const signatureMatch = lastLine.match(new RegExp(`\\b(Best regards,|Best,|Thanks,|Thank you,|Sincerely,|Regards,)\\s+([A-Z][A-Za-z'.-]+(?:\\s+[A-Z][A-Za-z'.-]+){0,2})\\s+((?:Sales|Internet|Business|BDC|Finance|Fleet|General|Product)[A-Za-z\\s/&-]{2,50}?)\\s+([A-Z][A-Za-z0-9&'. -]+${dealerTail}\\b.*)$`, 'i'));
+      if (signatureMatch) {
+        const before = lastLine.slice(0, signatureMatch.index ?? 0).trimEnd();
+        lines[lastIndex] = [
+          before,
+          before ? '' : null,
+          signatureMatch[1].trim(),
+          signatureMatch[2].trim(),
+          signatureMatch[3].trim(),
+          signatureMatch[4].trim(),
+        ].filter((part): part is string => part !== null).join('\n');
+        return lines.join('\n');
+      }
+
+      const pipeMatch = lastLine.match(/([A-Z][A-Za-z'.-]+(?:\s+[A-Z][A-Za-z'.-]+){0,2})\s+\|\s+([^|]{3,60})\s+\|\s+([^|]{3,120})$/);
+      if (pipeMatch) {
+        const before = lastLine.slice(0, pipeMatch.index ?? 0).trimEnd();
+        lines[lastIndex] = [
+          before,
+          before ? '' : null,
+          pipeMatch[1].trim(),
+          pipeMatch[2].trim(),
+          pipeMatch[3].trim(),
+        ].filter((part): part is string => part !== null).join('\n');
+        return lines.join('\n');
+      }
+
+      return text;
+    }
+
+    function normalizeEmailBodyForInjection(body: string): string {
+      const normalized = stripEmailMarkdownPreserveLines(body)
+        .replace(/^\s*(?:body|email body|message|email)\s*[:\-]\s*/i, '')
+        .trim();
+      return restoreSignatureLineBreaks(normalized);
+    }
+
+    function emailTextToHtml(text: string): string {
+      return text
+        .split('\n')
+        .map(line => line.trim() ? `<div>${escapeHtml(line)}</div>` : '<div><br></div>')
+        .join('');
+    }
+
+    function safeInjectEmailBody(target: HTMLElement, text: string) {
+      const normalized = normalizeEmailBodyForInjection(text);
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+        safeInjectText(target, normalized);
+        return;
+      }
+
+      if ((target as any).isContentEditable) {
+        target.focus();
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+
+        const html = emailTextToHtml(normalized);
+        let inserted = false;
+        try {
+          inserted = document.execCommand('insertHTML', false, html);
+        } catch {
+          inserted = false;
+        }
+        const expectedStart = normalized.trim().slice(0, 24);
+        const rendered = (target.textContent || '').trim();
+        if (!inserted || (expectedStart && !rendered.includes(expectedStart))) {
+          target.innerHTML = html;
+        }
+
+        const endRange = document.createRange();
+        endRange.selectNodeContents(target);
+        endRange.collapse(false);
+        selection?.removeAllRanges();
+        selection?.addRange(endRange);
+        target.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertHTML', data: normalized }));
+        target.dispatchEvent(new Event('change', { bubbles: true }));
+        target.dispatchEvent(new Event('blur', { bubbles: true }));
+        return;
+      }
+
+      safeInjectText(target, normalized);
+    }
+
     function scanText(text: string): any {
       let name = '';
       const labelName = extractByLabel('Customer Dashboard');
@@ -1139,13 +1256,18 @@ export default defineContentScript({
       return style.display !== 'none' && style.visibility !== 'hidden' && el.getClientRects().length > 0;
     }
 
-    function firstVisible(selectors: string[]): HTMLElement | null {
+    function firstVisible(selectors: string[], root: ParentNode = document): HTMLElement | null {
       for (const selector of selectors) {
-        for (const el of Array.from(document.querySelectorAll(selector))) {
+        for (const el of Array.from(root.querySelectorAll(selector))) {
           if (isVisibleElement(el)) return el;
         }
       }
       return null;
+    }
+
+    function findEmailComposeRoot(seed?: HTMLElement | null): ParentNode {
+      if (!seed) return document;
+      return seed.closest('.M9, [role="dialog"], form, .aoI, .nH') || document;
     }
 
     function findGmailComposeBody(): HTMLElement | null {
@@ -1166,37 +1288,129 @@ export default defineContentScript({
       ]);
     }
 
-    function findGmailSubjectInput(): HTMLInputElement | null {
-      const subject = firstVisible([
+    function findGmailSubjectInput(bodyEl?: HTMLElement | null): HTMLInputElement | null {
+      const selectors = [
         'input[name="subjectbox"]',
         'input[aria-label="Subject"]',
         'input[placeholder="Subject"]',
-      ]);
-      return subject instanceof HTMLInputElement ? subject : null;
+      ];
+      const roots = bodyEl ? [findEmailComposeRoot(bodyEl), document] : [document];
+      for (const root of roots) {
+        const subject = firstVisible(selectors, root);
+        if (subject instanceof HTMLInputElement) return subject;
+      }
+      return null;
+    }
+
+    function isLikelySubjectField(el: HTMLElement): boolean {
+      const text = [
+        el.getAttribute('name'),
+        el.id,
+        el.getAttribute('aria-label'),
+        el.getAttribute('placeholder'),
+      ].filter(Boolean).join(' ').toLowerCase();
+      return text.includes('subject');
     }
 
     function splitGeneratedEmail(content: string, explicitSubject?: string): { subject: string; body: string } {
-      let subject = explicitSubject || '';
-      let body = content || '';
-      const subjectMatch = body.match(/^\s*(?:subject|subj)\s*:\s*(.+?)\s*(?:\r?\n)+/i);
+      let subject = stripEmailMarkdownPreserveLines(explicitSubject || '')
+        .replace(/^\s*(?:subject(?:\s+line)?|subj)\s*[:\-]\s*/i, '')
+        .trim();
+      let body = stripEmailMarkdownPreserveLines(content || '')
+        .replace(/^\s*(?:email|email reply|reply|generated email)\s*:?\s*(?:\n+|$)/i, '');
+
+      const subjectMatch = body.match(/^\s*(?:subject(?:\s+line)?|subj)\s*[:\-]\s*([^\n]+)\n+/i);
       if (subjectMatch) {
         subject = subject || subjectMatch[1].trim();
         body = body.slice(subjectMatch[0].length);
+      } else {
+        const inlineSubjectMatch = body.match(/^\s*(?:subject(?:\s+line)?|subj)\s*[:\-]\s*(.+?)\s+(?:body|email body|message)\s*[:\-]\s*([\s\S]+)$/i);
+        if (inlineSubjectMatch) {
+          subject = subject || inlineSubjectMatch[1].trim();
+          body = inlineSubjectMatch[2];
+        }
       }
-      body = body.replace(/^\s*(?:body|email)\s*:\s*/i, '').trimStart();
-      return { subject, body };
+
+      return { subject, body: normalizeEmailBodyForInjection(body) };
     }
 
     function injectGmailEmail(content: string, subject?: string): boolean {
       const bodyEl = findGmailComposeBody();
       if (!bodyEl) return false;
       const parsed = splitGeneratedEmail(content, subject);
-      if (isDuplicateInject(content || parsed.body)) return true;
-      safeInjectText(bodyEl, parsed.body || content);
+      if (isDuplicateInject(`email:${parsed.subject}\n${parsed.body}`)) return true;
       if (parsed.subject) {
-        const subjectEl = findGmailSubjectInput();
+        const subjectEl = findGmailSubjectInput(bodyEl);
         if (subjectEl) safeInjectText(subjectEl, parsed.subject);
       }
+      safeInjectEmailBody(bodyEl, parsed.body || content);
+      return true;
+    }
+
+    function findGenericEmailSubjectInput(bodyEl?: HTMLElement | null): HTMLElement | null {
+      const selectors = [
+        'input[name*="subject" i]',
+        'input[id*="subject" i]',
+        'input[aria-label*="subject" i]',
+        'input[placeholder*="subject" i]',
+        'textarea[name*="subject" i]',
+        'textarea[id*="subject" i]',
+        'textarea[aria-label*="subject" i]',
+        'textarea[placeholder*="subject" i]',
+      ];
+      const roots = bodyEl ? [findEmailComposeRoot(bodyEl), document] : [document];
+      for (const root of roots) {
+        const subject = firstVisible(selectors, root);
+        if (subject) return subject;
+      }
+      return null;
+    }
+
+    function findGenericEmailBody(): HTMLElement | null {
+      const active = document.activeElement as HTMLElement | null;
+      if (active && isVisibleElement(active) && !isLikelySubjectField(active) && ((active as any).isContentEditable || active instanceof HTMLTextAreaElement)) {
+        return active;
+      }
+
+      const body = firstVisible([
+        'textarea[name*="body" i]',
+        'textarea[id*="body" i]',
+        'textarea[aria-label*="body" i]',
+        'textarea[placeholder*="body" i]',
+        'textarea[name*="message" i]',
+        'textarea[id*="message" i]',
+        'textarea[aria-label*="message" i]',
+        'textarea[placeholder*="message" i]',
+        '[contenteditable="true"][aria-label*="message" i]',
+        '[contenteditable="true"][aria-label*="body" i]',
+        '[contenteditable="true"][role="textbox"]',
+      ]);
+      return body && !isLikelySubjectField(body) ? body : null;
+    }
+
+    function isKnownEmailInjectionPage(): boolean {
+      const host = window.location.hostname.toLowerCase();
+      return isGmail
+        || isVinSolutions
+        || /(^|\.)mail\./.test(host)
+        || /(^|\.)outlook\./.test(host)
+        || /(^|\.)office\.com$/.test(host)
+        || /(^|\.)yahoo\./.test(host)
+        || /(^|\.)icloud\./.test(host)
+        || /(^|\.)zoho\./.test(host)
+        || /(^|\.)proton(?:mail)?\./.test(host);
+    }
+
+    function injectGenericEmail(content: string, subject?: string): boolean {
+      const bodyEl = findGenericEmailBody();
+      if (!bodyEl) return false;
+      const parsed = splitGeneratedEmail(content, subject);
+      if (isDuplicateInject(`email:${parsed.subject}\n${parsed.body}`)) return true;
+      if (parsed.subject) {
+        const subjectEl = findGenericEmailSubjectInput(bodyEl);
+        if (subjectEl) safeInjectText(subjectEl, parsed.subject);
+      }
+      safeInjectEmailBody(bodyEl, parsed.body || content);
       return true;
     }
 
@@ -1217,6 +1431,7 @@ export default defineContentScript({
       const { action, subject } = parsed;
       const content = String(parsed.content || '');
       if ((action === 'write_email' || PLATFORM === 'gmail') && isGmail) return injectGmailEmail(content, subject);
+      if (action === 'write_email' && isKnownEmailInjectionPage()) return injectGenericEmail(content, subject);
       if ((action === 'write_facebook_message' || PLATFORM === 'facebook') && isFacebook) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
       if ((action === 'write_linkedin_message' || PLATFORM === 'linkedin') && isLinkedIn) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
       if (PLATFORM === 'whatsapp') { const box = document.querySelector('div[contenteditable="true"][data-tab="10"]') as HTMLElement ?? document.querySelector('footer div[contenteditable="true"]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }

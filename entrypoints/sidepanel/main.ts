@@ -160,6 +160,28 @@ function stripMarkdownText(value: unknown): string {
     .trim();
 }
 
+function stripMarkdownPreserveLines(value: unknown): string {
+  return String(value ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .split('\n')
+    .map(line => line.replace(/[ \t]+/g, ' ').trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function displayOutputContent(content: string, outputType?: string): string {
+  if (outputType === 'email') return stripMarkdownPreserveLines(content) || content;
+  return stripMarkdownText(content) || content;
+}
+
 function getDisplayLabel(value: unknown): string {
   const raw = stripMarkdownText(value);
   if (!raw || /^[-\s]+$/.test(raw)) return '';
@@ -1304,7 +1326,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
 function addOutput(root: HTMLElement, label: string, content: string, outputType?: string, generationId?: string): void {
   const outputs = root.querySelector('#o8-outputs')!;
   const card = document.createElement('div');
-  const visibleContent = stripMarkdownText(content) || content;
+  const visibleContent = displayOutputContent(content, outputType);
   card.className = 'out-card';
   if (generationId) card.dataset.generationId = generationId;
   if (outputType) {
