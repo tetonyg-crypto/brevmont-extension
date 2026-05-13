@@ -266,13 +266,16 @@ function downloadCsvFile(filename: string, rows: unknown[][]): void {
 }
 
 // ─── Send message to background and get response ─────────────────────────────
-// 30-second timeout ensures the user always gets feedback, even if the MV3
-// service worker is killed mid-flight.
+const BACKGROUND_RESPONSE_TIMEOUT_MS = 75_000;
+
+// Keep this longer than the background generation polling window. Otherwise
+// the panel can show a generic message timeout while the worker is still
+// polling a healthy queued generation.
 function safeSend(msg: any): Promise<any> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error('Request timed out — please try again.'));
-    }, 30_000);
+    }, BACKGROUND_RESPONSE_TIMEOUT_MS);
 
     chrome.runtime.sendMessage(msg, (response) => {
       clearTimeout(timeout);

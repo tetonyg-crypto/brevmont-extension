@@ -10,6 +10,7 @@
 // No API keys in extension — all calls routed through PROXY_URL.
 
 const PROXY_URL = 'https://api.brevmont.com';
+const GENERATION_POLL_TIMEOUT_MS = 60_000;
 
 /**
  * Retry wrapper with linear backoff for transient network failures.
@@ -2157,7 +2158,7 @@ async function generateViaProxy(
   if (resp.status === 202) {
     // Async mode — poll for result from BullMQ queue
     const { job_id } = await resp.json();
-    const result = await pollForResult(job_id, 30000, base);
+    const result = await pollForResult(job_id, GENERATION_POLL_TIMEOUT_MS, base);
     const text = result.content?.[0]?.text || '';
     if (!text) throw new Error('Empty response from AI. Please try again.');
     return { text, usage: result.usage || {} };
@@ -2188,11 +2189,11 @@ async function generateViaProxy(
 }
 
 // Poll for async generation result from BullMQ queue
-async function pollForResult(jobId: string, maxWait = 30000, apiBase: string = PROXY_URL): Promise<any> {
+async function pollForResult(jobId: string, maxWait = GENERATION_POLL_TIMEOUT_MS, apiBase: string = PROXY_URL): Promise<any> {
   const base = apiBase.replace(/\/$/, '');
   const start = Date.now();
   while (Date.now() - start < maxWait) {
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 500));
     try {
       // Signed poll — keeps the auth surface consistent with /v1/generate,
       // so server-side signature enforcement on the status route can be

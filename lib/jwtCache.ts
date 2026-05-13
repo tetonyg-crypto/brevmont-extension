@@ -12,6 +12,7 @@
 
 const REFRESH_BUFFER_SECONDS = 60;
 const STORAGE_KEY = 'brevmont_jwt_cache';
+const JWT_FETCH_TIMEOUT_MS = 8_000;
 
 interface JwtCacheEntry {
   token: string;
@@ -83,9 +84,12 @@ async function persist(entry: JwtCacheEntry): Promise<void> {
 }
 
 async function fetchFreshJwt(repToken: string, apiBase: string): Promise<JwtCacheEntry | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), JWT_FETCH_TIMEOUT_MS);
   try {
     const resp = await fetch(`${apiBase}/api/v1/auth/token`, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         'X-Rep-Token': repToken,
@@ -114,6 +118,8 @@ async function fetchFreshJwt(repToken: string, apiBase: string): Promise<JwtCach
     return { token: data.token, exp };
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

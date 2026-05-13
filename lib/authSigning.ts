@@ -16,6 +16,18 @@
 import { getJWT } from './jwtCache';
 
 const PROXY_URL = 'https://api.brevmont.com';
+const REQUEST_TIMEOUT_MS = 45_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
+  if (init.signal) return fetch(url, init);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 async function buildAuthHeaders(): Promise<Record<string, string>> {
   const jwt = await getJWT(PROXY_URL);
@@ -32,6 +44,8 @@ async function buildAuthHeaders(): Promise<Record<string, string>> {
       (local.rep_auth_token as string | undefined) ||
       (local.brevmont_rep_auth_token as string | undefined);
     if (token) return { 'X-Rep-Token': token };
+    const sync = await browser.storage.sync.get(['rep_auth_token']);
+    if (sync.rep_auth_token) return { 'X-Rep-Token': sync.rep_auth_token as string };
   } catch {
     // ignore
   }
@@ -44,7 +58,7 @@ export async function signedFetch(
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
   const auth = await buildAuthHeaders();
-  return fetch(url, {
+  return fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -61,7 +75,7 @@ export async function signedPatch(
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
   const auth = await buildAuthHeaders();
-  return fetch(url, {
+  return fetchWithTimeout(url, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -77,7 +91,7 @@ export async function signedGet(
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
   const auth = await buildAuthHeaders();
-  return fetch(url, {
+  return fetchWithTimeout(url, {
     method: 'GET',
     headers: {
       ...auth,
