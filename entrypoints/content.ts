@@ -1597,20 +1597,20 @@ export default defineContentScript({
           let text = '';
           if (isFacebook) {
             const main = document.querySelector('[role="main"]');
-            text = main ? main.innerText.slice(0, 1500) : document.body.innerText.slice(0, 1500);
+            text = main ? main.innerText.slice(0, 5000) : document.body.innerText.slice(0, 5000);
           } else if (isLinkedIn) {
             const thread = document.querySelector('.msg-s-message-list-content, [class*="msg-thread"], [class*="message-list"], .msg-conversations-container__thread-view, [class*="scaffold-layout__detail"]');
-            text = thread ? (thread as HTMLElement).innerText.slice(0, 2000) : document.body.innerText.slice(0, 1500);
+            text = thread ? (thread as HTMLElement).innerText.slice(0, 5000) : document.body.innerText.slice(0, 5000);
           } else if (isGmail) {
             const msgEl = document.querySelector('.h7, [role="list"], .a3s');
-            text = msgEl ? (msgEl as HTMLElement).innerText.slice(0, 2000) : document.body.innerText.slice(0, 1500);
+            text = msgEl ? (msgEl as HTMLElement).innerText.slice(0, 5000) : document.body.innerText.slice(0, 5000);
           } else if (isInstagram) {
             const thread = document.querySelector('[role="main"]');
-            text = thread ? (thread as HTMLElement).innerText.slice(0, 1500) : document.body.innerText.slice(0, 1500);
+            text = thread ? (thread as HTMLElement).innerText.slice(0, 5000) : document.body.innerText.slice(0, 5000);
           } else {
-            text = document.body.innerText.slice(0, 1500);
+            text = document.body.innerText.slice(0, 5000);
           }
-          sendResponse({ text });
+          sendResponse({ text: text.replace(/\s+/g, ' ').trim() });
         } catch {
           sendResponse({ text: '' });
         }

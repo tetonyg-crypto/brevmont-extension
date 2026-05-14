@@ -1174,7 +1174,7 @@ export default defineBackground(() => {
         try {
           const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
           const windowId = typeof activeTab?.windowId === 'number' ? activeTab.windowId : undefined;
-          const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'png' });
+          const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 82 });
           sendResponse({ image: dataUrl });
         } catch (e: any) {
           sendResponse({ error: e.message || 'Screenshot capture failed' });
@@ -2309,7 +2309,13 @@ Provide a direct, actionable answer. Keep it concise (2-4 sentences). If the que
 }
 
 // ===== CONTEXT REPLY (screenshot vision) =====
-async function handleContextReply(payload: { image: string; direction: string }) {
+async function handleContextReply(payload: {
+  image: string;
+  direction: string;
+  page_text?: string;
+  platform?: string;
+  image_meta?: any;
+}) {
   const settings = await browser.storage.sync.get(['rep_name', 'rep_auth_token']);
   const dealerToken = await resolveDealerToken();
   if (!dealerToken) throw new Error('No license key found.');
@@ -2336,6 +2342,9 @@ async function handleContextReply(payload: { image: string; direction: string })
       rep_name: (settings.rep_name as string | undefined) || null,
       image: payload.image,
       direction: payload.direction || 'Write a natural reply based on the screenshot.',
+      page_text: payload.page_text || '',
+      platform: payload.platform || 'unknown',
+      image_meta: payload.image_meta || null,
     }, repTokenHeader);
   } catch (e: any) {
     telemetry.trackError(e, { flow: 'context_reply_vision' });

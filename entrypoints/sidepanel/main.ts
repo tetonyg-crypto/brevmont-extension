@@ -42,6 +42,10 @@ const dismissedChallengeIds = new Set<string>();
 const FIRST_GENERATION_KEY = 'first_generation_completed';
 const ONBOARDING_BANNER_DISMISSED_KEY = 'onboarding_banner_dismissed';
 const FIRST_GENERATION_EXAMPLE = 'Follow up with John about the Silverado, he wanted to think about the payment';
+const CONTEXT_SCREENSHOT_TARGET_BYTES = 1_600_000;
+const CONTEXT_SCREENSHOT_MAX_DIMS = [1800, 1600, 1400, 1200, 1000, 850];
+const CONTEXT_SCREENSHOT_QUALITIES = [0.82, 0.74, 0.66, 0.58, 0.5];
+const CONTEXT_PAGE_TEXT_MAX = 5000;
 
 const AUTH_SYNC_KEYS = [
   'license_key',
@@ -387,6 +391,99 @@ async function sendToContent(msg: any): Promise<any> {
 }
 
 // ─── Detect active tab platform ─────────────────────────────────────────────
+function dataUrlByteLength(dataUrl: string): number {
+  const base64 = dataUrl.split(',')[1] || '';
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
+function loadDataUrlImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Could not read screenshot.'));
+    image.src = dataUrl;
+  });
+}
+
+async function optimizeContextScreenshot(dataUrl: string): Promise<{
+  dataUrl: string;
+  bytes: number;
+  width: number;
+  height: number;
+  originalBytes: number;
+  originalWidth: number;
+  originalHeight: number;
+}> {
+  const image = await loadDataUrlImage(dataUrl);
+  const originalBytes = dataUrlByteLength(dataUrl);
+  const originalWidth = image.naturalWidth || image.width;
+  const originalHeight = image.naturalHeight || image.height;
+
+  let best = {
+    dataUrl,
+    bytes: originalBytes,
+    width: originalWidth,
+    height: originalHeight,
+  };
+
+  for (const maxDim of CONTEXT_SCREENSHOT_MAX_DIMS) {
+    const scale = Math.min(1, maxDim / Math.max(originalWidth, originalHeight));
+    const width = Math.max(1, Math.round(originalWidth * scale));
+    const height = Math.max(1, Math.round(originalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not prepare screenshot.');
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(image, 0, 0, width, height);
+
+    for (const quality of CONTEXT_SCREENSHOT_QUALITIES) {
+      const candidate = canvas.toDataURL('image/jpeg', quality);
+      const bytes = dataUrlByteLength(candidate);
+      if (bytes < best.bytes) best = { dataUrl: candidate, bytes, width, height };
+      if (bytes <= CONTEXT_SCREENSHOT_TARGET_BYTES) {
+        return { ...best, originalBytes, originalWidth, originalHeight };
+      }
+    }
+  }
+
+  return { ...best, originalBytes, originalWidth, originalHeight };
+}
+
+function cleanContextText(value: unknown, max = CONTEXT_PAGE_TEXT_MAX): string {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+async function collectContextReplyPageText(): Promise<string> {
+  const parts: string[] = [];
+
+  try {
+    const ctx = await sendToContent({ type: 'GET_CONVERSATION_TEXT' });
+    const text = cleanContextText(ctx?.text);
+    if (text) parts.push(`Visible conversation text: ${text}`);
+  } catch {}
+
+  try {
+    const lead = await sendToContent({ type: 'GET_LEAD_CONTEXT' });
+    const leadBits = [
+      lead?.customerName ? `Customer: ${lead.customerName}` : '',
+      lead?.phone ? `Phone: ${lead.phone}` : '',
+      lead?.email ? `Email: ${lead.email}` : '',
+      (lead?.vehicle || lead?.vehicleOfInterest) ? `Vehicle: ${lead.vehicle || lead.vehicleOfInterest}` : '',
+      lead?.source ? `Source: ${lead.source}` : '',
+    ].filter(Boolean);
+    if (leadBits.length) parts.push(`Detected lead context: ${leadBits.join(' | ')}`);
+  } catch {}
+
+  return cleanContextText(parts.join('\n'), CONTEXT_PAGE_TEXT_MAX);
+}
+
 async function refreshPlatform(): Promise<void> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -1727,15 +1824,27 @@ function wireContextTool(root: HTMLElement): void {
   const directionInput = root.querySelector('#o8-ctx-direction') as HTMLTextAreaElement;
   const output = root.querySelector('#o8-ctx-output') as HTMLElement;
   let screenshotData: string | null = null;
+  let screenshotMeta: any = null;
 
   if (!dropzone) return;
 
-  const setScreenshot = (dataUrl: string) => {
-    screenshotData = dataUrl;
+  const setScreenshot = async (dataUrl: string) => {
+    if (output) output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Preparing screenshot...</div>';
+    const optimized = await optimizeContextScreenshot(dataUrl);
+    screenshotData = optimized.dataUrl;
+    screenshotMeta = {
+      bytes: optimized.bytes,
+      width: optimized.width,
+      height: optimized.height,
+      original_bytes: optimized.originalBytes,
+      original_width: optimized.originalWidth,
+      original_height: optimized.originalHeight,
+    };
     if (img) img.src = screenshotData;
     if (preview) preview.style.display = 'block';
     if (dropzone) dropzone.style.display = 'none';
     if (genBtn) genBtn.disabled = false;
+    if (output) output.innerHTML = '';
   };
 
   dropzone.tabIndex = 0;
@@ -1750,8 +1859,12 @@ function wireContextTool(root: HTMLElement): void {
         const blob = item.getAsFile();
         if (blob) {
           const reader = new FileReader();
-          reader.onload = () => {
-            setScreenshot(reader.result as string);
+          reader.onload = async () => {
+            try {
+              await setScreenshot(reader.result as string);
+            } catch (err: any) {
+              output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(err?.message || 'Could not prepare screenshot.')}</div>`;
+            }
           };
           reader.readAsDataURL(blob);
         }
@@ -1771,7 +1884,7 @@ function wireContextTool(root: HTMLElement): void {
         await requireToken();
         const resp = await safeSend({ type: 'CAPTURE_SCREENSHOT' });
         if (!resp?.image) throw new Error(resp?.error || 'Screenshot capture failed');
-        setScreenshot(resp.image);
+        await setScreenshot(resp.image);
       } catch (e: any) {
         output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message || 'Screenshot capture failed')}</div>`;
       } finally {
@@ -1784,6 +1897,7 @@ function wireContextTool(root: HTMLElement): void {
   if (removeBtn) {
     removeBtn.onclick = () => {
       screenshotData = null;
+      screenshotMeta = null;
       preview.style.display = 'none';
       dropzone.style.display = 'flex';
       genBtn.disabled = true;
@@ -1798,9 +1912,16 @@ function wireContextTool(root: HTMLElement): void {
       output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Analyzing screenshot...</div>';
       try {
         await requireToken();
+        const pageText = await collectContextReplyPageText();
         const resp = await safeSend({
           type: 'CONTEXT_REPLY',
-          payload: { image: screenshotData, direction },
+          payload: {
+            image: screenshotData,
+            direction,
+            page_text: pageText,
+            platform: currentPlatform.platform,
+            image_meta: screenshotMeta,
+          },
         });
         const replyText = resp?.reply || resp?.text || '';
         if (!replyText) {
