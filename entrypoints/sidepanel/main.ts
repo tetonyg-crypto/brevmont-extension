@@ -1855,6 +1855,15 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   };
 
   try {
+    const outputsEl = root.querySelector('#o8-outputs') as HTMLElement | null;
+    if (outputsEl) {
+      outputsEl.innerHTML = `
+        <div id="o8-streaming-output" class="out-card" data-generation-id="${esc(_generationId)}">
+          <div class="out-label">Generating</div>
+          <textarea class="out-textarea" rows="7" readonly></textarea>
+        </div>
+      `;
+    }
     const response = await safeSend({
       type: 'GENERATE_OUTPUT',
       payload: {
@@ -1875,6 +1884,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     } else if (response?.error) {
       addOutput(root, 'Error', response.error);
     } else {
+      root.querySelector('#o8-streaming-output')?.remove();
       const sec = response.sections;
       if (selected.includes('text') && sec?.text) addOutput(root, 'MESSAGE', sec.text, 'text', _generationId);
       if (selected.includes('email') && sec?.email) addOutput(root, 'EMAIL', sec.email, 'email', _generationId);
@@ -2068,7 +2078,7 @@ async function doCoach(root: HTMLElement): Promise<void> {
     coachBtn.disabled = true;
     coachBtn.textContent = 'Thinking...';
   }
-  output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Thinking...</div>';
+  output.innerHTML = '<div class="tool-result" data-stream-target="coach" style="color:#94a3b8;white-space:pre-wrap">Thinking...</div>';
   try {
     await requireToken();
     const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
@@ -2154,7 +2164,7 @@ async function doCommand(root: HTMLElement): Promise<void> {
   const input = (root.querySelector('#o8-cmd-input') as HTMLTextAreaElement)?.value.trim();
   if (!input) return;
   const status = root.querySelector('#o8-cmd-status') as HTMLElement;
-  status.innerHTML = '<div class="tool-result" style="color:#94a3b8">Executing...</div>';
+  status.innerHTML = '<div class="tool-result" data-stream-target="command" style="color:#94a3b8;white-space:pre-wrap">Executing...</div>';
   try {
     await requireToken();
     const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
@@ -3290,6 +3300,34 @@ chrome.tabs.onUpdated.addListener(async (_tabId, changeInfo) => {
     const root = document.getElementById('sp-root');
     if (root && root.style.display !== 'none') updatePlatformBadge(root);
   }
+});
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type !== 'GENERATION_STREAM') return false;
+  const root = document.getElementById('sp-root');
+  if (!root || root.style.display === 'none') return false;
+  const target = String(msg.target || 'generation');
+  if (target === 'coach' || target === 'command') {
+    const result = root.querySelector(`[data-stream-target="${target}"]`) as HTMLElement | null;
+    if (!result) return false;
+    if (msg.event === 'delta') {
+      const existing = /^(Thinking|Executing)\.\.\.$/.test(result.textContent || '') ? '' : (result.textContent || '');
+      result.textContent = existing + String(msg.text || '');
+      result.style.color = '#0f172a';
+    }
+    return false;
+  }
+  const card = root.querySelector(`#o8-streaming-output[data-generation-id="${CSS.escape(String(msg.generation_id || ''))}"]`) as HTMLElement | null;
+  if (!card) return false;
+  const textarea = card.querySelector('textarea') as HTMLTextAreaElement | null;
+  if (!textarea) return false;
+  if (msg.event === 'delta') {
+    textarea.value += String(msg.text || '');
+    textarea.scrollTop = textarea.scrollHeight;
+  } else if (msg.event === 'done') {
+    card.querySelector('.out-label')!.textContent = 'Generated';
+  }
+  return false;
 });
 
 chrome.runtime.onMessage.addListener((msg) => {

@@ -2295,8 +2295,9 @@ function buildGenerateProxyBody(
   return {
     dealer_token: dealerToken,
     messages: [{ role: 'user', content: userMessage }],
-    max_tokens: 800,
-    model: 'claude-sonnet-4-20250514',
+    max_tokens: 700,
+    model: 'claude-haiku-4-5-20251001',
+    stream: true,
     platform: platform,
     rep_name: metadata?.rep_name ?? null,
     workflow_type: metadata?.workflow_type ?? null,
@@ -2314,6 +2315,60 @@ function buildGenerateProxyBody(
     detection_confidence: metadata?.detection_confidence ?? null,
     vehicle_context: metadata?.vehicle_context ?? metadata?.vehicle ?? null,
   };
+}
+
+function emitGenerationStream(generationId: string | null | undefined, event: string, payload: Record<string, unknown> = {}) {
+  browser.runtime.sendMessage({
+    type: 'GENERATION_STREAM',
+    generation_id: generationId || null,
+    event,
+    ...payload,
+  }).catch(() => {});
+}
+
+async function readGenerationStream(resp: Response, generationId?: string | null, target = 'generation'): Promise<any> {
+  const reader = resp.body?.getReader();
+  if (!reader) throw new Error('Streaming response unavailable. Please try again.');
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let finalPayload: any = null;
+  let fullText = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split(/\n\n/);
+    buffer = frames.pop() || '';
+
+    for (const frame of frames) {
+      const event = frame.split(/\n/).find((line) => line.startsWith('event:'))?.slice(6).trim() || 'message';
+      const dataLine = frame.split(/\n/).find((line) => line.startsWith('data:'));
+      if (!dataLine) continue;
+      const raw = dataLine.slice(5).trim();
+      if (!raw) continue;
+      const payload = JSON.parse(raw);
+
+      if (event === 'start') {
+        emitGenerationStream(generationId || payload.generation_id, 'start', { ...payload, target });
+      } else if (event === 'delta') {
+        const text = String(payload.text || '');
+        fullText += text;
+        emitGenerationStream(generationId, 'delta', { text, target });
+      } else if (event === 'done') {
+        finalPayload = payload;
+        emitGenerationStream(generationId, 'done', { ...payload, target });
+      } else if (event === 'error') {
+        throw new Error(String(payload.error || 'Generation failed'));
+      }
+    }
+  }
+
+  if (!finalPayload) {
+    finalPayload = { content: [{ type: 'text', text: fullText }], usage: {} };
+  }
+  return finalPayload;
 }
 
 async function handleGenerationStatus(): Promise<any> {
@@ -2370,6 +2425,9 @@ async function generateViaProxy(
 ) {
   const base = apiBase.replace(/\/$/, '');
   const body = buildGenerateProxyBody(dealerToken, userMessage, platform, metadata);
+  const generationId = body.generation_id || metadata?.generation_id || crypto.randomUUID();
+  body.generation_id = generationId;
+  const streamTarget = metadata?.stream_target || (platform === 'coach' ? 'coach' : platform === 'command' ? 'command' : 'generation');
 
   const extraHeaders: Record<string, string> = {};
   if (repAuthToken) extraHeaders['X-Rep-Token'] = repAuthToken;
@@ -2383,6 +2441,7 @@ async function generateViaProxy(
     const v = chrome.runtime.getManifest()?.version;
     if (typeof v === 'string' && v.length > 0) extraHeaders['X-Extension-Version'] = v;
   } catch { /* manifest unavailable; skip header */ }
+  extraHeaders.Accept = 'text/event-stream';
   const mergedExtra = Object.keys(extraHeaders).length ? extraHeaders : undefined;
 
   const resp = await signedFetch(`${base}/v1/generate`, body, mergedExtra);
@@ -2416,7 +2475,10 @@ async function generateViaProxy(
     throw new Error(errBody.error || `Proxy error: ${resp.status}`);
   }
 
-  const data = await resp.json();
+  const isStream = String(resp.headers.get('content-type') || '').includes('text/event-stream');
+  const data = isStream
+    ? await readGenerationStream(resp, generationId, streamTarget)
+    : await resp.json();
   const text = data.content?.[0]?.text || '';
   if (!text) throw new Error('Empty response from AI. Please try again.');
 
@@ -2487,7 +2549,7 @@ Keep it to 3-5 short sentences.`;
     dealerToken,
     coachMessage,
     'coach',
-    { ...leadMeta, rep_name: repName, workflow_type: 'coach' },
+    { ...leadMeta, rep_name: repName, workflow_type: 'coach', stream_target: 'coach' },
     repAuthToken,
     undefined,
     apiBase
@@ -2536,7 +2598,7 @@ Provide a direct, actionable answer. Keep it concise (2-4 sentences). If the que
     dealerToken,
     cmdMessage,
     'command',
-    { ...leadMeta, rep_name: repName, workflow_type: 'ask_anything' },
+    { ...leadMeta, rep_name: repName, workflow_type: 'ask_anything', stream_target: 'command' },
     repAuthToken,
     undefined,
     apiBase
