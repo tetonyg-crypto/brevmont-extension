@@ -153,6 +153,7 @@ export function getPanelHTML(platform: Platform): string {
       <div id="o8-account-chip-dealership" class="account-chip-dealership"></div>
     </div>
     <span id="o8-account-chip-plan" class="account-chip-plan"></span>
+    <button id="o8-account-chip-upgrade" class="account-chip-upgrade" type="button" style="display:none;">Upgrade</button>
   </div>
 </div>
 `;

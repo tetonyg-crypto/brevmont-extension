@@ -1242,22 +1242,25 @@ async function renderAccountChip(): Promise<void> {
   const nameEl = document.getElementById('o8-account-chip-name');
   const dealershipEl = document.getElementById('o8-account-chip-dealership');
   const planEl = document.getElementById('o8-account-chip-plan') as HTMLElement | null;
+  const upgradeBtn = document.getElementById('o8-account-chip-upgrade') as HTMLButtonElement | null;
   if (!chip || !nameEl || !dealershipEl || !planEl) return;
 
+  // Always-show fallback: read whatever we have in storage so the chip
+  // never stays totally hidden. The API call below upgrades the chip
+  // with the resolved access; if the API is offline we still show the
+  // rep + dealership name + cached tier.
+  let repName = '';
+  let dealership = '';
+  let cachedTier = 'free';
   try {
-    const resp: any = await chrome.runtime.sendMessage({ type: 'GET_RESOLVED_ACCESS' });
-    if (!resp?.ok) {
-      // Auth not ready or backend down. Keep chip hidden silently.
-      return;
-    }
-    const access = resp.access || {};
-    const plan = String(access.plan || 'free').toLowerCase();
-    const status = String(access.status || 'active').toLowerCase();
-    const isOverridden = !!(access.source?.plan_overridden_by_rep);
+    const sync = await browser.storage.sync.get(['rep_name', 'dealership']);
+    repName = String(sync.rep_name || '');
+    dealership = String(sync.dealership || '');
+    const local = await browser.storage.local.get(['brevmont_tier']);
+    cachedTier = String(local.brevmont_tier || 'free').toLowerCase();
+  } catch { /* storage may not be available in some test contexts */ }
 
-    nameEl.textContent = resp.rep_name || 'Rep';
-    dealershipEl.textContent = resp.dealership || '';
-
+  const setPlanBadge = (plan: string, status: string, isOverridden: boolean) => {
     planEl.classList.remove('plan-free', 'plan-pilot', 'plan-command', 'plan-annual', 'plan-custom', 'plan-upgrade', 'status-paused', 'status-terminated');
     if (status === 'paused') {
       planEl.classList.add('status-paused');
@@ -1270,9 +1273,43 @@ async function renderAccountChip(): Promise<void> {
       if (isOverridden) planEl.classList.add('plan-upgrade');
       planEl.textContent = isOverridden ? `↑ ${PLAN_DISPLAY[plan] || plan}` : (PLAN_DISPLAY[plan] || plan);
     }
-    chip.style.display = 'block';
+  };
+
+  // Render the fallback IMMEDIATELY so the chip is visible even if the
+  // API call below takes a few seconds (cold-start service worker).
+  const cachedPlan = cachedTier === 'free' || cachedTier === 'free_trial' ? 'free'
+    : cachedTier === 'founding_pilot' || cachedTier === 'pilot' ? 'pilot'
+    : cachedTier === 'command' ? 'command'
+    : cachedTier === 'annual' || cachedTier === 'command_annual' ? 'annual'
+    : 'free';
+  nameEl.textContent = repName || 'Brevmont rep';
+  dealershipEl.textContent = dealership || 'No dealership linked';
+  setPlanBadge(cachedPlan, 'active', false);
+  if (upgradeBtn) {
+    upgradeBtn.style.display = cachedPlan === 'free' ? 'inline-block' : 'none';
+    upgradeBtn.onclick = () => {
+      chrome.tabs.create({ url: 'https://brevmont.com/pricing?utm_source=extension&utm_medium=account_chip&utm_campaign=upgrade' });
+    };
+  }
+  chip.style.display = 'block';
+
+  // Now upgrade with the live resolved access. If this fails (cold SW,
+  // network error), the fallback stays on screen.
+  try {
+    const resp: any = await chrome.runtime.sendMessage({ type: 'GET_RESOLVED_ACCESS' });
+    if (!resp?.ok) return;
+    const access = resp.access || {};
+    const plan = String(access.plan || cachedPlan).toLowerCase();
+    const status = String(access.status || 'active').toLowerCase();
+    const isOverridden = !!(access.source?.plan_overridden_by_rep);
+    if (resp.rep_name) nameEl.textContent = resp.rep_name;
+    if (resp.dealership) dealershipEl.textContent = resp.dealership;
+    setPlanBadge(plan, status, isOverridden);
+    if (upgradeBtn) {
+      upgradeBtn.style.display = (plan === 'free' && status === 'active') ? 'inline-block' : 'none';
+    }
   } catch {
-    /* keep chip hidden on error */
+    /* keep fallback render */
   }
 }
 

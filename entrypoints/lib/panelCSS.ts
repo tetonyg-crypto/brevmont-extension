@@ -345,6 +345,20 @@ ${domMode && isLinkedIn ? `
 .account-chip-plan.plan-upgrade { background: #0D6E6E; box-shadow: 0 0 0 1px rgba(248, 246, 241, 0.18); }
 .account-chip-plan.status-paused     { background: #d97706; }
 .account-chip-plan.status-terminated { background: #b91c1c; }
+.account-chip-upgrade {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 4px 9px;
+  border-radius: 4px;
+  background: #0D6E6E;
+  color: #F8F6F1;
+  border: 0;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.account-chip-upgrade:hover { filter: brightness(1.12); }
 /* Reserve space at the bottom of the scrollable area so the chip doesn't
    cover the last UI element. */
 body { padding-bottom: 44px; }
