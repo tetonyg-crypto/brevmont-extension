@@ -605,7 +605,7 @@ function renderCustomerStamp(root: HTMLElement): void {
   const stamp = root.querySelector('#o8-customer-stamp') as HTMLElement | null;
   const picker = root.querySelector('#o8-customer-picker') as HTMLElement | null;
   if (!stamp) return;
-  if (picker && pinnedCustomer) picker.style.display = 'none';
+  if (picker && (pinnedCustomer || pendingCustomerSuggestion)) picker.style.display = 'none';
 
   if (pinnedCustomer) {
     stamp.style.display = 'block';
@@ -661,7 +661,6 @@ function renderCustomerStamp(root: HTMLElement): void {
     stamp.querySelector('#o8-customer-no')?.addEventListener('click', () => {
       pendingCustomerSuggestion = null;
       renderCustomerStamp(root);
-      openCustomerPicker(root);
     });
     return;
   }
@@ -676,7 +675,10 @@ async function openCustomerPicker(root: HTMLElement): Promise<void> {
 
   picker.style.display = 'block';
   picker.innerHTML = `
-    <div class="customer-picker-title">Who's this for?</div>
+    <div class="customer-picker-head">
+      <div class="customer-picker-title">Who's this for?</div>
+      <button id="o8-customer-picker-close" class="customer-picker-close" type="button" aria-label="Close customer picker">&times;</button>
+    </div>
     <input id="o8-customer-search" class="customer-picker-input" placeholder="Search customer..." />
     <div id="o8-customer-picker-list" class="customer-picker-list">
       <div class="customer-picker-row"><div class="customer-picker-meta">Loading recent customers...</div></div>
@@ -689,6 +691,9 @@ async function openCustomerPicker(root: HTMLElement): Promise<void> {
 
   const input = picker.querySelector('#o8-customer-search') as HTMLInputElement | null;
   const list = picker.querySelector('#o8-customer-picker-list') as HTMLElement | null;
+  picker.querySelector('#o8-customer-picker-close')?.addEventListener('click', () => {
+    picker.style.display = 'none';
+  });
 
   const renderList = (customers: any[]) => {
     if (!list) return;
@@ -2765,6 +2770,27 @@ function getNextStage(current: string): PipelineStage | null {
   return null;
 }
 
+function leadCaptureIcon(kind: 'buyer' | 'phone' | 'email' | 'vehicle' | 'signal'): string {
+  const pathMap: Record<typeof kind, string> = {
+    buyer: '<circle cx="12" cy="8" r="3"/><path d="M5 20c1.4-4 4-6 7-6s5.6 2 7 6"/>',
+    phone: '<path d="M22 16.9v2.2a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 3.4 2 2 0 0 1 4.1 1h2.2a2 2 0 0 1 2 1.7c.1.9.3 1.7.6 2.5a2 2 0 0 1-.4 2.1L7.5 8.4a16 16 0 0 0 6 6l1.1-1.1a2 2 0 0 1 2.1-.4c.8.3 1.6.5 2.5.6a2 2 0 0 1 1.8 2z"/>',
+    email: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+    vehicle: '<path d="M5 17h14l-1.4-5.3A3 3 0 0 0 14.7 9H9.3a3 3 0 0 0-2.9 2.7L5 17z"/><circle cx="8" cy="17" r="2"/><circle cx="16" cy="17" r="2"/>',
+    signal: '<path d="M12 2v4"/><path d="M12 18v4"/><path d="m4.9 4.9 2.8 2.8"/><path d="m16.3 16.3 2.8 2.8"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="m4.9 19.1 2.8-2.8"/><path d="m16.3 7.7 2.8-2.8"/><circle cx="12" cy="12" r="3"/>',
+  };
+  return `<span class="lead-capture-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${pathMap[kind]}</svg></span>`;
+}
+
+function leadSignalSummary(lead: any, intent: string, rawText: string): string {
+  const sourceText = `${rawText} ${lead.notes || ''} ${lead.context || ''}`.toLowerCase();
+  if (sourceText.includes('engine') || sourceText.includes('motor')) return 'Engine inquiry - actively shopping';
+  if (lead.finance_intent || sourceText.includes('finance') || sourceText.includes('payment')) return 'Finance signal - payment conversation';
+  if (lead.has_trade_in || sourceText.includes('trade')) return 'Trade-in signal - vehicle to appraise';
+  if (intent === 'fleet_inquiry') return 'Fleet request - multiple vehicle potential';
+  if (intent && intent !== 'unknown') return getDisplayLabel(intent);
+  return 'Buying context found';
+}
+
 // ─── Show parsed lead result ─────────────────────────────────────────────────
 function showLeadResult(root: HTMLElement, lead: any): void {
   const result = root.querySelector('#o8-lead-result') as HTMLElement;
@@ -2788,6 +2814,11 @@ function showLeadResult(root: HTMLElement, lead: any): void {
   const hasTrade = lead.has_trade_in || false;
   const hasFinance = lead.finance_intent || false;
   const nextStage = getNextStage(pipelineStage);
+  const sourceLabel = getDisplayLabel(lead.source_platform || currentPlatform.platform || 'Extension') || 'Extension';
+  const signalSummary = leadSignalSummary(lead, intent, rawText);
+  const contextCopy = optionalDisplayText(lead.notes)
+    || (rawText ? rawText.substring(0, 160) : '')
+    || `${name} was captured from ${sourceLabel}${vehicle ? ` with interest in ${vehicle}` : ''}.`;
   if (name && name !== 'Unknown lead') {
     if (lead.customer_id) {
       pinCustomer(root, {
@@ -2823,39 +2854,60 @@ function showLeadResult(root: HTMLElement, lead: any): void {
         : '';
 
   result.style.display = 'block';
-  result.innerHTML = `<div class="tool-result">
-    ${isFleet ? '<div style="display:inline-block;margin-bottom:6px;padding:2px 8px;border-radius:9999px;background:#0D6E6E;color:#fff;font-size:10px;font-weight:700;letter-spacing:.04em">FLEET INQUIRY</div><br/>' : ''}
-    ${company ? `<strong>${esc(company)}</strong>${name && name !== company ? `<br/><span style="font-size:12px;color:#64748B">${esc(name)}</span>` : ''}` : `<strong>${esc(name)}</strong>`}
-    ${lead.phone ? '<br/>' + esc(lead.phone) : ''}
-    ${lead.email ? '<br/>' + esc(lead.email) : ''}
-    ${vehicle ? '<br/><span style="color:#2563eb;font-size:11px">' + esc(vehicle) + '</span>' : ''}
-    ${isFleet ? '<div style="margin-top:6px;color:#0D6E6E;font-size:11px;font-weight:600">This may represent multiple vehicle purchases.</div>' : ''}
-    ${confidenceNote ? `<div style="margin-top:6px;color:#92400E;font-size:11px;background:#FFFBEB;border-radius:5px;padding:5px 7px">${esc(confidenceNote)}</div>` : ''}
-    <div style="margin-top:8px;padding:8px;border:1px solid #E2E8F0;border-radius:8px;background:#F8FAFC">
-      <div style="font-size:11px;color:#334155;font-weight:800;margin-bottom:6px;">Where is this lead at?</div>
-      <div style="display:flex;gap:5px;flex-wrap:wrap">
+  result.innerHTML = `<div class="lead-capture-card">
+    <div class="lead-capture-topline">
+      ${isFleet ? '<span class="lead-capture-mode">Fleet inquiry</span>' : '<span class="lead-capture-mode">Captured buyer</span>'}
+      ${confidenceNote ? `<span class="lead-capture-review">${esc(confidenceNote)}</span>` : ''}
+    </div>
+    <div class="lead-capture-rows">
+      <div class="lead-capture-row">
+        ${leadCaptureIcon('buyer')}
+        <div class="lead-capture-copy">
+          <div class="lead-capture-label">Buyer</div>
+          <div class="lead-capture-value">${company ? esc(company) : esc(name)}${company && name && name !== company ? ` <span>${esc(name)}</span>` : ''}</div>
+        </div>
+      </div>
+      ${lead.phone ? `<div class="lead-capture-row">${leadCaptureIcon('phone')}<div class="lead-capture-copy"><div class="lead-capture-label">Phone</div><div class="lead-capture-value">${esc(lead.phone)}</div></div></div>` : ''}
+      ${lead.email ? `<div class="lead-capture-row">${leadCaptureIcon('email')}<div class="lead-capture-copy"><div class="lead-capture-label">Email</div><div class="lead-capture-value">${esc(lead.email)}</div></div></div>` : ''}
+      ${vehicle ? `<div class="lead-capture-row">${leadCaptureIcon('vehicle')}<div class="lead-capture-copy"><div class="lead-capture-label">Vehicle</div><div class="lead-capture-value">${esc(vehicle)}</div></div></div>` : ''}
+      <div class="lead-capture-row">
+        ${leadCaptureIcon('signal')}
+        <div class="lead-capture-copy">
+          <div class="lead-capture-label">Signal</div>
+          <div class="lead-capture-value">${esc(signalSummary)}</div>
+        </div>
+      </div>
+    </div>
+    <div class="lead-capture-stage">
+      <div class="lead-capture-stage-title">Where is this lead at?</div>
+      <div class="lead-capture-stage-grid">
         ${[
           ['fresh_contact', 'Fresh contact'],
           ['in_conversation', 'In conversation'],
           ['be_back', 'Be-back'],
           ['internet_lead', 'Internet lead'],
-        ].map(([stageKey, label]) => `<button class="stage-capture-chip" data-stage-capture="${stageKey}" style="border:1px solid ${lead.lead_stage_at_capture === stageKey ? '#0D6E6E' : '#CBD5E1'};background:${lead.lead_stage_at_capture === stageKey ? '#E6F4F1' : '#fff'};color:#0F172A;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer;">${esc(label)}</button>`).join('')}
+        ].map(([stageKey, label]) => `<button class="stage-capture-chip ${lead.lead_stage_at_capture === stageKey ? 'selected' : ''}" data-stage-capture="${stageKey}" type="button">${esc(label)}</button>`).join('')}
       </div>
     </div>
-    <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
-      <span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:600;${stageBadgeStyle(pipelineStage)}">${esc(stageLabelMap(pipelineStage))}</span>
-      ${intent ? `<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;background:#E0F2FE;color:#0369A1">${esc(getDisplayLabel(intent))}</span>` : ''}
-      ${heatScore !== null ? `<span style="display:inline-flex;align-items:center;gap:2px;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;${heatScore >= 70 ? 'background:#FEF2F2;color:#DC2626' : heatScore >= 40 ? 'background:#FFF7ED;color:#EA580C' : 'background:#F1F5F9;color:#64748B'}">Heat ${heatScore}</span>` : ''}
-      ${hasTrade ? '<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:500;background:#FFFBEB;color:#92400E">Trade-in</span>' : ''}
-      ${hasFinance ? '<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:500;background:#EEF2FF;color:#4338CA">Finance</span>' : ''}
+    <div class="lead-capture-tags">
+      <span class="lead-capture-tag">${esc(stageLabelMap(pipelineStage))}</span>
+      <span class="lead-capture-tag muted">${esc(sourceLabel)}</span>
+      ${intent ? `<span class="lead-capture-tag muted">${esc(getDisplayLabel(intent))}</span>` : ''}
+      ${heatScore !== null ? `<span class="lead-capture-tag heat">Heat ${esc(String(heatScore))}</span>` : ''}
+      ${hasTrade ? '<span class="lead-capture-tag warm">Trade-in</span>' : ''}
+      ${hasFinance ? '<span class="lead-capture-tag cool">Finance</span>' : ''}
     </div>
-    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+    <div class="lead-capture-context">
+      <div class="lead-capture-context-label">Buyer context</div>
+      <div class="lead-capture-context-copy">${esc(contextCopy)}</div>
+    </div>
+    <div class="lead-capture-actions">
       <button class="out-action out-primary" id="o8-lead-copy">Copy</button>
       <button class="out-action" id="o8-lead-followup" style="background:#0D6E6E;color:#fff">Generate Reply</button>
       <button class="out-action" id="o8-lead-log-crm" style="background:#1E3A5F;color:#fff">Log to CRM</button>
     </div>
-    ${leadId && nextStage && pipelineStage !== 'sold' && pipelineStage !== 'lost' ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #E5E7EB;display:flex;gap:6px;flex-wrap:wrap">
-      <button class="out-action" id="o8-lead-advance" style="background:#0D6E6E;color:#fff;font-size:11px">→ ${esc(stageLabelMap(nextStage))}</button>
+    ${leadId && nextStage && pipelineStage !== 'sold' && pipelineStage !== 'lost' ? `<div class="lead-capture-actions secondary">
+      <button class="out-action" id="o8-lead-advance" style="background:#0D6E6E;color:#fff;font-size:11px">Next: ${esc(stageLabelMap(nextStage))}</button>
       <button class="out-action" id="o8-lead-lost" style="background:#fff;color:#DC2626;border:1px solid #FECACA;font-size:11px">Mark Lost</button>
     </div>` : ''}
   </div>`;
