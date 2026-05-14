@@ -366,8 +366,13 @@ export function extractContactName(platform: string): string | null {
       if (match && match[1].trim().length > 1) return match[1].trim();
     }
     if (window.location.hostname.includes('messenger.com')) {
-      const title = document.title.replace(/ - .*$/, '').replace(/\(\d+\)\s*/, '').trim();
-      if (title && title.length > 1 && title.length < 50 && title !== 'Messenger') return title;
+      const title = document.title
+        .replace(/ - .*$/, '')
+        .replace(/\s+\|\s+(?:Messenger|Facebook).*$/i, '')
+        .replace(/\s*[·•-]\s*(?:19|20)\d{2}\b.*$/i, '')
+        .replace(/\(\d+\)\s*/, '')
+        .trim();
+      if (title && title.length > 1 && title.length < 50 && !/^(?:Messenger|Facebook|Chats)$/i.test(title)) return title;
     }
     return null;
   }

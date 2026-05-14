@@ -160,6 +160,57 @@ export default defineContentScript({
       try { return extractContactNameForPlatform(PLATFORM) || null; } catch { return null; }
     }
 
+    const AUTO_MAKES_RE = 'Chevrolet|Chevy|Subaru|Toyota|Ford|Ram|Dodge|Jeep|GMC|Honda|Nissan|Hyundai|Kia|BMW|Mercedes|Buick|Cadillac|Lexus|Acura|Audi|Volvo|Mazda|Chrysler|Lincoln|Infiniti|Volkswagen|VW|Porsche|Tesla|Rivian';
+
+    function cleanFacebookNameCandidate(value: string | null | undefined, options: { allowSingleName?: boolean } = {}): string | null {
+      const cleaned = String(value || '')
+        .replace(/\(\d+\)\s*/g, '')
+        .replace(/\s+\|\s+(?:Messenger|Facebook).*$/i, '')
+        .replace(/\s+-\s+(?:Messenger|Facebook).*$/i, '')
+        .replace(/\s*[·•-]\s*(?:19|20)\d{2}\b.*$/i, '')
+        .replace(/\b(?:created this group|sent a photo|sent an attachment|is waiting for your response)\b.*$/i, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!cleaned || cleaned.length < 2 || cleaned.length > 60 || cleaned.includes('@')) return null;
+      if (/^(?:messenger|facebook|marketplace|chats|search messenger|brevmont|save lead|scan this page)$/i.test(cleaned)) return null;
+      const namePattern = options.allowSingleName
+        ? /^[A-Z][A-Za-z'-]{1,24}(?:\s+[A-Z][A-Za-z'-]{1,24}){0,3}$/
+        : /^[A-Z][A-Za-z'-]{1,24}\s+[A-Z][A-Za-z'-]{1,24}(?:\s+[A-Z][A-Za-z'-]{1,24}){0,2}$/;
+      if (!namePattern.test(cleaned)) return null;
+      return cleaned;
+    }
+
+    function extractFacebookConversationName(): string | null {
+      if (!isFacebook) return null;
+      const titleName = cleanFacebookNameCandidate(document.title, { allowSingleName: true });
+      if (titleName) return titleName;
+
+      for (const el of Array.from(document.querySelectorAll('[aria-label]'))) {
+        const label = el.getAttribute('aria-label') || '';
+        const match = label.match(/(?:Conversation with|Profile picture of|Open profile for|Message)\s+([^,|]+)/i);
+        const candidate = cleanFacebookNameCandidate(match?.[1] || null, { allowSingleName: true });
+        if (candidate) return candidate;
+      }
+
+      const selectors = [
+        '[role="main"] [role="heading"]',
+        '[role="main"] h1',
+        '[role="main"] h2',
+        '[role="main"] strong',
+        '[aria-current="page"]',
+        '[data-testid="mwthreadlist-item-open"]',
+      ];
+      for (const selector of selectors) {
+        for (const el of Array.from(document.querySelectorAll(selector))) {
+          const text = (el as HTMLElement).innerText || el.textContent || '';
+          const firstLine = text.split('\n').map(line => line.trim()).find(Boolean) || text;
+          const candidate = cleanFacebookNameCandidate(firstLine, { allowSingleName: selector.includes('aria-current') || selector.includes('mwthreadlist') });
+          if (candidate) return candidate;
+        }
+      }
+      return null;
+    }
+
     function extractLikelyPersonName(rawText: string): string | null {
       const raw = String(rawText || '').replace(/\s+/g, ' ').trim();
       if (!raw) return null;
@@ -180,10 +231,12 @@ export default defineContentScript({
       const phone = raw.match(/(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/)?.[0] || null;
       const spacedVehicle = raw.match(/\b((?:19|20)\d{2}\s+[A-Z][A-Za-z0-9-]*(?:\s+[A-Z][A-Za-z0-9-]*){0,4})\b/);
       const gluedVehicle = raw.match(/\b((?:19|20)\d{2})([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z0-9-]*){0,3})\b/);
+      const yearLastVehicle = raw.match(new RegExp(`\\b((?:${AUTO_MAKES_RE})\\s+[A-Z][A-Za-z0-9-]*(?:\\s+[A-Z][A-Za-z0-9-]*){0,3})\\s+((?:19|20)\\d{2})\\b`, 'i'));
       const vehicle = spacedVehicle?.[1]?.trim()
-        || (gluedVehicle ? `${gluedVehicle[1]} ${gluedVehicle[2]}`.trim() : null);
+        || (gluedVehicle ? `${gluedVehicle[1]} ${gluedVehicle[2]}`.trim() : null)
+        || (yearLastVehicle ? `${yearLastVehicle[2]} ${yearLastVehicle[1]}`.trim() : null);
       const emailName = email ? email.split('@')[0].replace(/[._+-]+/g, ' ').replace(/\s+/g, ' ').trim() : null;
-      return { customerName: emailName || extractLikelyPersonName(raw), email, phone, vehicle };
+      return { customerName: emailName || extractFacebookConversationName() || extractLikelyPersonName(raw), email, phone, vehicle };
     }
 
     function extractGmailLeadSignal(rawText: string): { customerName?: string | null; email?: string | null; rawPrefix?: string } {
@@ -1463,7 +1516,7 @@ export default defineContentScript({
       if (msg.type === 'GET_LEAD_CONTEXT') {
         try {
           sendResponse({
-            customerName: leadData?.customerName || safeExtractContactName() || null,
+            customerName: leadData?.customerName || extractFacebookConversationName() || safeExtractContactName() || null,
             vehicle: leadData?.vehicle || null,
             phone: leadData?.phone || null,
             email: leadData?.email || null,
@@ -1490,7 +1543,7 @@ export default defineContentScript({
           let rawText = '';
           if (isFacebook) {
             const main = document.querySelector('[role="main"]') as HTMLElement | null;
-            const facebookName = safeExtractContactName();
+            const facebookName = extractFacebookConversationName() || safeExtractContactName();
             const authorText = Array.from(document.querySelectorAll('[role="main"] h1, [role="main"] h2, [role="main"] strong, [aria-label*="Profile picture of"], [aria-label*="Conversation with"]'))
               .map((el) => {
                 const label = el.getAttribute('aria-label') || '';
@@ -1523,7 +1576,7 @@ export default defineContentScript({
           }
           const partialSignal = extractPartialLeadSignals(rawText);
           const scanned = isVinSolutions ? scanText(rawText) : {};
-          const name = scanned.customerName || leadData?.customerName || gmailSignal.customerName || safeExtractContactName() || partialSignal.customerName;
+          const name = scanned.customerName || leadData?.customerName || gmailSignal.customerName || extractFacebookConversationName() || safeExtractContactName() || partialSignal.customerName;
           const phone = scanned.phone || leadData?.phone || partialSignal.phone || null;
           const email = scanned.email || leadData?.email || gmailSignal.email || partialSignal.email || null;
           const vehicle = scanned.vehicle || leadData?.vehicle || leadData?.vehicleOfInterest || partialSignal.vehicle || null;

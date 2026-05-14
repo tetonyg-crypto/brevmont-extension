@@ -46,21 +46,29 @@ function parseLooseLeadText(rawText: unknown): { customer_name?: string | null; 
   if (!raw) return {};
   const spacedVehicle = raw.match(/\b((?:19|20)\d{2}\s+[A-Z][A-Za-z0-9-]*(?:\s+[A-Z][A-Za-z0-9-]*){0,4})\b/i);
   const gluedVehicle = raw.match(/\b((?:19|20)\d{2})([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z0-9-]*){0,3})\b/i);
+  const yearLastVehicle = raw.match(/\b((?:Chevrolet|Chevy|Subaru|Toyota|Ford|Ram|Dodge|Jeep|GMC|Honda|Nissan|Hyundai|Kia|BMW|Mercedes|Buick|Cadillac|Lexus|Acura|Audi|Volvo|Mazda|Chrysler|Lincoln|Infiniti|Volkswagen|VW|Porsche|Tesla|Rivian)\s+[A-Z][A-Za-z0-9-]*(?:\s+[A-Z][A-Za-z0-9-]*){0,3})\s+((?:19|20)\d{2})\b/i);
   const vehicle = spacedVehicle?.[1]?.trim()
-    || (gluedVehicle ? `${gluedVehicle[1]} ${gluedVehicle[2]}`.trim() : null);
-  const vehicleNeedle = spacedVehicle?.[0] || gluedVehicle?.[0] || vehicle || '';
+    || (gluedVehicle ? `${gluedVehicle[1]} ${gluedVehicle[2]}`.trim() : null)
+    || (yearLastVehicle ? `${yearLastVehicle[2]} ${yearLastVehicle[1]}`.trim() : null);
+  const vehicleNeedle = spacedVehicle?.[0] || gluedVehicle?.[0] || yearLastVehicle?.[0] || vehicle || '';
+  const profileName = raw.match(/\bProfile name:\s*([A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){0,3})/i)?.[1]?.trim() || null;
   const beforeVehicle = vehicleNeedle ? raw.slice(0, raw.indexOf(vehicleNeedle)) : raw.split(/[,;\n|]/)[0];
-  const name = beforeVehicle
+  const name = (profileName || beforeVehicle
     .replace(/\b(name|customer|lead|sender)\s*:/gi, ' ')
     .replace(/[0-9]/g, ' ')
     .replace(/[^A-Za-z' -]/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim());
   const parts = name.split(/\s+/).filter(Boolean);
   return {
-    customer_name: parts.length >= 2 && parts.length <= 4 ? parts.join(' ') : null,
+    customer_name: parts.length >= 1 && parts.length <= 4 && !isBadLeadName(parts.join(' ')) ? parts.join(' ') : null,
     vehicle_interest: vehicle,
   };
+}
+
+function isBadLeadName(value: unknown): boolean {
+  const raw = String(value || '').trim();
+  return !raw || /^(?:messenger|facebook|marketplace|chats|save lead|scan|unknown)$/i.test(raw);
 }
 
 function hasVehicleOrBuyingSignal(rawText: unknown): boolean {
@@ -832,7 +840,12 @@ export default defineBackground(() => {
             msg.payload?.name ||
             looseFallback.customer_name ||
             null;
-          const customerName = leadForSave.customer_name || leadForSave.name || fallbackName;
+          const parsedName = !isBadLeadName(leadForSave.customer_name)
+            ? leadForSave.customer_name
+            : !isBadLeadName(leadForSave.name)
+              ? leadForSave.name
+              : null;
+          const customerName = parsedName || fallbackName;
 
           if (customerName) {
             const leadId = crypto.randomUUID();
@@ -2295,7 +2308,7 @@ Provide a direct, actionable answer. Keep it concise (2-4 sentences). If the que
     dealerToken,
     cmdMessage,
     'command',
-    { rep_name: repName, workflow_type: 'command', customer_name: null, vehicle: null },
+    { rep_name: repName, workflow_type: 'ask_anything', customer_name: null, vehicle: null },
     repAuthToken,
     undefined,
     apiBase
