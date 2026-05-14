@@ -27,11 +27,18 @@ const BAD_NAMES = new Set([
   'no longer available',
 ]);
 
+function normalizeSeparators(value: unknown): string {
+  return String(value || '')
+    .replace(/\u00c2\u00b7/g, '\u00b7')
+    .replace(/\u00e2\u20ac\u00a2/g, '\u2022');
+}
+
 function cleanName(value: unknown, allowSingle = false): string | null {
-  const raw = String(value || '')
+  const raw = normalizeSeparators(value)
     .replace(/\(\d+\)/g, '')
     .replace(/\s+/g, ' ')
     .replace(/\s*[|.-]\s*(?:Messenger|Facebook|Gmail|LinkedIn).*$/i, '')
+    .replace(/\s*(?:\u00b7|\u2022)\s*20\d{2}\b.*$/i, '')
     .replace(/\s*[·•]\s*20\d{2}\b.*$/i, '')
     .replace(/\s*-\s*(?:Messages|Inbox|Conversation).*$/i, '')
     .trim();
@@ -92,6 +99,12 @@ function result(name: string, partial: Partial<DetectedCustomer>): DetectedCusto
 
 export function parsePageTitle(title: string): DetectedCustomer | null {
   const vehicle = extractVehicle(title);
+  const normalizedTitle = normalizeSeparators(title);
+  const normalizedMarketplace = normalizedTitle.match(/^(.+?)\s*(?:\u00b7|\u2022)\s*(20\d{2}\s+.+)$/i);
+  if (normalizedMarketplace) {
+    const name = cleanName(normalizedMarketplace[1], true);
+    if (name) return result(name, { vehicle: vehicle || normalizedMarketplace[2], confidence: 0.84, method: 'page_title' });
+  }
   const marketplace = title.match(/^(.+?)\s*[·•]\s*(20\d{2}\s+.+)$/i);
   if (marketplace) {
     const name = cleanName(marketplace[1], true);
