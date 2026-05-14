@@ -17,6 +17,7 @@ import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
 import { extractContactName as extractContactNameForPlatform, gatherAllText } from './lib/leadContextScan';
+import { detectCustomerFromPage } from './lib/customerDetection';
 
 type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
 
@@ -1514,23 +1515,32 @@ export default defineContentScript({
       }
 
       if (msg.type === 'GET_LEAD_CONTEXT') {
-        try {
-          sendResponse({
-            customerName: leadData?.customerName || extractFacebookConversationName() || safeExtractContactName() || null,
-            vehicle: leadData?.vehicle || null,
-            phone: leadData?.phone || null,
-            email: leadData?.email || null,
-            source: leadData?.source || null,
-            vehicleMake: leadData?.vehicleMake || null,
-            vehicleModel: leadData?.vehicleModel || null,
-            vehicleOfInterest: leadData?.vehicleOfInterest || leadData?.vehicle || null,
-            platform: PLATFORM,
-            leadCreatedAt: scrapeLeadCreatedAt(),
-          });
-        } catch {
-          sendResponse({ platform: PLATFORM });
-        }
-        return false;
+        (async () => {
+          try {
+            const detected = await detectCustomerFromPage();
+            const customerName = leadData?.customerName || detected?.name || extractFacebookConversationName() || safeExtractContactName() || null;
+            const vehicle = leadData?.vehicle || detected?.vehicle || null;
+            sendResponse({
+              customerName,
+              customer_name: customerName,
+              name: customerName,
+              vehicle,
+              phone: leadData?.phone || detected?.phone || null,
+              email: leadData?.email || detected?.email || null,
+              source: leadData?.source || detected?.source || null,
+              vehicleMake: leadData?.vehicleMake || null,
+              vehicleModel: leadData?.vehicleModel || null,
+              vehicleOfInterest: leadData?.vehicleOfInterest || vehicle || null,
+              platform: PLATFORM,
+              detectionConfidence: detected?.confidence ?? (customerName ? 0.55 : 0),
+              detectionMethod: detected ? `auto_${detected.method}` : null,
+              leadCreatedAt: scrapeLeadCreatedAt(),
+            });
+          } catch {
+            sendResponse({ platform: PLATFORM });
+          }
+        })();
+        return true;
       }
 
       if (msg.type === 'GET_SIDEBAR_STATE') {
@@ -1539,7 +1549,9 @@ export default defineContentScript({
       }
 
       if (msg.type === 'SCAN_LEAD') {
+        (async () => {
         try {
+          const detected = await detectCustomerFromPage();
           let rawText = '';
           if (isFacebook) {
             const main = document.querySelector('[role="main"]') as HTMLElement | null;
@@ -1576,10 +1588,10 @@ export default defineContentScript({
           }
           const partialSignal = extractPartialLeadSignals(rawText);
           const scanned = isVinSolutions ? scanText(rawText) : {};
-          const name = scanned.customerName || leadData?.customerName || gmailSignal.customerName || extractFacebookConversationName() || safeExtractContactName() || partialSignal.customerName;
-          const phone = scanned.phone || leadData?.phone || partialSignal.phone || null;
-          const email = scanned.email || leadData?.email || gmailSignal.email || partialSignal.email || null;
-          const vehicle = scanned.vehicle || leadData?.vehicle || leadData?.vehicleOfInterest || partialSignal.vehicle || null;
+          const name = scanned.customerName || leadData?.customerName || gmailSignal.customerName || detected?.name || extractFacebookConversationName() || safeExtractContactName() || partialSignal.customerName;
+          const phone = scanned.phone || leadData?.phone || detected?.phone || partialSignal.phone || null;
+          const email = scanned.email || leadData?.email || detected?.email || gmailSignal.email || partialSignal.email || null;
+          const vehicle = scanned.vehicle || leadData?.vehicle || leadData?.vehicleOfInterest || detected?.vehicle || partialSignal.vehicle || null;
           sendResponse({
             name: name || null,
             customerName: name || null,
@@ -1588,17 +1600,20 @@ export default defineContentScript({
             email,
             vehicle,
             vehicle_interest: vehicle,
-            source: scanned.source || leadData?.source || null,
+            source: scanned.source || leadData?.source || detected?.source || null,
             status: scanned.status || leadData?.status || null,
             lastContact: scanned.lastContact || leadData?.lastContact || null,
             platform: PLATFORM,
             raw_text: rawText,
             source_raw_text: rawText,
+            detectionConfidence: detected?.confidence ?? (name ? 0.55 : 0),
+            detectionMethod: detected ? `auto_${detected.method}` : null,
           });
         } catch {
           sendResponse({ name: null, customerName: null, platform: PLATFORM });
         }
-        return false;
+        })();
+        return true;
       }
 
       if (msg.type === 'INJECT_CONTENT' || msg.type === 'INJECT_EMAIL' || msg.type === 'INJECT_CRM_NOTE') {

@@ -111,6 +111,29 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .challenge-close { border:0; background:transparent; color:#64748B; cursor:pointer; font-size:14px; line-height:1; padding:0; }
 .challenge-bar { height:7px; border-radius:999px; background:#E0F2FE; overflow:hidden; margin-top:7px; }
 .challenge-fill { height:100%; border-radius:999px; background:#0D6E6E; transition:width .2s ease; }
+.customer-stamp { margin:8px 12px 0; border:1px solid #D9E7E7; border-radius:10px; background:#F8FAFC; color:#0F1419; overflow:hidden; }
+.customer-stamp-row { display:flex; align-items:center; gap:8px; padding:8px 10px; min-height:38px; }
+.customer-stamp-main { flex:1; min-width:0; font-size:12px; font-weight:750; color:#0F1419; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.customer-stamp-sub { font-size:10px; font-weight:600; color:#64748B; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.customer-stamp-badge { width:8px; height:8px; flex:0 0 8px; border-radius:999px; background:#0D6E6E; box-shadow:0 0 0 3px rgba(13,110,110,.1); }
+.customer-stamp-actions { display:flex; gap:6px; align-items:center; }
+.customer-stamp-btn { border:1px solid #D9E7E7; border-radius:999px; background:#fff; color:#0D6E6E; padding:4px 8px; font-size:11px; font-weight:800; font-family:inherit; cursor:pointer; }
+.customer-stamp-btn.primary { border-color:#0D6E6E; background:#0D6E6E; color:#fff; }
+.customer-stamp-clear { border:0; background:transparent; color:#94A3B8; font-size:16px; line-height:1; cursor:pointer; padding:2px; }
+.customer-stamp-clear:hover { color:#0F1419; }
+.customer-picker { margin:8px 12px 0; padding:10px; border:1px solid #D9E7E7; border-radius:10px; background:#fff; box-shadow:0 8px 24px rgba(15,23,42,.08); }
+.customer-picker-title { font-size:12px; font-weight:850; color:#0F1419; margin-bottom:8px; }
+.customer-picker-input { width:100%; height:34px; border:1px solid #E2E8F0; border-radius:8px; padding:0 9px; font-size:12px; font-family:inherit; outline:none; }
+.customer-picker-input:focus { border-color:#0D6E6E; box-shadow:0 0 0 3px rgba(13,110,110,.08); }
+.customer-picker-list { margin-top:8px; display:flex; flex-direction:column; gap:4px; max-height:170px; overflow:auto; }
+.customer-picker-row { border:0; background:#F8FAFC; border-radius:8px; padding:7px 8px; font-family:inherit; text-align:left; cursor:pointer; }
+.customer-picker-row:hover { background:#E6F4F1; }
+.customer-picker-name { font-size:12px; font-weight:800; color:#0F1419; }
+.customer-picker-meta { font-size:10px; color:#64748B; margin-top:1px; }
+.customer-picker-actions { display:flex; gap:6px; margin-top:8px; }
+.customer-picker-actions button { flex:1; border:1px solid #D9E7E7; background:#fff; border-radius:8px; padding:7px; font-size:11px; font-weight:800; font-family:inherit; color:#0D6E6E; cursor:pointer; }
+.customer-picker-trigger { position:absolute; right:42px; bottom:8px; border:1px solid #D9E7E7; background:#fff; color:#0D6E6E; border-radius:999px; padding:3px 7px; font-family:inherit; font-size:10px; font-weight:800; cursor:pointer; }
+.customer-picker-trigger:hover { border-color:#0D6E6E; background:#E6F4F1; }
 .nav-count { display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; margin-left:4px; border-radius:999px; background:#DC2626; color:#fff; font-size:10px; font-weight:800; padding:0 4px; }
 .my-lead-card { border:1px solid #E5E7EB; border-radius:10px; padding:10px; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.04); }
 .my-lead-card + .my-lead-card { margin-top:8px; }

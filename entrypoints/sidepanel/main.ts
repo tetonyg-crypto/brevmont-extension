@@ -34,10 +34,26 @@ interface VersionStatus {
   downloadUrl?: string | null;
 }
 
+interface PinnedCustomer {
+  id: string;
+  name: string;
+  vehicle?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  source?: string | null;
+  confidence?: number | null;
+  detectionMethod: string;
+  pinnedAt: number;
+}
+
 // ─── State ───────────────────────────────────────────────────────────────────
 let currentPlatform: PlatformContext = { platform: 'unknown', tabId: -1, url: '' };
 let isGenerating = false;
 let challengePollTimer: number | null = null;
+let pinnedCustomer: PinnedCustomer | null = null;
+let pendingCustomerSuggestion: any = null;
+let customerDetectionTimer: number | null = null;
+let customerDetectionUrl = '';
 const dismissedChallengeIds = new Set<string>();
 const FIRST_GENERATION_KEY = 'first_generation_completed';
 const ONBOARDING_BANNER_DISMISSED_KEY = 'onboarding_banner_dismissed';
@@ -492,6 +508,308 @@ async function collectCurrentLeadContext(): Promise<any> {
   return {};
 }
 
+function customerStampPayload(): Record<string, any> {
+  if (!pinnedCustomer) return {};
+  return {
+    customer_id: pinnedCustomer.id,
+    detection_method: pinnedCustomer.detectionMethod || 'auto_pin',
+    detection_confidence: pinnedCustomer.confidence ?? 1,
+    vehicle_context: pinnedCustomer.vehicle || null,
+  };
+}
+
+function enrichLeadContextWithPinnedCustomer(leadContext: any = {}): any {
+  if (!pinnedCustomer) return leadContext || {};
+  return {
+    ...(leadContext || {}),
+    customer_id: pinnedCustomer.id,
+    customerName: pinnedCustomer.name,
+    customer_name: pinnedCustomer.name,
+    name: pinnedCustomer.name,
+    phone: pinnedCustomer.phone || leadContext?.phone || null,
+    email: pinnedCustomer.email || leadContext?.email || null,
+    vehicle: pinnedCustomer.vehicle || leadContext?.vehicle || leadContext?.vehicleOfInterest || null,
+    vehicleOfInterest: pinnedCustomer.vehicle || leadContext?.vehicleOfInterest || leadContext?.vehicle || null,
+    source: pinnedCustomer.source || leadContext?.source || currentPlatform.platform,
+    detectionMethod: pinnedCustomer.detectionMethod,
+    detection_method: pinnedCustomer.detectionMethod,
+    detectionConfidence: pinnedCustomer.confidence ?? leadContext?.detectionConfidence ?? 1,
+    detection_confidence: pinnedCustomer.confidence ?? leadContext?.detection_confidence ?? 1,
+  };
+}
+
+function getCustomerNameFromContext(ctx: any): string {
+  return String(ctx?.customerName || ctx?.customer_name || ctx?.name || '').trim();
+}
+
+function getCustomerVehicleFromContext(ctx: any): string | null {
+  return optionalDisplayText(ctx?.vehicle || ctx?.vehicleOfInterest || ctx?.vehicle_interest || ctx?.vehicle_of_interest) || null;
+}
+
+async function resolveCustomerForDetection(ctx: any): Promise<PinnedCustomer | null> {
+  const name = getCustomerNameFromContext(ctx);
+  if (!name) return null;
+  const payload = {
+    name,
+    phone: ctx?.phone || ctx?.customer_phone || null,
+    email: ctx?.email || ctx?.customer_email || null,
+    vehicle: getCustomerVehicleFromContext(ctx),
+    vehicle_interest: getCustomerVehicleFromContext(ctx),
+    source: ctx?.source || currentPlatform.platform,
+  };
+
+  let record: any = null;
+  try {
+    const match = await safeSend({ type: 'CUSTOMER_MATCH', payload });
+    if (match?.match && Number(match.confidence || 0) >= 0.7) record = match.match;
+  } catch {}
+
+  if (!record) {
+    try {
+      const created = await safeSend({ type: 'CUSTOMER_CREATE', payload });
+      record = created?.customer || created;
+    } catch {
+      return null;
+    }
+  }
+
+  const id = String(record?.id || '').trim();
+  if (!id) return null;
+  return {
+    id,
+    name: record.name || name,
+    vehicle: record.vehicle_interest || payload.vehicle || null,
+    phone: record.phone || payload.phone || null,
+    email: record.email || payload.email || null,
+    source: record.source || payload.source || null,
+    confidence: Number(ctx?.detectionConfidence ?? ctx?.detection_confidence ?? 1),
+    detectionMethod: ctx?.detectionMethod || ctx?.detection_method || 'auto_page',
+    pinnedAt: Date.now(),
+  };
+}
+
+function pinCustomer(root: HTMLElement, customer: PinnedCustomer | null): void {
+  if (!customer?.id || !customer.name) return;
+  pinnedCustomer = { ...customer, pinnedAt: Date.now() };
+  pendingCustomerSuggestion = null;
+  renderCustomerStamp(root);
+}
+
+function clearPinnedCustomer(root: HTMLElement): void {
+  pinnedCustomer = null;
+  pendingCustomerSuggestion = null;
+  renderCustomerStamp(root);
+}
+
+function renderCustomerStamp(root: HTMLElement): void {
+  const stamp = root.querySelector('#o8-customer-stamp') as HTMLElement | null;
+  const picker = root.querySelector('#o8-customer-picker') as HTMLElement | null;
+  if (!stamp) return;
+  if (picker && pinnedCustomer) picker.style.display = 'none';
+
+  if (pinnedCustomer) {
+    stamp.style.display = 'block';
+    stamp.innerHTML = `
+      <div class="customer-stamp-row">
+        <span class="customer-stamp-badge"></span>
+        <div style="min-width:0;flex:1">
+          <div class="customer-stamp-main">${esc(pinnedCustomer.name)}</div>
+          <div class="customer-stamp-sub">${esc(pinnedCustomer.vehicle || 'Customer trail active')}</div>
+        </div>
+        <div class="customer-stamp-actions">
+          <button class="customer-stamp-btn" id="o8-customer-change" type="button">Change</button>
+          <button class="customer-stamp-clear" id="o8-customer-clear" type="button" aria-label="Clear customer">&times;</button>
+        </div>
+      </div>
+    `;
+    stamp.querySelector('#o8-customer-change')?.addEventListener('click', () => openCustomerPicker(root));
+    stamp.querySelector('#o8-customer-clear')?.addEventListener('click', () => clearPinnedCustomer(root));
+    return;
+  }
+
+  if (pendingCustomerSuggestion) {
+    const name = getCustomerNameFromContext(pendingCustomerSuggestion);
+    const vehicle = getCustomerVehicleFromContext(pendingCustomerSuggestion);
+    if (!name) {
+      stamp.style.display = 'none';
+      stamp.innerHTML = '';
+      return;
+    }
+    stamp.style.display = 'block';
+    stamp.innerHTML = `
+      <div class="customer-stamp-row">
+        <span class="customer-stamp-badge"></span>
+        <div style="min-width:0;flex:1">
+          <div class="customer-stamp-main">This for ${esc(name)}?</div>
+          <div class="customer-stamp-sub">${esc(vehicle || 'Confirm once, then keep working.')}</div>
+        </div>
+        <div class="customer-stamp-actions">
+          <button class="customer-stamp-btn primary" id="o8-customer-yes" type="button">Yes</button>
+          <button class="customer-stamp-btn" id="o8-customer-no" type="button">No</button>
+        </div>
+      </div>
+    `;
+    stamp.querySelector('#o8-customer-yes')?.addEventListener('click', async () => {
+      const resolved = await resolveCustomerForDetection(pendingCustomerSuggestion);
+      if (resolved) {
+        pinCustomer(root, { ...resolved, detectionMethod: 'one_tap' });
+        showToast(root, 'Customer stamped');
+      } else {
+        showToast(root, 'Could not stamp customer. You can still keep working.');
+      }
+    });
+    stamp.querySelector('#o8-customer-no')?.addEventListener('click', () => {
+      pendingCustomerSuggestion = null;
+      renderCustomerStamp(root);
+      openCustomerPicker(root);
+    });
+    return;
+  }
+
+  stamp.style.display = 'none';
+  stamp.innerHTML = '';
+}
+
+async function openCustomerPicker(root: HTMLElement): Promise<void> {
+  const picker = root.querySelector('#o8-customer-picker') as HTMLElement | null;
+  if (!picker) return;
+
+  picker.style.display = 'block';
+  picker.innerHTML = `
+    <div class="customer-picker-title">Who's this for?</div>
+    <input id="o8-customer-search" class="customer-picker-input" placeholder="Search customer..." />
+    <div id="o8-customer-picker-list" class="customer-picker-list">
+      <div class="customer-picker-row"><div class="customer-picker-meta">Loading recent customers...</div></div>
+    </div>
+    <div class="customer-picker-actions">
+      <button id="o8-customer-new" type="button">New customer</button>
+      <button id="o8-customer-skip" type="button">Skip</button>
+    </div>
+  `;
+
+  const input = picker.querySelector('#o8-customer-search') as HTMLInputElement | null;
+  const list = picker.querySelector('#o8-customer-picker-list') as HTMLElement | null;
+
+  const renderList = (customers: any[]) => {
+    if (!list) return;
+    if (!customers.length) {
+      list.innerHTML = '<div class="customer-picker-row"><div class="customer-picker-meta">No customers found. Create one from the name above.</div></div>';
+      return;
+    }
+    list.innerHTML = customers.map((customer) => `
+      <button class="customer-picker-row" data-customer-id="${esc(customer.id)}" type="button">
+        <div class="customer-picker-name">${esc(customer.name || 'Unnamed customer')}</div>
+        <div class="customer-picker-meta">${esc(customer.vehicle_interest || customer.phone || customer.email || 'Recent customer')}</div>
+      </button>
+    `).join('');
+    list.querySelectorAll<HTMLButtonElement>('.customer-picker-row[data-customer-id]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const customer = customers.find((item) => String(item.id) === button.dataset.customerId);
+        if (!customer) return;
+        pinCustomer(root, {
+          id: customer.id,
+          name: customer.name,
+          vehicle: customer.vehicle_interest || null,
+          phone: customer.phone || null,
+          email: customer.email || null,
+          source: customer.source || null,
+          confidence: 1,
+          detectionMethod: 'manual',
+          pinnedAt: Date.now(),
+        });
+      });
+    });
+  };
+
+  const load = async (search = '') => {
+    try {
+      const resp = await safeSend({ type: 'CUSTOMER_LIST', payload: { search, limit: 8 } });
+      renderList(Array.isArray(resp?.customers) ? resp.customers : []);
+    } catch {
+      renderList([]);
+    }
+  };
+
+  await load('');
+
+  let debounce: number | null = null;
+  input?.addEventListener('input', () => {
+    if (debounce) window.clearTimeout(debounce);
+    debounce = window.setTimeout(() => load(input.value.trim()), 200);
+  });
+
+  picker.querySelector('#o8-customer-new')?.addEventListener('click', async () => {
+    const typed = input?.value.trim();
+    const ctx = pendingCustomerSuggestion || await collectCurrentLeadContext();
+    const name = typed || getCustomerNameFromContext(ctx);
+    if (!name) {
+      showToast(root, 'Type a customer name first.');
+      return;
+    }
+    const resolved = await resolveCustomerForDetection({ ...ctx, name, customerName: name, detectionMethod: 'manual', detectionConfidence: 1 });
+    if (resolved) pinCustomer(root, { ...resolved, detectionMethod: 'manual', confidence: 1 });
+  });
+
+  picker.querySelector('#o8-customer-skip')?.addEventListener('click', () => {
+    pinnedCustomer = null;
+    pendingCustomerSuggestion = null;
+    picker.style.display = 'none';
+    renderCustomerStamp(root);
+  });
+}
+
+async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
+  let ctx: any = {};
+  try {
+    ctx = await collectCurrentLeadContext();
+  } catch {
+    return;
+  }
+
+  const name = getCustomerNameFromContext(ctx);
+  if (!name) {
+    pendingCustomerSuggestion = null;
+    if (!pinnedCustomer) renderCustomerStamp(root);
+    return;
+  }
+
+  const confidence = Number(ctx?.detectionConfidence ?? ctx?.detection_confidence ?? 0.5);
+  const currentName = pinnedCustomer?.name?.toLowerCase();
+  const detectedName = name.toLowerCase();
+  const isSamePinned = currentName && currentName === detectedName;
+
+  if (isSamePinned) return;
+
+  if (confidence >= 0.8) {
+    const resolved = await resolveCustomerForDetection(ctx);
+    if (resolved) {
+      pinCustomer(root, { ...resolved, detectionMethod: ctx?.detectionMethod || ctx?.detection_method || 'auto_page' });
+    }
+    return;
+  }
+
+  if (!pinnedCustomer && confidence >= 0.5) {
+    pendingCustomerSuggestion = ctx;
+    renderCustomerStamp(root);
+  }
+}
+
+function startCustomerDetection(root: HTMLElement): void {
+  if (customerDetectionTimer) window.clearInterval(customerDetectionTimer);
+  customerDetectionUrl = currentPlatform.url || '';
+  renderCustomerStamp(root);
+  refreshCustomerDetection(root).catch(() => {});
+  customerDetectionTimer = window.setInterval(async () => {
+    await refreshPlatform();
+    const activeUrl = currentPlatform.url || '';
+    if (activeUrl !== customerDetectionUrl) {
+      customerDetectionUrl = activeUrl;
+      pendingCustomerSuggestion = null;
+    }
+    refreshCustomerDetection(root).catch(() => {});
+  }, 3000);
+}
+
 async function refreshPlatform(): Promise<void> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -891,6 +1209,7 @@ function renderPanel(): void {
 
   // Wire event handlers
   wireHandlers(root);
+  startCustomerDetection(root);
 
   // Show free tier usage counter if applicable
   applyFirstUseGuide(root);
@@ -1085,6 +1404,8 @@ function wireHandlers(root: HTMLElement): void {
   // Generate button
   const genBtn = el('o8-generate');
   if (genBtn) genBtn.onclick = () => doGenerate(root);
+  const customerBtn = el('o8-customer-open');
+  if (customerBtn) customerBtn.onclick = () => openCustomerPicker(root);
   const exampleBtn = el('o8-first-use-example') as HTMLButtonElement | null;
   if (exampleBtn) {
     exampleBtn.onclick = () => {
@@ -1496,10 +1817,23 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     const ctx = await sendToContent({ type: 'GET_LEAD_CONTEXT' });
     if (ctx) leadContext = ctx;
   } catch {}
+  if (!pinnedCustomer) {
+    const detectedName = getCustomerNameFromContext(leadContext);
+    const detectedConfidence = Number(leadContext?.detectionConfidence ?? leadContext?.detection_confidence ?? 0);
+    if (detectedName && detectedConfidence >= 0.8) {
+      const resolved = await resolveCustomerForDetection(leadContext);
+      if (resolved) pinCustomer(root, resolved);
+    } else if (detectedName && detectedConfidence >= 0.5) {
+      pendingCustomerSuggestion = leadContext;
+      renderCustomerStamp(root);
+    }
+  }
+  leadContext = enrichLeadContextWithPinnedCustomer(leadContext);
 
   const _generationId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const repInputVehicle = extractVehicleMention(input);
   const vehicleForGeneration = leadContext.vehicle || leadContext.vehicleOfInterest || repInputVehicle || null;
+  const stamp = customerStampPayload();
 
   const _meta: Record<string, any> = {
     workflow_type: type === 'all' ? 'all' : type,
@@ -1514,6 +1848,10 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     lead_source: leadContext.source || null,
     generation_id: _generationId,
     lead_id: (root as any).__pendingLeadId || null,
+    customer_id: stamp.customer_id || leadContext.customer_id || null,
+    detection_method: stamp.detection_method || leadContext.detectionMethod || leadContext.detection_method || null,
+    detection_confidence: stamp.detection_confidence ?? leadContext.detectionConfidence ?? leadContext.detection_confidence ?? null,
+    vehicle_context: stamp.vehicle_context || vehicleForGeneration || null,
   };
 
   try {
@@ -1567,6 +1905,12 @@ async function doGenerate(root: HTMLElement): Promise<void> {
               output_type: o.key === 'text' ? 'text' : o.key === 'email' ? 'email' : 'crm_note',
               generation_id: _generationId,
               customer_context: { name: _meta.customer_name, vehicle: _meta.vehicle },
+              action_metadata: {
+                customer_id: _meta.customer_id,
+                detection_method: _meta.detection_method,
+                detection_confidence: _meta.detection_confidence,
+                vehicle_context: _meta.vehicle_context,
+              },
               output_length: (o.content || '').length,
             },
           }).catch(() => {});
@@ -1630,6 +1974,8 @@ function addOutput(root: HTMLElement, label: string, content: string, outputType
           platform: normalizeEventPlatform(currentPlatform.platform),
           output_type: normalizeOutputType(outputType),
           generation_id,
+          customer_context: { name: pinnedCustomer?.name || null, vehicle: pinnedCustomer?.vehicle || null },
+          action_metadata: customerStampPayload(),
           output_length: ta.value.length,
         },
       }).catch(() => {});
@@ -1665,6 +2011,8 @@ function addOutput(root: HTMLElement, label: string, content: string, outputType
               platform: normalizeEventPlatform(currentPlatform.platform),
               output_type: normalizeOutputType(outputType),
               generation_id,
+              customer_context: { name: pinnedCustomer?.name || null, vehicle: pinnedCustomer?.vehicle || null },
+              action_metadata: { ...customerStampPayload(), injected: true },
               output_length: ta.value.length,
             },
           }).catch(() => {});
@@ -1723,7 +2071,7 @@ async function doCoach(root: HTMLElement): Promise<void> {
   output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Thinking...</div>';
   try {
     await requireToken();
-    const leadContext = await collectCurrentLeadContext();
+    const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
     const resp = await safeSend({ type: 'COACH_ME', payload: { situation: input, platform: currentPlatform.platform, leadContext } });
     const text = resp?.coaching || resp?.text || '';
     if (!text) {
@@ -1771,7 +2119,8 @@ async function doSetAlert(root: HTMLElement): Promise<void> {
   const input = (root.querySelector('#o8-alert-input') as HTMLInputElement)?.value.trim();
   if (!input) return;
   try {
-    await safeSend({ type: 'SET_ALERT', payload: { task: input, alertTime: parseAlertTime(input) } });
+    const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
+    await safeSend({ type: 'SET_ALERT', payload: { task: input, alertTime: parseAlertTime(input), leadContext, ...customerStampPayload() } });
     (root.querySelector('#o8-alert-input') as HTMLInputElement).value = '';
     showToast(root, 'Alert set');
     loadAlerts(root);
@@ -1808,7 +2157,7 @@ async function doCommand(root: HTMLElement): Promise<void> {
   status.innerHTML = '<div class="tool-result" style="color:#94a3b8">Executing...</div>';
   try {
     await requireToken();
-    const leadContext = await collectCurrentLeadContext();
+    const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
     const resp = await safeSend({ type: 'EXECUTE_COMMAND', payload: { command: input, platform: currentPlatform.platform, currentUrl: currentPlatform.url, leadContext } });
     // API returns { parsed: { action, content, ... }, usage }.
     // Display the content field from the parsed command JSON.
@@ -1923,7 +2272,7 @@ function wireContextTool(root: HTMLElement): void {
       try {
         await requireToken();
         const pageText = await collectContextReplyPageText();
-        const leadContext = await collectCurrentLeadContext();
+        const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
         const resp = await safeSend({
           type: 'CONTEXT_REPLY',
           payload: {
@@ -2429,6 +2778,33 @@ function showLeadResult(root: HTMLElement, lead: any): void {
   const hasTrade = lead.has_trade_in || false;
   const hasFinance = lead.finance_intent || false;
   const nextStage = getNextStage(pipelineStage);
+  if (name && name !== 'Unknown lead') {
+    if (lead.customer_id) {
+      pinCustomer(root, {
+        id: String(lead.customer_id),
+        name,
+        vehicle: vehicle || null,
+        phone: lead.phone || null,
+        email: lead.email || null,
+        source: lead.source_platform || currentPlatform.platform,
+        confidence: 1,
+        detectionMethod: 'lead_link',
+        pinnedAt: Date.now(),
+      });
+    } else {
+      resolveCustomerForDetection({
+        name,
+        phone: lead.phone || null,
+        email: lead.email || null,
+        vehicle,
+        source: lead.source_platform || currentPlatform.platform,
+        detectionMethod: 'manual',
+        detectionConfidence: confidence === 'low' ? 0.5 : 0.8,
+      }).then((customer) => {
+        if (customer) pinCustomer(root, { ...customer, detectionMethod: 'lead_link' });
+      }).catch(() => {});
+    }
+  }
   const confidenceNote =
     confidence === 'medium'
       ? 'Possible lead — review before saving'
@@ -2754,7 +3130,20 @@ function wireLeadCapture(root: HTMLElement): void {
       voiceParseBtn.disabled = true;
       try {
         await requireToken();
-        const resp = await safeSend({ type: 'PARSE_LEAD', payload: { raw_text: input, platform: currentPlatform.platform } });
+        const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
+        const resp = await safeSend({
+          type: 'PARSE_LEAD',
+          payload: {
+            raw_text: input,
+            platform: currentPlatform.platform,
+            customer_id: leadContext.customer_id || null,
+            customer_name: leadContext.customerName || leadContext.customer_name || null,
+            name: leadContext.customerName || leadContext.customer_name || null,
+            phone: leadContext.phone || null,
+            email: leadContext.email || null,
+            vehicle_interest: leadContext.vehicle || leadContext.vehicleOfInterest || null,
+          },
+        });
         showLeadResult(root, resp?.lead || resp);
       } catch (e: any) { showToast(root, e.message || 'Could not pull details'); }
       voiceParseBtn.innerHTML = 'Pull details';
@@ -2780,7 +3169,20 @@ function wireLeadCapture(root: HTMLElement): void {
       pasteParseBtn.disabled = true;
       try {
         await requireToken();
-        const resp = await safeSend({ type: 'PARSE_LEAD', payload: { raw_text: input, platform: currentPlatform.platform } });
+        const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
+        const resp = await safeSend({
+          type: 'PARSE_LEAD',
+          payload: {
+            raw_text: input,
+            platform: currentPlatform.platform,
+            customer_id: leadContext.customer_id || null,
+            customer_name: leadContext.customerName || leadContext.customer_name || null,
+            name: leadContext.customerName || leadContext.customer_name || null,
+            phone: leadContext.phone || null,
+            email: leadContext.email || null,
+            vehicle_interest: leadContext.vehicle || leadContext.vehicleOfInterest || null,
+          },
+        });
         showLeadResult(root, resp?.lead || resp);
       } catch (e: any) { showToast(root, e.message || 'Could not pull details'); }
       pasteParseBtn.innerHTML = 'Pull details';

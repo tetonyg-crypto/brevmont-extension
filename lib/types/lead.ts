@@ -2,6 +2,7 @@ export interface CapturedLead {
   id: string; // UUIDv4 generated client-side
   dealership_id?: string; // Set by API from JWT, not by client
   rep_id?: string; // Set by API from JWT, not by client
+  customer_id?: string | null;
   customer_name: string;
   phone: string | null;
   email: string | null;

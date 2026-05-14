@@ -40,6 +40,7 @@ export async function syncPendingLeads(): Promise<{ synced: number; failed: numb
     // Strip local-only fields before sending
     const payload = pending.map((lead) => ({
       id: lead.id,
+      customer_id: lead.customer_id || lead.metadata?.customer_id || null,
       customer_name: lead.customer_name,
       phone: lead.phone,
       email: lead.email,

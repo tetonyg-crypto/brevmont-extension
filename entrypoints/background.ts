@@ -142,6 +142,9 @@ function toolLeadMetadata(payload: any, platformFallback: unknown = 'unknown'): 
   const rawPlatform = cleanLeadMetaValue(leadContext.platform || payload?.platform || platformFallback) || 'unknown';
   const platform = rawPlatform === 'facebook' ? 'messenger' : rawPlatform;
   return {
+    customer_id: cleanLeadMetaValue(leadContext.customer_id || payload?.customer_id || payload?.customerId),
+    detection_method: cleanLeadMetaValue(leadContext.detectionMethod || leadContext.detection_method || payload?.detection_method),
+    detection_confidence: leadContext.detectionConfidence ?? leadContext.detection_confidence ?? payload?.detection_confidence ?? null,
     customer_name: customerName,
     customer_phone: cleanLeadMetaValue(leadContext.phone || leadContext.customer_phone || payload?.phone),
     customer_email: cleanLeadMetaValue(leadContext.email || leadContext.customer_email || payload?.email),
@@ -185,6 +188,78 @@ async function logToolEvent(
     });
   } catch (err) {
     console.warn('[Brevmont] tool event log failed:', (err as Error)?.message || err);
+  }
+}
+
+function customerQuery(params: Record<string, any>): string {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null && String(value).trim()) qs.set(key, String(value).trim());
+  }
+  return qs.toString();
+}
+
+async function customerMatch(payload: any): Promise<any> {
+  const base = (await getResolvedApiUrl()).replace(/\/$/, '');
+  const qs = customerQuery({
+    name: payload?.name || payload?.customer_name || payload?.customerName,
+    phone: payload?.phone || payload?.customer_phone,
+    email: payload?.email || payload?.customer_email,
+    customer_id: payload?.customer_id,
+  });
+  const resp = await signedGet(`${base}/api/v1/customers/match${qs ? `?${qs}` : ''}`);
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data?.error || `customer_match_${resp.status}`);
+  return data;
+}
+
+async function customerList(payload: any): Promise<any> {
+  const base = (await getResolvedApiUrl()).replace(/\/$/, '');
+  const qs = customerQuery({ search: payload?.search, limit: payload?.limit || 5 });
+  const resp = await signedGet(`${base}/api/v1/customers${qs ? `?${qs}` : ''}`);
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data?.error || `customer_list_${resp.status}`);
+  return data;
+}
+
+async function customerCreate(payload: any): Promise<any> {
+  const base = (await getResolvedApiUrl()).replace(/\/$/, '');
+  const resp = await signedFetch(`${base}/api/v1/customers`, {
+    name: payload?.name || payload?.customer_name || payload?.customerName,
+    phone: payload?.phone || payload?.customer_phone || null,
+    email: payload?.email || payload?.customer_email || null,
+    vehicle_interest: payload?.vehicle_interest || payload?.vehicle || null,
+    source: payload?.source || payload?.platform || null,
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data?.error || `customer_create_${resp.status}`);
+  return data;
+}
+
+async function customerStamp(payload: any): Promise<any> {
+  const customerId = String(payload?.customer_id || '');
+  if (!customerId) throw new Error('customer_id_required');
+  const base = (await getResolvedApiUrl()).replace(/\/$/, '');
+  const resp = await signedFetch(`${base}/api/v1/customers/${encodeURIComponent(customerId)}/stamp`, payload);
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data?.error || `customer_stamp_${resp.status}`);
+  return data;
+}
+
+async function resolveCustomerForContext(payload: any): Promise<any | null> {
+  const name = cleanLeadMetaValue(payload?.name || payload?.customer_name || payload?.customerName);
+  if (!name) return null;
+  try {
+    const match = await customerMatch(payload);
+    if (match?.match && Number(match.confidence || 0) >= 0.7) return match.match;
+  } catch {
+    // fall through to create
+  }
+  try {
+    return await customerCreate({ ...payload, name });
+  } catch (err) {
+    console.warn('[Brevmont] customer resolve failed:', (err as Error)?.message || err);
+    return null;
   }
 }
 
@@ -496,6 +571,54 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (msg.type === 'CUSTOMER_MATCH') {
+      (async () => {
+        try {
+          const result = await customerMatch(msg.payload || {});
+          sendResponse({ ok: true, ...result });
+        } catch (err: any) {
+          sendResponse({ ok: false, error: err?.message || 'customer_match_failed' });
+        }
+      })();
+      return true;
+    }
+
+    if (msg.type === 'CUSTOMER_LIST') {
+      (async () => {
+        try {
+          const result = await customerList(msg.payload || {});
+          sendResponse({ ok: true, ...result });
+        } catch (err: any) {
+          sendResponse({ ok: false, customers: [], error: err?.message || 'customer_list_failed' });
+        }
+      })();
+      return true;
+    }
+
+    if (msg.type === 'CUSTOMER_CREATE') {
+      (async () => {
+        try {
+          const result = await customerCreate(msg.payload || {});
+          sendResponse({ ok: true, customer: result, ...result });
+        } catch (err: any) {
+          sendResponse({ ok: false, error: err?.message || 'customer_create_failed' });
+        }
+      })();
+      return true;
+    }
+
+    if (msg.type === 'CUSTOMER_STAMP') {
+      (async () => {
+        try {
+          const result = await customerStamp(msg.payload || {});
+          sendResponse({ ok: true, ...result });
+        } catch (err: any) {
+          sendResponse({ ok: false, error: err?.message || 'customer_stamp_failed' });
+        }
+      })();
+      return true;
+    }
+
     if (msg.type === 'CHECK_FEATURES') {
       browser.storage.local.get(['brevmont_tier', 'brevmont_features', 'brevmont_last_heartbeat']).then(data => {
         const stale = !data.brevmont_last_heartbeat || (Date.now() - data.brevmont_last_heartbeat > 30 * 60 * 1000);
@@ -751,7 +874,8 @@ export default defineBackground(() => {
           await browser.storage.local.set({ brevmont_alerts: alerts });
           await logToolEvent('reminder_set', msg.payload.task || '', '', {
             reminder_time: msg.payload.alertTime ? new Date(msg.payload.alertTime).toISOString() : null,
-            platform: 'unknown',
+            platform: msg.payload.platform || 'unknown',
+            ...toolLeadMetadata(msg.payload, msg.payload.platform || 'unknown'),
           });
           sendResponse({ ok: true });
         } catch {
@@ -914,8 +1038,16 @@ export default defineBackground(() => {
           if (customerName) {
             const leadId = crypto.randomUUID();
             const localHeatScore = inferLocalLeadHeat(leadForSave, msg.payload);
+            const customerRecord = await resolveCustomerForContext({
+              name: customerName,
+              phone: leadForSave.phone || msg.payload?.phone || null,
+              email: leadForSave.email || msg.payload?.email || null,
+              vehicle_interest: leadForSave.vehicle_interest || msg.payload?.vehicle_interest || msg.payload?.vehicle || looseFallback.vehicle_interest || null,
+              source: msg.payload.platform || 'unknown',
+            });
             const localLead: LocalLead = {
               id: leadId,
+              customer_id: customerRecord?.id || null,
               customer_name: customerName,
               phone: leadForSave.phone || msg.payload?.phone || null,
               email: leadForSave.email || msg.payload?.email || null,
@@ -939,6 +1071,7 @@ export default defineBackground(() => {
                 confidence: leadForSave.confidence || null,
                 is_lead: leadForSave.is_lead !== false,
                 lead_stage_at_capture: msg.payload?.lead_stage_at_capture || null,
+                customer_id: customerRecord?.id || null,
               },
             };
             await leadDb.captured_leads.put(localLead);
@@ -949,6 +1082,7 @@ export default defineBackground(() => {
               lead: {
                 ...leadForSave,
                 id: leadId,
+                customer_id: customerRecord?.id || null,
                 customer_name: customerName,
                 phone: localLead.phone,
                 email: localLead.email,
@@ -969,6 +1103,17 @@ export default defineBackground(() => {
                 lead_stage_at_capture: localLead.lead_stage_at_capture || null,
               },
             };
+            if (customerRecord?.id) {
+              customerStamp({
+                customer_id: customerRecord.id,
+                action_type: 'lead_capture',
+                input_text: localLead.source_raw_text,
+                vehicle_context: localLead.vehicle_interest,
+                detection_method: 'auto_page',
+                detection_confidence: 1,
+                captured_lead_id: leadId,
+              }).catch(() => {});
+            }
           }
 
           sendResponse(data);
@@ -1970,7 +2115,7 @@ async function handleGenerate(payload: {
   repName: string;
   dealership: string;
   platform?: string;
-  metadata?: { workflow_type?: string; customer_name?: string | null; vehicle?: string | null };
+  metadata?: Record<string, any>;
 }) {
   // Phase T7: block generation outright if license is revoked
   await assertNotRevoked();
@@ -2054,6 +2199,10 @@ async function handleGenerate(payload: {
     vehicle_of_interest: payload.metadata?.vehicle_of_interest || null,
     generation_id: generationId,
     lead_id: payload.lead_id || payload.metadata?.lead_id || null,
+    customer_id: payload.metadata?.customer_id || payload.leadContext?.customer_id || null,
+    detection_method: payload.metadata?.detection_method || payload.leadContext?.detectionMethod || payload.leadContext?.detection_method || null,
+    detection_confidence: payload.metadata?.detection_confidence ?? payload.leadContext?.detectionConfidence ?? payload.leadContext?.detection_confidence ?? null,
+    vehicle_context: payload.metadata?.vehicle_context || payload.leadContext?.vehicle_context || payload.leadContext?.vehicle || null,
   };
 
   const apiBase = await getResolvedApiUrl();
@@ -2137,6 +2286,10 @@ function buildGenerateProxyBody(
     vehicle_of_interest?: string | null;
     generation_id?: string | null;
     lead_id?: string | null;
+    customer_id?: string | null;
+    detection_method?: string | null;
+    detection_confidence?: number | string | null;
+    vehicle_context?: string | null;
   }
 ) {
   return {
@@ -2156,6 +2309,10 @@ function buildGenerateProxyBody(
     vehicle_of_interest: metadata?.vehicle_of_interest ?? null,
     generation_id: metadata?.generation_id ?? null,
     lead_id: metadata?.lead_id ?? null,
+    customer_id: metadata?.customer_id ?? null,
+    detection_method: metadata?.detection_method ?? null,
+    detection_confidence: metadata?.detection_confidence ?? null,
+    vehicle_context: metadata?.vehicle_context ?? metadata?.vehicle ?? null,
   };
 }
 
