@@ -541,7 +541,7 @@ export default defineBackground(() => {
             : 'UNKNOWN';
           captureError(err instanceof Error ? err : new Error(String(err?.message || err)), { flow: 'GENERATE_OUTPUT', errType });
           reportError(errType, err.message).catch(() => {});
-          sendResponse({ error: err.message });
+          sendResponse({ error: 'Generation failed. Try again or contact support@brevmont.com' });
         }
       })();
       return true;
@@ -625,6 +625,35 @@ export default defineBackground(() => {
         const tier = stale ? (data.brevmont_tier || 'free') : (data.brevmont_tier || 'free');
         sendResponse({ tier, features: getTierFeatures(tier) });
       }).catch(() => sendResponse({ tier: 'free', features: getTierFeatures('free') }));
+      return true;
+    }
+
+    // GET_RESOLVED_ACCESS — sidepanel calls this to populate the account chip
+    // (rep name, dealership, tier badge). Backed by /api/v1/access/resolved
+    // which merges dealership defaults + per-rep overrides.
+    if (msg.type === 'GET_RESOLVED_ACCESS') {
+      (async () => {
+        try {
+          const apiBase = await getResolvedApiUrl();
+          const [resp, settings] = await Promise.all([
+            signedGet(`${apiBase}/api/v1/access/resolved`),
+            browser.storage.sync.get(['rep_name', 'dealership']),
+          ]);
+          if (!resp.ok) {
+            sendResponse({ ok: false, status: resp.status });
+            return;
+          }
+          const access = await resp.json();
+          sendResponse({
+            ok: true,
+            access,
+            rep_name: settings.rep_name || '',
+            dealership: settings.dealership || '',
+          });
+        } catch (err: any) {
+          sendResponse({ ok: false, error: err?.message || 'fetch_failed' });
+        }
+      })();
       return true;
     }
 

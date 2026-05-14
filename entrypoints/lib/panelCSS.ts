@@ -284,5 +284,69 @@ ${domMode && isLinkedIn ? `
 .gen-btn { padding:8px; font-size:13px; margin-top:6px; }
 .inline-links { margin-top:6px; } .link-btn { font-size:10px; }
 ` : ''}
+
+/* Account chip — pinned to the bottom of the panel. Always shows who you
+   are, what dealership you're on, and what tier is active. Reads from
+   /api/v1/access/resolved on boot. */
+.account-chip {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 20, 25, 0.96);
+  border-top: 1px solid rgba(13, 110, 110, 0.45);
+  padding: 6px 10px;
+  z-index: 60;
+  backdrop-filter: blur(6px);
+}
+.account-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+.account-chip-text {
+  flex: 1;
+  min-width: 0;
+}
+.account-chip-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #F8F6F1;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-chip-dealership {
+  font-size: 10px;
+  color: rgba(248, 246, 241, 0.55);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-chip-plan {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+  color: #fff;
+  background: #64748b;
+}
+.account-chip-plan.plan-free    { background: #64748b; }
+.account-chip-plan.plan-pilot   { background: #d97706; }
+.account-chip-plan.plan-command { background: #0D6E6E; }
+.account-chip-plan.plan-annual  { background: #4338ca; }
+.account-chip-plan.plan-custom  { background: #7c3aed; }
+.account-chip-plan.plan-upgrade { background: #0D6E6E; box-shadow: 0 0 0 1px rgba(248, 246, 241, 0.18); }
+.account-chip-plan.status-paused     { background: #d97706; }
+.account-chip-plan.status-terminated { background: #b91c1c; }
+/* Reserve space at the bottom of the scrollable area so the chip doesn't
+   cover the last UI element. */
+body { padding-bottom: 44px; }
 `;
 }

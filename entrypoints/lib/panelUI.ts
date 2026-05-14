@@ -146,5 +146,14 @@ export function getPanelHTML(platform: Platform): string {
   <div id="lead-paste" class="tool-content" style="display:none"><div class="tool-section"><textarea id="o8-lead-paste-input" class="main-input" placeholder="Paste a text thread, email, or Facebook message with customer info..." rows="4"></textarea><button id="o8-lead-paste-parse" class="gen-btn" style="margin-top:8px">Pull details</button></div></div>
   <div id="o8-lead-result" class="tool-content" style="display:none"></div>
 </div>
+<div id="o8-account-chip" class="account-chip" style="display:none;">
+  <div class="account-chip-row">
+    <div class="account-chip-text">
+      <div id="o8-account-chip-name" class="account-chip-name"></div>
+      <div id="o8-account-chip-dealership" class="account-chip-dealership"></div>
+    </div>
+    <span id="o8-account-chip-plan" class="account-chip-plan"></span>
+  </div>
+</div>
 `;
 }

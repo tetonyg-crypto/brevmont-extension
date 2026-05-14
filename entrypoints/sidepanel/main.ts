@@ -62,6 +62,7 @@ const CONTEXT_SCREENSHOT_TARGET_BYTES = 1_600_000;
 const CONTEXT_SCREENSHOT_MAX_DIMS = [1800, 1600, 1400, 1200, 1000, 850];
 const CONTEXT_SCREENSHOT_QUALITIES = [0.82, 0.74, 0.66, 0.58, 0.5];
 const CONTEXT_PAGE_TEXT_MAX = 5000;
+const GENERATION_FAILURE_MESSAGE = 'Generation failed. Try again or contact support@brevmont.com';
 
 const AUTH_SYNC_KEYS = [
   'license_key',
@@ -1225,6 +1226,54 @@ function renderPanel(): void {
   applyVersionStatus(root).catch(() => {});
   startChallengePolling(root);
   renderMyLeads(root).catch(() => {});
+  renderAccountChip().catch(() => {});
+}
+
+const PLAN_DISPLAY: Record<string, string> = {
+  free: 'Free',
+  pilot: 'Pilot',
+  command: 'Command',
+  annual: 'Annual',
+  custom: 'Custom',
+};
+
+async function renderAccountChip(): Promise<void> {
+  const chip = document.getElementById('o8-account-chip') as HTMLElement | null;
+  const nameEl = document.getElementById('o8-account-chip-name');
+  const dealershipEl = document.getElementById('o8-account-chip-dealership');
+  const planEl = document.getElementById('o8-account-chip-plan') as HTMLElement | null;
+  if (!chip || !nameEl || !dealershipEl || !planEl) return;
+
+  try {
+    const resp: any = await chrome.runtime.sendMessage({ type: 'GET_RESOLVED_ACCESS' });
+    if (!resp?.ok) {
+      // Auth not ready or backend down. Keep chip hidden silently.
+      return;
+    }
+    const access = resp.access || {};
+    const plan = String(access.plan || 'free').toLowerCase();
+    const status = String(access.status || 'active').toLowerCase();
+    const isOverridden = !!(access.source?.plan_overridden_by_rep);
+
+    nameEl.textContent = resp.rep_name || 'Rep';
+    dealershipEl.textContent = resp.dealership || '';
+
+    planEl.classList.remove('plan-free', 'plan-pilot', 'plan-command', 'plan-annual', 'plan-custom', 'plan-upgrade', 'status-paused', 'status-terminated');
+    if (status === 'paused') {
+      planEl.classList.add('status-paused');
+      planEl.textContent = 'Paused';
+    } else if (status === 'terminated') {
+      planEl.classList.add('status-terminated');
+      planEl.textContent = 'Terminated';
+    } else {
+      planEl.classList.add(`plan-${plan}`);
+      if (isOverridden) planEl.classList.add('plan-upgrade');
+      planEl.textContent = isOverridden ? `↑ ${PLAN_DISPLAY[plan] || plan}` : (PLAN_DISPLAY[plan] || plan);
+    }
+    chip.style.display = 'block';
+  } catch {
+    /* keep chip hidden on error */
+  }
 }
 
 async function applyFirstUseGuide(root: HTMLElement): Promise<void> {
@@ -1494,7 +1543,7 @@ function wireHandlers(root: HTMLElement): void {
   }
   const helpBtn = root.querySelector('#sp-link-help') as HTMLButtonElement;
   if (helpBtn) {
-    helpBtn.onclick = () => { chrome.tabs.create({ url: 'mailto:team@brevmont.com' }); };
+    helpBtn.onclick = () => { chrome.tabs.create({ url: 'mailto:support@brevmont.com' }); };
   }
 
   // Tools panel
@@ -1887,7 +1936,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     } else if (response?.queued) {
       showToast(root, response.message || 'Saved. Will sync when online.');
     } else if (response?.error) {
-      addOutput(root, 'Error', response.error);
+      addOutput(root, 'Error', GENERATION_FAILURE_MESSAGE);
     } else {
       root.querySelector('#o8-streaming-output')?.remove();
       const sec = response.sections;
@@ -1944,8 +1993,8 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       }).catch(() => {});
       updateUsageCounter(root);
     }
-  } catch (e: any) {
-    addOutput(root, 'Error', e.message || 'Generation failed');
+  } catch (_e: any) {
+    addOutput(root, 'Error', GENERATION_FAILURE_MESSAGE);
   }
 
   btn.innerHTML = 'Generate';
