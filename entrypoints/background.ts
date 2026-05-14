@@ -71,6 +71,20 @@ function isBadLeadName(value: unknown): boolean {
   return !raw || /^(?:messenger|facebook|marketplace|chats|save lead|scan|unknown)$/i.test(raw);
 }
 
+function inferLocalLeadHeat(lead: any, payload: any): number {
+  const existing = Number(lead?.heat_score ?? lead?.heat);
+  if (Number.isFinite(existing) && existing > 0) return Math.min(100, Math.max(0, Math.round(existing)));
+
+  const confidence = String(lead?.confidence || '').toLowerCase();
+  const intent = String(lead?.intent || '').toLowerCase();
+  let score = confidence === 'high' ? 80 : confidence === 'medium' ? 65 : 45;
+  if (lead?.phone || payload?.phone) score += 8;
+  if (lead?.email || payload?.email) score += 5;
+  if (lead?.vehicle_interest || lead?.vehicle || payload?.vehicle_interest || payload?.vehicle) score += 10;
+  if (['trade_in', 'financing', 'individual_buyer', 'fleet_inquiry'].includes(intent)) score += 8;
+  return Math.min(95, Math.max(25, Math.round(score)));
+}
+
 function hasVehicleOrBuyingSignal(rawText: unknown): boolean {
   const raw = String(rawText || '');
   return /\b(?:19|20)\d{2}\s*(?:Chevrolet|Chevy|Subaru|Toyota|Ford|Ram|Dodge|Jeep|GMC|Honda|Nissan|Hyundai|Kia|BMW|Mercedes|Buick|Cadillac|Lexus|Acura|Audi|Volvo|Mazda|Chrysler|Lincoln|Infiniti|Volkswagen|VW|Porsche|Tesla|Rivian|Tacoma|Silverado|Tahoe|Suburban|F-?150|Camry|Corolla|Accord|Civic|Telluride|Sorento|Sportage)\b/i.test(raw)
@@ -849,6 +863,7 @@ export default defineBackground(() => {
 
           if (customerName) {
             const leadId = crypto.randomUUID();
+            const localHeatScore = inferLocalLeadHeat(leadForSave, msg.payload);
             const localLead: LocalLead = {
               id: leadId,
               customer_name: customerName,
@@ -867,7 +882,7 @@ export default defineBackground(() => {
               extracted_urgency: leadForSave.extracted_urgency || leadForSave.urgency || null,
               pipeline_stage: 'captured',
               lead_stage_at_capture: msg.payload?.lead_stage_at_capture || null,
-              heat_score: 0, // Server computes real score on sync
+              heat_score: localHeatScore,
               metadata: {
                 company: leadForSave.company || null,
                 intent: leadForSave.intent || null,
