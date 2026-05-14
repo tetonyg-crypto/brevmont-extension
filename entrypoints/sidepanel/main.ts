@@ -484,6 +484,14 @@ async function collectContextReplyPageText(): Promise<string> {
   return cleanContextText(parts.join('\n'), CONTEXT_PAGE_TEXT_MAX);
 }
 
+async function collectCurrentLeadContext(): Promise<any> {
+  try {
+    const lead = await sendToContent({ type: 'GET_LEAD_CONTEXT' });
+    if (lead && typeof lead === 'object') return lead;
+  } catch {}
+  return {};
+}
+
 async function refreshPlatform(): Promise<void> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -1715,7 +1723,8 @@ async function doCoach(root: HTMLElement): Promise<void> {
   output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Thinking...</div>';
   try {
     await requireToken();
-    const resp = await safeSend({ type: 'COACH_ME', payload: { situation: input, platform: currentPlatform.platform } });
+    const leadContext = await collectCurrentLeadContext();
+    const resp = await safeSend({ type: 'COACH_ME', payload: { situation: input, platform: currentPlatform.platform, leadContext } });
     const text = resp?.coaching || resp?.text || '';
     if (!text) {
       output.innerHTML = '<div class="tool-result" style="color:#ef4444">Empty response from Coach. Try again.</div>';
@@ -1799,7 +1808,8 @@ async function doCommand(root: HTMLElement): Promise<void> {
   status.innerHTML = '<div class="tool-result" style="color:#94a3b8">Executing...</div>';
   try {
     await requireToken();
-    const resp = await safeSend({ type: 'EXECUTE_COMMAND', payload: { command: input, platform: currentPlatform.platform } });
+    const leadContext = await collectCurrentLeadContext();
+    const resp = await safeSend({ type: 'EXECUTE_COMMAND', payload: { command: input, platform: currentPlatform.platform, currentUrl: currentPlatform.url, leadContext } });
     // API returns { parsed: { action, content, ... }, usage }.
     // Display the content field from the parsed command JSON.
     const text = resp?.parsed?.content || resp?.result || resp?.text || '';
@@ -1913,6 +1923,7 @@ function wireContextTool(root: HTMLElement): void {
       try {
         await requireToken();
         const pageText = await collectContextReplyPageText();
+        const leadContext = await collectCurrentLeadContext();
         const resp = await safeSend({
           type: 'CONTEXT_REPLY',
           payload: {
@@ -1921,6 +1932,7 @@ function wireContextTool(root: HTMLElement): void {
             page_text: pageText,
             platform: currentPlatform.platform,
             image_meta: screenshotMeta,
+            leadContext,
           },
         });
         const replyText = resp?.reply || resp?.text || '';

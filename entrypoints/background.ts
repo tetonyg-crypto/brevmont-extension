@@ -99,11 +99,61 @@ function looksLikeSystemSender(rawText: unknown): boolean {
 function shouldPersistPartialLead(payload: any): boolean {
   const rawText = payload?.raw_text || '';
   const platform = String(payload?.platform || '').toLowerCase();
-  const hasPartial = Boolean(payload?.customer_name || payload?.customerName || payload?.name || payload?.phone || payload?.email || payload?.vehicle_interest || payload?.vehicle);
+  const looseFallback = parseLooseLeadText(rawText);
+  const hasPartial = Boolean(
+    payload?.customer_name ||
+    payload?.customerName ||
+    payload?.name ||
+    payload?.phone ||
+    payload?.email ||
+    payload?.vehicle_interest ||
+    payload?.vehicle ||
+    looseFallback.customer_name ||
+    looseFallback.vehicle_interest
+  );
   if (!hasPartial) return false;
   if (looksLikeSystemSender(rawText) && !hasVehicleOrBuyingSignal(rawText)) return false;
-  if (payload?.phone || payload?.email || payload?.vehicle_interest || payload?.vehicle) return true;
+  if (payload?.phone || payload?.email || payload?.vehicle_interest || payload?.vehicle || looseFallback.vehicle_interest) return true;
   return /^(facebook|messenger|linkedin|instagram|unknown)$/.test(platform);
+}
+
+function cleanLeadMetaValue(value: unknown): string | null {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text && text.toLowerCase() !== 'unknown' ? text : null;
+}
+
+function toolLeadMetadata(payload: any, platformFallback: unknown = 'unknown'): Record<string, any> {
+  const leadContext = payload?.leadContext && typeof payload.leadContext === 'object' ? payload.leadContext : {};
+  const vehicle = cleanLeadMetaValue(
+    leadContext.vehicle ||
+    leadContext.vehicleOfInterest ||
+    leadContext.vehicle_interest ||
+    payload?.vehicleContext ||
+    payload?.vehicle
+  );
+  const customerName = cleanLeadMetaValue(
+    leadContext.customerName ||
+    leadContext.customer_name ||
+    leadContext.name ||
+    payload?.customer_name ||
+    payload?.customerName ||
+    payload?.name
+  );
+  const rawPlatform = cleanLeadMetaValue(leadContext.platform || payload?.platform || platformFallback) || 'unknown';
+  const platform = rawPlatform === 'facebook' ? 'messenger' : rawPlatform;
+  return {
+    customer_name: customerName,
+    customer_phone: cleanLeadMetaValue(leadContext.phone || leadContext.customer_phone || payload?.phone),
+    customer_email: cleanLeadMetaValue(leadContext.email || leadContext.customer_email || payload?.email),
+    vehicle,
+    vehicle_interest: vehicle,
+    vehicle_of_interest: vehicle,
+    source_platform: platform,
+    platform,
+    lead_source: cleanLeadMetaValue(leadContext.source || payload?.source),
+    captured_lead_id: cleanLeadMetaValue(leadContext.captured_lead_id || leadContext.lead_id || leadContext.id || payload?.captured_lead_id || payload?.lead_id),
+    lead_id: cleanLeadMetaValue(leadContext.captured_lead_id || leadContext.lead_id || leadContext.id || payload?.captured_lead_id || payload?.lead_id),
+  };
 }
 
 function objectionCategoryFromText(value: unknown): string | null {
@@ -2242,7 +2292,7 @@ async function pollForResult(jobId: string, maxWait = GENERATION_POLL_TIMEOUT_MS
 // Routes through the same generateViaProxy pipeline that powers the main
 // Generate button. The proxy's system prompt handles automotive coaching
 // context; we just wrap the objection in an instruction prefix.
-async function handleCoach(payload: { situation: string; vehicleContext?: string }) {
+async function handleCoach(payload: { situation: string; vehicleContext?: string; platform?: string; leadContext?: Record<string, any> }) {
   const settings = await browser.storage.sync.get(['rep_auth_token']);
   const dealerToken = await resolveDealerToken();
   const { repName, dealership, contextBlock } = await buildRepContext();
@@ -2258,12 +2308,14 @@ async function handleCoach(payload: { situation: string; vehicleContext?: string
     } catch {}
   }
 
-  const vehicleCtx = payload.vehicleContext ? `\nVehicle context: ${payload.vehicleContext}` : '';
+  const leadMeta = toolLeadMetadata(payload, payload.platform);
+  const vehicleCtx = (payload.vehicleContext || leadMeta.vehicle) ? `\nVehicle context: ${payload.vehicleContext || leadMeta.vehicle}` : '';
+  const customerCtx = leadMeta.customer_name ? `\nCustomer: ${leadMeta.customer_name}` : '';
   const coachMessage = `[COACHING MODE — Do NOT generate customer-facing copy. Instead, coach the sales rep on how to handle this situation.]
 
 Rep: ${repName}
 Dealership: ${dealership}
-${contextBlock}${vehicleCtx}
+${contextBlock}${customerCtx}${vehicleCtx}
 
 The customer said: "${payload.situation}"
 
@@ -2278,21 +2330,21 @@ Keep it to 3-5 short sentences.`;
     dealerToken,
     coachMessage,
     'coach',
-    { rep_name: repName, workflow_type: 'coach', customer_name: null, vehicle: null },
+    { ...leadMeta, rep_name: repName, workflow_type: 'coach' },
     repAuthToken,
     undefined,
     apiBase
   );
   await logToolEvent('coach_me', payload.situation || '', result.text, {
+    ...leadMeta,
     objection_category: objectionCategoryFromText(payload.situation),
-    parsed_vehicle: payload.vehicleContext || null,
-    platform: 'unknown',
+    parsed_vehicle: payload.vehicleContext || leadMeta.vehicle || null,
   });
   return { coaching: result.text };
 }
 
 // --- Ask Anything (Command Mode) via /v1/generate ---
-async function handleCommand(payload: { command: string; currentUrl?: string; vehicleContext?: string }) {
+async function handleCommand(payload: { command: string; currentUrl?: string; vehicleContext?: string; platform?: string; leadContext?: Record<string, any> }) {
   const settings = await browser.storage.sync.get(['rep_auth_token']);
   const dealerToken = await resolveDealerToken();
   const { repName, dealership, contextBlock } = await buildRepContext();
@@ -2308,11 +2360,15 @@ async function handleCommand(payload: { command: string; currentUrl?: string; ve
     } catch {}
   }
 
+  const leadMeta = toolLeadMetadata(payload, payload.platform);
+  const vehicleCtx = (payload.vehicleContext || leadMeta.vehicle) ? `\nVehicle context: ${payload.vehicleContext || leadMeta.vehicle}` : '';
+  const customerCtx = leadMeta.customer_name ? `\nCustomer: ${leadMeta.customer_name}` : '';
+
   const cmdMessage = `[COMMAND MODE — Answer this question or execute this request for an automotive sales rep.]
 
 Rep: ${repName}
 Dealership: ${dealership}
-${contextBlock}
+${contextBlock}${customerCtx}${vehicleCtx}
 
 Question/Request: "${payload.command}"
 
@@ -2323,15 +2379,15 @@ Provide a direct, actionable answer. Keep it concise (2-4 sentences). If the que
     dealerToken,
     cmdMessage,
     'command',
-    { rep_name: repName, workflow_type: 'ask_anything', customer_name: null, vehicle: null },
+    { ...leadMeta, rep_name: repName, workflow_type: 'ask_anything' },
     repAuthToken,
     undefined,
     apiBase
   );
   await logToolEvent('ask_anything', payload.command || '', result.text, {
-    parsed_vehicle: payload.vehicleContext || null,
+    ...leadMeta,
+    parsed_vehicle: payload.vehicleContext || leadMeta.vehicle || null,
     current_url: payload.currentUrl || null,
-    platform: 'unknown',
   });
   return { parsed: { action: 'answer', content: result.text }, text: result.text };
 }
@@ -2343,6 +2399,7 @@ async function handleContextReply(payload: {
   page_text?: string;
   platform?: string;
   image_meta?: any;
+  leadContext?: Record<string, any>;
 }) {
   const settings = await browser.storage.sync.get(['rep_name', 'rep_auth_token']);
   const dealerToken = await resolveDealerToken();
@@ -2399,9 +2456,7 @@ async function handleContextReply(payload: {
     || data.content?.[0]?.text
     || '';
   if (!text) throw new Error('Empty response. Try again.');
-  await logToolEvent('screenshot_reply', payload.direction || '', text, {
-    platform: 'unknown',
-  });
+  await logToolEvent('screenshot_reply', payload.direction || '', text, toolLeadMetadata(payload, payload.platform));
   return { reply: text };
 }
 
