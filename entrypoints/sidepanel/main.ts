@@ -1791,7 +1791,10 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
     // Permission was granted before — start recognition with timeout guard.
     const recognition = new SR();
     recognition.continuous = true;
-    recognition.interimResults = false;
+    // Stream partial results as the user speaks. Without this, Chrome waits
+    // for a full pause+silence before emitting ANY text, which made the mic
+    // feel like a 1-2s lag — users thought it wasn't working.
+    recognition.interimResults = true;
     recognition.lang = 'en-US';
 
     let finalTranscript = '';
@@ -1823,15 +1826,27 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
 
     recognition.onresult = (event: any) => {
       let nextFinalTranscript = '';
+      let interimTranscript = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
           nextFinalTranscript += `${transcript.trim()} `;
+        } else {
+          interimTranscript += transcript;
         }
       }
       if (nextFinalTranscript.trim()) {
         finalTranscript = `${finalTranscript} ${nextFinalTranscript}`.trim();
-        input.value = [existingText, finalTranscript].filter(Boolean).join(' ');
+      }
+      // Render every event (final OR interim) so the textarea updates live
+      // while the user is mid-sentence. interimTranscript is appended visually
+      // but NOT persisted — once the result finalizes it folds into
+      // finalTranscript and replaces the interim view.
+      const live = [existingText, finalTranscript, interimTranscript.trim()]
+        .filter(Boolean)
+        .join(' ');
+      if (input.value !== live) {
+        input.value = live;
         input.dispatchEvent(new Event('input', { bubbles: true }));
       }
     };
