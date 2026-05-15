@@ -469,11 +469,29 @@ export default defineContentScript({
                      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
         desc?.set?.call(target, text);
       } else if ((target as any).isContentEditable) {
-        const range = document.createRange();
-        range.selectNodeContents(target);
-        const selection = window.getSelection();
-        selection?.removeAllRanges();
-        selection?.addRange(range);
+        // Step 1: clear ANY existing content via the editor's own pipeline.
+        // Lexical/Draft/Slate intercept beforeinput — using execCommand('selectAll')
+        // + execCommand('delete') dispatches the correct events so the editor's
+        // internal model is wiped, not just the DOM. Selecting via Range +
+        // selection.deleteContents() left Lexical's state stale, causing the
+        // next insertText to APPEND instead of replace — that was the
+        // "double inject" symptom on Messenger.
+        let cleared = false;
+        try {
+          document.execCommand('selectAll');
+          cleared = document.execCommand('delete');
+        } catch {
+          cleared = false;
+        }
+        if (!cleared || (target.textContent || '').length > 0) {
+          // Belt + suspenders: if execCommand path didn't wipe it (older
+          // editors, sandboxed iframes), clear the DOM directly.
+          while (target.firstChild) target.removeChild(target.firstChild);
+        }
+
+        // Step 2: insert the new text. Selection is now collapsed inside the
+        // empty editor — execCommand('insertText') will go through the
+        // editor's beforeinput handler and add a single copy.
         let inserted = false;
         try {
           inserted = document.execCommand('insertText', false, text);
@@ -485,6 +503,7 @@ export default defineContentScript({
         if (!inserted || (expectedStart && !rendered.includes(expectedStart))) {
           target.textContent = text;
         }
+        const selection = window.getSelection();
         const endRange = document.createRange();
         endRange.selectNodeContents(target);
         endRange.collapse(false);
