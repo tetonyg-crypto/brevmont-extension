@@ -320,12 +320,12 @@ export default defineBackground(() => {
         await chrome.tabs.create({ url: chrome.runtime.getURL('onboarding.html') });
       } else {
         // First time — open permission page as a full tab
-        await chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') });
+        await chrome.tabs.create({ url: 'https://app.brevmont.com/auth/extension' });
       }
     } catch (e) {
       console.warn('[Brevmont] action.onClicked handler error:', e);
       // Fallback: try opening permission page
-      chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') }).catch(() => {});
+      chrome.tabs.create({ url: 'https://app.brevmont.com/auth/extension' }).catch(() => {});
     }
   });
 
@@ -396,6 +396,10 @@ export default defineBackground(() => {
 
   // app.brevmont.com /install detection — RepLanding pings via externally_connectable
   chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+    if ((message as { type?: string })?.type === 'PING') {
+      sendResponse({ ok: true, pong: true, version: chrome.runtime.getManifest().version });
+      return false;
+    }
     if ((message as { type?: string })?.type === 'WEBAPP_INSTALL_CHECK') {
       try {
         sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
@@ -2487,7 +2491,7 @@ async function generateViaProxy(
     return { text, usage: result.usage || {} };
   }
 
-  if (resp.status === 401) throw new Error('Your Brevmont access expired or needs to be refreshed. Ask your manager to resend the invite, or text us at 307-690-0291.');
+  if (resp.status === 401) throw new Error('Your Brevmont access expired or needs to be refreshed. Sign in with Google again, or text us at 307-690-0291.');
   if (resp.status === 429) {
     const body429 = await resp.json().catch(() => ({}));
     if (body429.error === 'generation_limit_reached') {

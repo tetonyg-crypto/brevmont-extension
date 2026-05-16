@@ -189,7 +189,7 @@ async function routeStoredSetup(): Promise<boolean> {
     return true;
   }
 
-  showSetupCodeEntry();
+  showGoogleActivationEntry();
   return true;
 }
 
@@ -228,6 +228,20 @@ function showSetupCodeEntry(): void {
   showOnlyScreen('screen-setup-code');
 }
 
+function showGoogleActivationEntry(): void {
+  hideProgress();
+  showOnlyScreen('screen-google-auth');
+}
+
+function openGoogleActivation(): void {
+  try {
+    chrome.tabs.create({ url: 'https://app.brevmont.com/auth/extension' });
+    window.close();
+  } catch {
+    window.location.href = 'https://app.brevmont.com/auth/extension';
+  }
+}
+
 // Boot path: storage init → URL token check → onboarded check → resume.
 // Each step is short-circuited by an earlier success.
 (async function boot() {
@@ -251,6 +265,10 @@ function showSetupCodeEntry(): void {
 
   // Path 1 — install_token in URL. Highest priority.
   const url = new URL(window.location.href);
+  if (url.searchParams.get('manual') === '1') {
+    showSetupCodeEntry();
+    return;
+  }
   const installToken = url.searchParams.get('install_token');
   if (installToken) {
     const ok = await tryAutoConfigFromInstallToken(installToken);
@@ -267,7 +285,7 @@ function showSetupCodeEntry(): void {
     // back to manual entry.
     const err = document.getElementById('s2-license-err');
     if (err) {
-      err.textContent = 'This install link expired or was already used. Ask whoever sent it to send a fresh one, or paste your license key below.';
+      err.textContent = 'This install link expired or was already used. Try Google sign-in or contact support@brevmont.com.';
       err.style.display = 'block';
     }
   }
@@ -587,7 +605,7 @@ async function validateLicense(key: string) {
     if (INSTALL_TOKEN_RE.test(normalizedKey)) {
       const ok = await tryAutoConfigFromInstallToken(normalizedKey);
       if (!ok) {
-        showError('Activation code is invalid, expired, or already used. Ask your manager for a fresh link.');
+        showError('Activation code is invalid, expired, or already used. Try Google sign-in or contact support@brevmont.com.');
         return false;
       }
       if (okEl) okEl.style.display = 'block';
@@ -743,7 +761,7 @@ async function validateRepToken(token: string) {
   if (INSTALL_TOKEN_RE.test(normalizedToken)) {
     const ok = await tryAutoConfigFromInstallToken(normalizedToken);
     if (!ok) {
-      showError('Activation code is invalid, expired, or already used. Ask your manager for a fresh invite.');
+      showError('Activation code is invalid, expired, or already used. Try Google sign-in or contact support@brevmont.com.');
       return false;
     }
     if (okEl) okEl.style.display = 'block';
@@ -754,7 +772,7 @@ async function validateRepToken(token: string) {
   const isRepAuthToken = REP_TOKEN_RE.test(normalizedToken);
   const isInviteCode = INVITE_TOKEN_RE.test(normalizedToken);
   if (!isRepAuthToken && !isInviteCode) {
-    showError('Paste the setup code from your invitation email.');
+    showError('Paste a setup code or use Google sign-in.');
     return false;
   }
 
@@ -769,7 +787,7 @@ async function validateRepToken(token: string) {
     if (resp.status === 400 || resp.status === 401 || resp.status === 403) {
       let body: any = {};
       try { body = await resp.json(); } catch {}
-      showError(body?.message || body?.error || 'Setup code is invalid or expired. Check with your manager.');
+      showError(body?.message || body?.error || 'Setup code is invalid or expired. Try Google sign-in or contact support@brevmont.com.');
       telemetry.trackError(new Error(body?.error || 'rep_setup_code_invalid'), { flow: 'rep_token_validation', status: resp.status, code_type: isRepAuthToken ? 'rep_auth_token' : 'invite_code' });
       return false;
     }
@@ -1074,14 +1092,14 @@ async function connectSetupCode() {
   const ok = document.getElementById('quick-code-ok') as HTMLElement | null;
   const token = input?.value.trim() || '';
   if (!token) {
-    if (err) { err.textContent = 'Paste the setup code from your invitation email.'; err.style.display = 'block'; }
+    if (err) { err.textContent = 'Paste a setup code or use Google sign-in.'; err.style.display = 'block'; }
     if (ok) ok.style.display = 'none';
     return;
   }
   if (err) err.style.display = 'none';
   const valid = await validateRepToken(token);
   if (!valid) {
-    if (err) { err.textContent = 'Setup code is invalid or expired. Ask your manager for a fresh invite.'; err.style.display = 'block'; }
+    if (err) { err.textContent = 'Setup code is invalid or expired. Try Google sign-in or contact support@brevmont.com.'; err.style.display = 'block'; }
     if (ok) ok.style.display = 'none';
     return;
   }
@@ -1228,6 +1246,15 @@ document.getElementById('btn-open')!.addEventListener('click', () => openBrevmon
 document.getElementById('btn-quick-start')?.addEventListener('click', () => finishQuickRepOnboarding().catch(() => {}));
 document.getElementById('btn-manager-start')?.addEventListener('click', () => finishManagerOnboarding().catch(() => {}));
 document.getElementById('btn-connect-code')?.addEventListener('click', () => connectSetupCode().catch(() => {}));
+document.getElementById('btn-google-auth')?.addEventListener('click', () => openGoogleActivation());
+document.getElementById('link-manual-setup')?.addEventListener('click', (event) => {
+  event.preventDefault();
+  showSetupCodeEntry();
+});
+document.getElementById('link-google-auth')?.addEventListener('click', (event) => {
+  event.preventDefault();
+  showGoogleActivationEntry();
+});
 
 document.querySelectorAll('#s2-role .tone-card[data-role]').forEach(c =>
   c.addEventListener('click', () => setAuthRole(((c as HTMLElement).dataset.role as 'manager' | 'rep') || 'manager'))

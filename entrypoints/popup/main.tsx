@@ -216,6 +216,16 @@ function App() {
     window.close();
   };
 
+  const openGoogleActivation = () => {
+    void browser.tabs.create({ url: 'https://app.brevmont.com/auth/extension' });
+    window.close();
+  };
+
+  const openManualSetup = () => {
+    void browser.tabs.create({ url: browser.runtime.getURL('onboarding.html?manual=1') });
+    window.close();
+  };
+
   const PALETTE = {
     bone: '#F8F6F1',
     charcoal: '#0F1419',
@@ -252,14 +262,11 @@ function App() {
           </div>
           <div style={{ fontWeight: 700, fontSize: 15, color: PALETTE.charcoal, letterSpacing: '-0.02em' }}>brevmont</div>
         </div>
-        <p style={{ fontSize: 13, color: PALETTE.textBody, lineHeight: '1.5', margin: 0 }}>Not activated yet.</p>
-        <p style={{ fontSize: 12, color: PALETTE.textMuted, lineHeight: '1.5', margin: 0 }}>Ask your manager to send you an activation link, or open the activation page below.</p>
+        <p style={{ fontSize: 13, color: PALETTE.textBody, lineHeight: '1.5', margin: 0, fontWeight: 700 }}>Sign in to activate Brevmont.</p>
+        <p style={{ fontSize: 12, color: PALETTE.textMuted, lineHeight: '1.5', margin: 0 }}>Use your dealership Google account. Brevmont finds your store and activates the extension automatically.</p>
         <button
           type="button"
-          onClick={() => {
-            void browser.tabs.create({ url: 'https://app.brevmont.com/install' });
-            window.close();
-          }}
+          onClick={openGoogleActivation}
           style={{
             padding: '10px',
             borderRadius: 8,
@@ -271,13 +278,30 @@ function App() {
             fontSize: 13,
           }}
         >
-          Open Activation Page
+          Continue with Google
+        </button>
+        <button
+          type="button"
+          onClick={openManualSetup}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            color: PALETTE.textMuted,
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            textDecoration: 'underline',
+            textUnderlineOffset: 3,
+          }}
+        >
+          Trouble activating? Try manual setup
         </button>
         <a
-          href="mailto:team@brevmont.com"
+          href="mailto:support@brevmont.com"
           style={{ fontSize: 11, color: PALETTE.textFaint, textDecoration: 'none', textAlign: 'center' }}
         >
-          Need help? team@brevmont.com
+          Need help? support@brevmont.com
         </a>
       </div>
     );
@@ -321,7 +345,7 @@ function App() {
         </div>
         <div style={{ fontSize: 12, color: PALETTE.textMuted, marginTop: 6 }}>
           {isOnCrm
-            ? 'Use the Brevmont sidebar on this page for voice + generation.'
+            ? 'Use the Brevmont sidebar on this page for voice + follow-ups.'
             : 'Open your CRM (from Brevmont settings if needed) or your messaging tab, then look for the Brevmont sidebar.'}
         </div>
       </div>
@@ -373,7 +397,7 @@ function App() {
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: PALETTE.statusWarn, flexShrink: 0 }} />
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: PALETTE.charcoal }}>
-              {queueSize} queued generation{queueSize > 1 ? 's' : ''}
+              {queueSize} queued follow-up{queueSize > 1 ? 's' : ''}
             </div>
             <div style={{ fontSize: 11, color: PALETTE.textBody }}>Will send when connection returns.</div>
           </div>
@@ -460,8 +484,8 @@ function App() {
         >
           Report issue
         </button>
-        <a href="mailto:team@brevmont.com" style={{ fontSize: 12, color: PALETTE.textMuted, textDecoration: 'none' }}>
-          Or email team@brevmont.com
+        <a href="mailto:support@brevmont.com" style={{ fontSize: 12, color: PALETTE.textMuted, textDecoration: 'none' }}>
+          Or email support@brevmont.com
         </a>
       </div>
 

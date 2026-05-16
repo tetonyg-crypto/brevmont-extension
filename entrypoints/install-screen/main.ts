@@ -100,7 +100,7 @@ async function bootstrap() {
       ? 'Pinning Brevmont takes about 15 seconds on macOS.'
       : platform === 'windows'
         ? 'Pinning Brevmont takes about 15 seconds on Windows.'
-        : 'One quick step before you use Brevmont in your CRM.';
+        : 'One quick step before Brevmont opens on your customer tabs.';
   }
 
   const stepsRoot = document.getElementById('steps');
@@ -144,8 +144,7 @@ async function bootstrap() {
     }
     // Not activated — open the legacy wizard so the rep pastes their license.
     try {
-      const url = chrome.runtime.getURL('onboarding.html');
-      window.location.href = url;
+      window.location.href = 'https://app.brevmont.com/auth/extension';
     } catch {
       window.close();
     }
@@ -153,7 +152,7 @@ async function bootstrap() {
 
   document.getElementById('btn-skip')?.addEventListener('click', async () => {
     await markFirstRunComplete();
-    window.close();
+    window.location.href = chrome.runtime.getURL('onboarding.html?manual=1');
   });
 }
 

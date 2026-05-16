@@ -155,11 +155,25 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
   </div>
 </div>
 
-<!-- QUICK PATH C: SETUP CODE ONLY -->
+<!-- QUICK PATH C: GOOGLE-FIRST ACTIVATION -->
+<div class="screen" id="screen-google-auth">
+  <div class="quick-card">
+    <h1>Continue with Google.</h1>
+    <div class="sub">Sign in with your dealership Google account. Brevmont finds your store and activates the extension automatically.</div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-google-auth" style="width:100%;font-size:16px;padding:14px">Continue with Google</button>
+    </div>
+    <div class="setup-help">
+      Manual setup is only for recovery. <a href="#" id="link-manual-setup">I have a setup code</a>
+    </div>
+  </div>
+</div>
+
+<!-- QUICK PATH D: SETUP CODE FALLBACK -->
 <div class="screen" id="screen-setup-code">
   <div class="quick-card">
-    <h1>Got a setup code?</h1>
-    <div class="sub">If your manager invited you, paste the code from your email.</div>
+    <h1>Manual setup.</h1>
+    <div class="sub">Use this only if support gave you a setup code or Google sign-in is blocked.</div>
     <div class="field">
       <label>Setup Code</label>
       <input id="quick-setup-code" placeholder="Paste setup code">
@@ -170,7 +184,7 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
       <button class="btn btn-primary" id="btn-connect-code" style="width:100%;font-size:16px;padding:14px">Connect</button>
     </div>
     <div class="setup-help">
-      No code? Ask your manager for an invitation.<br>
+      Google sign-in is the normal path. <a href="#" id="link-google-auth">Back to Google sign-in</a><br>
       Need help installing? <a href="https://app.brevmont.com/install-guide" target="_blank" rel="noreferrer">Open the visual guide</a> or text us at 307-690-0291.
     </div>
   </div>
@@ -229,13 +243,13 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
     <label>Who is installing this?</label>
     <div class="tone-grid" id="s2-role" style="grid-template-columns:1fr 1fr">
       <div class="tone-card selected" data-role="manager"><div class="tc-name">I'm the dealership owner/manager</div><div class="tc-ex">I have a license key</div></div>
-      <div class="tone-card" data-role="rep"><div class="tc-name">I'm a sales rep who was invited</div><div class="tc-ex">I have the setup code from my invite email</div></div>
+      <div class="tone-card" data-role="rep"><div class="tc-name">I'm a sales rep</div><div class="tc-ex">Manual setup fallback</div></div>
     </div>
   </div>
 
   <div class="field rep-only" style="display:none">
     <label>Setup code</label>
-    <div class="hint">Paste the code from your invitation email. It's in the "YOUR SETUP CODE" section.</div>
+    <div class="hint">Use this only if support gave you a setup code.</div>
   </div>
 
   <div class="field manager-only"><label>Dealership Name <span class="req">*</span></label><input id="s2-dealer" placeholder="Your dealership name"></div>
@@ -258,7 +272,7 @@ body{font-family:Inter,system-ui,-apple-system,sans-serif;background:#fafafa;col
   <div class="field" id="s2-reptoken-wrap" style="display:none">
     <label>Setup Code <span class="req">*</span></label>
     <input id="s2-reptoken" placeholder="Paste the code from your invite email">
-    <div class="hint">Paste the code from your invitation email. It's in the "YOUR SETUP CODE" section.</div>
+    <div class="hint">Use this only if support gave you a setup code or Google sign-in is blocked.</div>
     <div class="hint"><a href="https://app.brevmont.com/install-guide" target="_blank" rel="noreferrer" style="color:#0D6E6E;font-weight:700;text-decoration:none">Need help installing? Open the visual install guide.</a></div>
     <div class="hint" id="install-stuck-help" style="display:none;color:#0D6E6E;font-weight:700">Having trouble? Text us at 307-690-0291 and we will walk you through it.</div>
     <div class="valid" id="s2-reptoken-ok">Setup code validated</div>
