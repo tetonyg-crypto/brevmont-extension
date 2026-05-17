@@ -21,7 +21,8 @@ const REPO_ROOT = resolve(__dirname, '..');
 const BUILD_DIR = resolve(REPO_ROOT, '.output/chrome-mv3');
 const ZIP_PATH = resolve(REPO_ROOT, 'brevmont-extension-latest.zip');
 const DESKTOP_FOLDER = 'C:\\Users\\Yancy\\Desktop\\brevmont-extension';
-const API_PUBLIC_ZIP = 'C:\\Users\\Yancy\\brevmont-api\\public\\brevmont-extension-latest.zip';
+const API_ROOT = 'C:\\Users\\Yancy\\brevmont-api';
+const API_PUBLIC_ZIP = join(API_ROOT, 'public', 'brevmont-extension-latest.zip');
 
 const pkg = JSON.parse(readFileSync(resolve(REPO_ROOT, 'package.json'), 'utf8'));
 const VERSION = pkg.version;
@@ -35,6 +36,36 @@ function run(cmd, args, opts = {}) {
   if (r.status !== 0) {
     console.error(`\n[ship] FAILED: ${cmd} ${args.join(' ')} (exit ${r.status})`);
     process.exit(r.status || 1);
+  }
+}
+
+function assertApiTarget() {
+  const packageJsonPath = join(API_ROOT, 'package.json');
+  const serverPath = join(API_ROOT, 'server.ts');
+  if (!existsSync(API_ROOT) || !existsSync(packageJsonPath) || !existsSync(serverPath)) {
+    console.error(`[ship] API target is not the production repo: ${API_ROOT}`);
+    console.error('[ship] Expected package.json and server.ts before copying the public extension ZIP.');
+    process.exit(1);
+  }
+
+  const apiPkg = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+  if (apiPkg.name !== 'brevmont-api') {
+    console.error(`[ship] API target package name is ${apiPkg.name}; expected brevmont-api.`);
+    process.exit(1);
+  }
+
+  const remote = spawnSync('git', ['-C', API_ROOT, 'remote', 'get-url', 'origin'], {
+    encoding: 'utf8',
+    shell: true,
+  });
+  const normalizedRemote = String(remote.stdout || '')
+    .trim()
+    .replace(/^https?:\/\/github\.com\//, 'github.com/')
+    .replace(/^git@github\.com:/, 'github.com/')
+    .replace(/\.git$/, '');
+  if (remote.status !== 0 || normalizedRemote !== 'github.com/tetonyg-crypto/brevmont-api') {
+    console.error(`[ship] API target remote is ${normalizedRemote || 'unknown'}; expected github.com/tetonyg-crypto/brevmont-api.`);
+    process.exit(1);
   }
 }
 
@@ -63,6 +94,7 @@ run('powershell', [
 ]);
 
 log('5/5', `Copying ZIP → ${API_PUBLIC_ZIP}`);
+assertApiTarget();
 cpSync(ZIP_PATH, API_PUBLIC_ZIP);
 
 console.log(`\n[ship] DONE. v${VERSION} is live at:
