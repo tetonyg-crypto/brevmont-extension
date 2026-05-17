@@ -2,6 +2,7 @@ node_modules/
 .output/
 .wxt/
 *.zip
+brevmont-extension-manifest.json
 .DS_Store
 
 # Secrets — never commit env files or credentials
