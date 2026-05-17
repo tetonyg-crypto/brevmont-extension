@@ -2830,7 +2830,7 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
 
   if (payload.type === 'all') {
     msg += `REP VOICE/TYPED INPUT:\n${payload.repInput}\n\n`;
-    msg += 'Generate ALL THREE generations. You MUST produce all three labeled sections:\n';
+    msg += 'Generate ALL THREE follow-ups. You MUST produce all three labeled sections:\n';
     msg += '1. TEXT (2-3 sentences max, no exclamation points, end with a question)\n';
     msg += '2. EMAIL (subject + 3-4 sentence body + signature)\n';
     msg += '3. CRM NOTE (plain text: date, contact type, summary, vehicle, intent, action, next step, notes)\n';

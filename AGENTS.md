@@ -6,11 +6,15 @@ chaos, stale Desktop folders, "which build is actually running") don't
 get re-introduced.
 
 ## What this extension is
-- AI sales-assistant overlay for Gmail, Messenger, LinkedIn, VinSolutions
+- AI co-pilot overlay for Gmail, Messenger, LinkedIn, VinSolutions
 - Posts events to `https://api.brevmont.com/api/v1/events` (canonical) and
   `/api/v1/log-action` (legacy v1.10 path, sunset June 2026)
 - MV3 service-worker background, WXT 0.20, React 19 panel UI
 - Cookie-share auth via `brevmont_rep_session` from `app.brevmont.com`
+
+## Customer-facing copy
+- Customer-facing copy must follow **`C:\Users\Yancy\brevmont-vault\brand\CUSTOMER-FACING-COPY-CONTRACT.md`**.
+- Use "follow-ups" for customer-visible wording; "generation" remains internal metric/database language only.
 
 ## Hot files
 - `entrypoints/background.ts` — service worker entry, install/update

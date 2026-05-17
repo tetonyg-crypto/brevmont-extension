@@ -13,6 +13,7 @@
     "zip": "wxt zip",
     "test": "playwright test",
     "test:mock-dom": "playwright test tests/mock-vinsolutions.spec.ts",
+    "lint:brand": "node scripts/brand-lint.js",
     "test:install": "playwright install chromium",
     "lint:css": "stylelint \"entrypoints/**/*.css\" \"assets/**/*.css\"",
     "clean": "rm -rf node_modules .wxt .output",
