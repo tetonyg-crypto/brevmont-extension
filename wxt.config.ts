@@ -9,6 +9,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgVersion = JSON.parse(
   readFileSync(resolve(__dirname, 'package.json'), 'utf8'),
 ).version as string;
+const chromeWebStoreBuild =
+  process.env.CWS_BUILD === '1' || process.env.CHROME_WEB_STORE_BUILD === '1';
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
@@ -19,6 +21,11 @@ export default defineConfig({
       // remove the popup binding from the generated manifest.
       if (manifest.action) {
         delete (manifest.action as Record<string, unknown>).default_popup;
+      }
+      if (chromeWebStoreBuild) {
+        // Chrome Web Store owns the item key. Including the sideload/dev key
+        // makes uploads fail with "key field value ... doesn't match".
+        delete (manifest as Record<string, unknown>).key;
       }
     },
   },
