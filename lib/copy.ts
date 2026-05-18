@@ -59,11 +59,11 @@ export const copy = {
       licenseLabel: 'License key',
       licenseHint: 'Starts with BREV- or BRV-. You can also paste an inst_ activation code.',
       licenseFoundOk: 'License recognised. You are activated.',
-      licenseInvalid: 'That key did not match. Double-check with your manager.',
+      licenseInvalid: 'That key did not match. Try Google sign-in or contact support for a new link.',
       repTokenLabel: 'Rep token',
-      repTokenHint: 'Starts with BRVMT-REP-. Get it from the email your manager sent or from the dashboard.',
+      repTokenHint: 'Starts with BRVMT-REP-. Manual setup is only for support recovery.',
       repTokenFoundOk: 'Token verified. You are activated.',
-      repTokenInvalid: 'Token did not match. Ask your manager to resend the invite.',
+      repTokenInvalid: 'Token did not match. Try Google sign-in or request a fresh install link.',
       crmLabel: 'Which CRM are you using?',
       docFeeLabel: 'Doc fee',
       docFeeHint: 'Optional. Helps Brevmont quote out-the-door price more accurately.',
@@ -123,7 +123,7 @@ export const copy = {
       networkError: 'No network. Check your connection and try again.',
       validationFailed: 'Could not verify. Try again in a moment.',
       missingFields: 'A few fields are still empty.',
-      installTokenInvalid: 'This install link expired or was already used. Ask your manager to resend it.',
+      installTokenInvalid: 'This install link expired or was already used. Try Google sign-in or request a fresh install link.',
     },
   },
 
@@ -161,7 +161,7 @@ export const copy = {
       'Your message has been received. We respond to every inquiry directly. Urgent issues are addressed within hours. Other requests within one business day.',
 
     errorSubmit:
-      'The message did not send. Please try again. If the problem continues, contact us at team@brevmont.com or 307-690-0291.',
+      'The message did not send. Please try again. If the problem continues, contact us at support@brevmont.com or 307-690-0291.',
     errorScreenshot:
       'The screenshot could not be attached. Your message was sent successfully.',
   },
