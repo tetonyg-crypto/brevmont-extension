@@ -57,7 +57,7 @@ export default defineConfig({
         description: 'Open Brevmont Command Mode'
       }
     },
-    permissions: ['sidePanel', 'activeTab', 'scripting', 'storage', 'alarms', 'tabs', 'notifications', 'cookies'],
+    permissions: ['sidePanel', 'activeTab', 'scripting', 'storage', 'alarms', 'tabs', 'cookies'],
     // Options page: rep-only preferences (name, tone, goal).
     // Opens as a full tab via chrome.runtime.openOptionsPage().
     options_ui: {
@@ -103,7 +103,6 @@ export default defineConfig({
       ],
     },
     host_permissions: [
-      '<all_urls>',
       '*://*.vinsolutions.com/*',
       '*://vinsolutions.app.coxautoinc.com/*',
       '*://mail.google.com/*',
