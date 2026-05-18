@@ -11,6 +11,8 @@
 
 const PROXY_URL = 'https://api.brevmont.com';
 const GENERATION_POLL_TIMEOUT_MS = 60_000;
+const BLANK_CONTEXT_IMAGE =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 
 /**
  * Retry wrapper with linear backoff for transient network failures.
@@ -1433,6 +1435,30 @@ export default defineBackground(() => {
           const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 82 });
           sendResponse({ image: dataUrl });
         } catch (e: any) {
+          let pageText = '';
+          try {
+            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (activeTab?.id) {
+              const ctx = await chrome.tabs.sendMessage(activeTab.id, { type: 'GET_CONVERSATION_TEXT' }).catch(() => null);
+              const lead = await chrome.tabs.sendMessage(activeTab.id, { type: 'GET_LEAD_CONTEXT' }).catch(() => null);
+              const bits = [
+                ctx?.text ? `Visible conversation text: ${String(ctx.text).slice(0, 5000)}` : '',
+                lead?.customerName ? `Customer: ${lead.customerName}` : '',
+                lead?.vehicle || lead?.vehicleOfInterest ? `Vehicle: ${lead.vehicle || lead.vehicleOfInterest}` : '',
+                lead?.source ? `Source: ${lead.source}` : '',
+              ].filter(Boolean);
+              pageText = bits.join('\n');
+            }
+          } catch {}
+          if (pageText) {
+            sendResponse({
+              image: BLANK_CONTEXT_IMAGE,
+              fallback: 'page_text',
+              page_text: pageText,
+              warning: e.message || 'Screenshot capture unavailable; using visible page text.',
+            });
+            return;
+          }
           sendResponse({ error: e.message || 'Screenshot capture failed' });
         }
       })();
@@ -2670,6 +2696,36 @@ async function handleContextReply(payload: {
   const repTokenHeader: Record<string, string> | undefined = repAuthToken
     ? { 'X-Rep-Token': repAuthToken }
     : undefined;
+
+  if (payload.image_meta?.fallback && payload.page_text) {
+    const apiBase = await getResolvedApiUrl();
+    const { repName, dealership, contextBlock } = await buildRepContext();
+    const leadMeta = toolLeadMetadata(payload, payload.platform);
+    const prompt = `[SCREENSHOT REPLY FALLBACK — visible page text captured, screenshot permission unavailable]
+
+Rep: ${repName}
+Dealership: ${dealership}
+${contextBlock}
+Platform: ${payload.platform || 'unknown'}
+Direction from rep: "${payload.direction || 'Write a natural reply based on this conversation.'}"
+
+Visible page text:
+${String(payload.page_text || '').slice(0, 5000)}
+
+Write one concise, natural customer reply. If dollar amounts, payment terms, vehicle, credit score, down payment, or fees are visible, reference the exact details. Do not mention that a screenshot failed.`;
+
+    const result = await generateViaProxy(
+      dealerToken,
+      prompt,
+      'screenshot',
+      { ...leadMeta, rep_name: repName, workflow_type: 'context_reply', stream_target: 'context_reply' },
+      repAuthToken,
+      undefined,
+      apiBase
+    );
+    await logToolEvent('screenshot_reply', payload.direction || '', result.text, leadMeta);
+    return { reply: result.text, fallback: true };
+  }
 
   let resp: Response;
   try {

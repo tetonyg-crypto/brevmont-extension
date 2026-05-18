@@ -2360,6 +2360,15 @@ function wireContextTool(root: HTMLElement): void {
         const resp = await safeSend({ type: 'CAPTURE_SCREENSHOT' });
         if (!resp?.image) throw new Error(resp?.error || 'Screenshot capture failed');
         await setScreenshot(resp.image);
+        if (resp?.fallback) {
+          screenshotMeta = {
+            ...screenshotMeta,
+            fallback: resp.fallback,
+            capture_warning: resp.warning || null,
+            captured_page_text: resp.page_text || '',
+          };
+          output.innerHTML = '<div class="tool-result" style="color:#0D6E6E">Screenshot permission was not available, so Brevmont captured the visible conversation text instead.</div>';
+        }
       } catch (e: any) {
         output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message || 'Screenshot capture failed')}</div>`;
       } finally {
@@ -2384,10 +2393,14 @@ function wireContextTool(root: HTMLElement): void {
       if (!(await ensureGenerationAllowed(root))) return;
       if (!screenshotData) return;
       const direction = directionInput?.value.trim() || '';
-      output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Analyzing screenshot...</div>';
-      try {
+        output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Analyzing screenshot...</div>';
+        try {
         await requireToken();
-        const pageText = await collectContextReplyPageText();
+        const collectedPageText = await collectContextReplyPageText();
+        const pageText = cleanContextText([
+          collectedPageText,
+          screenshotMeta?.captured_page_text ? `Fallback captured page text: ${screenshotMeta.captured_page_text}` : '',
+        ].filter(Boolean).join('\n'), CONTEXT_PAGE_TEXT_MAX);
         const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
         const resp = await safeSend({
           type: 'CONTEXT_REPLY',

@@ -1492,7 +1492,6 @@ export default defineContentScript({
       if (!text.trim()) return false;
       const now = Date.now();
       if (text === brevmontState.lastInjectedText && now - Number(brevmontState.lastInjectedTime || 0) < 3000) {
-        console.log('Brevmont: duplicate inject blocked');
         return true;
       }
       brevmontState.lastInjectedText = text;

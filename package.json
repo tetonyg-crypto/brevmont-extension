@@ -1,7 +1,7 @@
 {
   "name": "brevmont-extension",
   "version": "1.16.16",
-  "description": "Brevmont Chrome Extension - AI Sales Assistant",
+  "description": "Brevmont Chrome Extension - AI Sales Co-Pilot",
   "main": "index.js",
   "scripts": {
     "build": "wxt build",
@@ -13,6 +13,7 @@
     "dev": "wxt dev",
     "zip": "wxt zip",
     "test": "playwright test",
+    "test:platform-smoke": "node scripts/smoke-platforms.mjs",
     "test:mock-dom": "playwright test tests/mock-vinsolutions.spec.ts",
     "lint:brand": "node scripts/brand-lint.js",
     "test:install": "playwright install chromium",
