@@ -124,7 +124,7 @@
         } else if (err.name === 'NotFoundError') {
           errorEl.textContent = 'No microphone detected. Connect a mic and try again.';
         } else {
-          errorEl.textContent = 'Error: ' + (err.message || err.name);
+          errorEl.textContent = 'Could not enable microphone. Try again or contact support@brevmont.com.';
         }
         errorEl.style.display = 'block';
       }
