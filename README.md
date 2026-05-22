@@ -19,7 +19,7 @@ npm run build:release # build + zip into .output/brevmont-extension-<version>-ch
 npm test             # Playwright extension tests
 ```
 
-Load `.output/chrome-mv3/` as an unpacked extension at `chrome://extensions` (Developer mode on).
+For local development only, load `.output/chrome-mv3/` as an unpacked extension at `chrome://extensions`.
 
 ## Architecture
 
@@ -34,7 +34,7 @@ Charcoal `#0F1419`, Deep Teal `#0D6E6E`, Bone `#F8F6F1`. Inter for body, Instrum
 
 ## Distribution
 
-Sideloaded via the served zip at `https://api.brevmont.com/api/extension-download`. Chrome Web Store submission deferred until customer 5 (Constitution ADR-15).
+Brevmont is published on the Chrome Web Store under extension ID `onbnhkpggamfbnjdaelgimgimcchamah`. Customer installs should use the official listing. The served ZIP at `https://api.brevmont.com/api/extension-download` is reserved for support diagnostics and legacy fallback only.
 
 ## Environment
 
@@ -48,4 +48,4 @@ Current build: see `wxt.config.ts` `manifest.version`.
 
 ## Constitution
 
-Build prompts and architectural decisions cite `brevmont-vault/constitution/BUILD-IT-RIGHT.md` by section. ADR-9 (opaque tokens), ADR-11 (brand-locked UI), ADR-12 (Playwright visual regression), ADR-15 (CWS deferral) all touch this repo.
+Build prompts and architectural decisions cite `brevmont-vault/constitution/BUILD-IT-RIGHT.md` by section. ADR-9 (opaque tokens), ADR-11 (brand-locked UI), ADR-12 (Playwright visual regression), and Chrome Web Store launch notes all touch this repo.
