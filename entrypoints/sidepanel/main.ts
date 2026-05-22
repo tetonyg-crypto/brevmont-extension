@@ -11,6 +11,15 @@
 
 import { getPanelHTML } from '../lib/panelUI';
 import { getPanelCSS } from '../lib/panelCSS';
+import {
+  appendFreeTierEmailSignature,
+  BREVMONT_CWS_REVIEWS,
+  dismissedReviewState,
+  LOCAL_GENERATION_COUNT_KEY,
+  reviewClickedState,
+  REVIEW_PROMPT_STATE_KEY,
+  shouldShowReviewPrompt,
+} from '../lib/cwsDistribution';
 import { clearJwtCache } from '../../lib/jwtCache';
 import { clearAuth } from '../../lib/storage';
 import { getFeatureAccess } from '../../lib/featureGate';
@@ -847,6 +856,11 @@ function isLimitedFreeTier(tier: unknown): boolean {
   return normalizeUsageTier(tier) === 'free_trial';
 }
 
+async function contentForEmailOutput(raw: string): Promise<string> {
+  const data = await chrome.storage.local.get(['brevmont_tier']).catch(() => ({}));
+  return isLimitedFreeTier(data.brevmont_tier) ? appendFreeTierEmailSignature(raw) : raw;
+}
+
 function renderUsageWarning(root: HTMLElement, remaining: number, limit: number): void {
   const prompt = root.querySelector('#o8-upgrade-prompt') as HTMLElement;
   if (!prompt) return;
@@ -889,6 +903,8 @@ function renderUsageCounter(root: HTMLElement, tier: unknown, usage?: Generation
   counter.style.display = 'block';
   counter.className = 'usage-counter' + (pct >= 100 ? ' usage-critical' : pct >= 90 ? ' usage-warning' : '');
   counter.innerHTML = `<span>${used} / ${limit} this month</span><div class="usage-bar"><div class="usage-fill" style="width:${pct}%"></div></div>`;
+  chrome.action?.setBadgeBackgroundColor?.({ color: '#0D6E6E' }).catch?.(() => {});
+  chrome.action?.setBadgeText?.({ text: String(remaining) }).catch?.(() => {});
 
   if (used >= limit || remaining <= 0) {
     if (generateButton) {
@@ -1351,6 +1367,35 @@ async function markFirstGenerationComplete(root: HTMLElement): Promise<void> {
   card.style.display = 'none';
 }
 
+async function recordSuccessfulGeneration(root: HTMLElement): Promise<void> {
+  const data = await chrome.storage.local.get([LOCAL_GENERATION_COUNT_KEY, REVIEW_PROMPT_STATE_KEY]).catch(() => ({}));
+  const count = Number(data[LOCAL_GENERATION_COUNT_KEY] || 0) + 1;
+  await chrome.storage.local.set({ [LOCAL_GENERATION_COUNT_KEY]: count });
+  const state = data[REVIEW_PROMPT_STATE_KEY] || {};
+  if (shouldShowReviewPrompt(count, state)) showReviewPrompt(root);
+}
+
+function showReviewPrompt(root: HTMLElement): void {
+  const prompt = root.querySelector('#o8-review-prompt') as HTMLElement | null;
+  if (!prompt) return;
+  prompt.style.display = 'block';
+  const dismiss = prompt.querySelector('#o8-review-dismiss') as HTMLButtonElement | null;
+  const link = prompt.querySelector('#o8-review-link') as HTMLButtonElement | null;
+  if (dismiss) {
+    dismiss.onclick = async () => {
+      await chrome.storage.local.set({ [REVIEW_PROMPT_STATE_KEY]: dismissedReviewState() });
+      prompt.style.display = 'none';
+    };
+  }
+  if (link) {
+    link.onclick = async () => {
+      await chrome.storage.local.set({ [REVIEW_PROMPT_STATE_KEY]: reviewClickedState() });
+      prompt.style.display = 'none';
+      chrome.tabs.create({ url: BREVMONT_CWS_REVIEWS });
+    };
+  }
+}
+
 async function showAccessEndedBanner(root: HTMLElement): Promise<void> {
   const local = await chrome.storage.local.get(['license_revoked', 'license_revoked_message', 'dealership']);
   const existing = root.querySelector('#o8-access-ended-banner');
@@ -1495,6 +1540,29 @@ function wireHandlers(root: HTMLElement): void {
   // Generate button
   const genBtn = el('o8-generate');
   if (genBtn) genBtn.onclick = () => doGenerate(root);
+  const referralBtn = el('o8-referral-link') as HTMLButtonElement | null;
+  if (referralBtn) {
+    referralBtn.onclick = async () => {
+      referralBtn.disabled = true;
+      const original = referralBtn.textContent || 'Invite a rep';
+      referralBtn.textContent = 'Creating link...';
+      try {
+        const resp = await safeSend({ type: 'GET_REFERRAL_LINK' });
+        if (!resp?.ok || !resp.referral_url) throw new Error(resp?.error || 'Could not create invite link.');
+        await navigator.clipboard.writeText(resp.referral_url);
+        showToast(root, 'Referral link copied.');
+        referralBtn.textContent = 'Referral link copied';
+      } catch {
+        chrome.tabs.create({ url: 'https://app.brevmont.com/manager/team?utm_source=extension&utm_medium=sidebar&utm_campaign=referral' });
+        referralBtn.textContent = 'Opening invite page';
+      } finally {
+        setTimeout(() => {
+          referralBtn.disabled = false;
+          referralBtn.textContent = original;
+        }, 2200);
+      }
+    };
+  }
   const customerBtn = el('o8-customer-open');
   if (customerBtn) customerBtn.onclick = () => openCustomerPicker(root);
   const exampleBtn = el('o8-first-use-example') as HTMLButtonElement | null;
@@ -1993,7 +2061,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       root.querySelector('#o8-streaming-output')?.remove();
       const sec = response.sections;
       if (selected.includes('text') && sec?.text) addOutput(root, 'MESSAGE', sec.text, 'text', _generationId);
-      if (selected.includes('email') && sec?.email) addOutput(root, 'EMAIL', sec.email, 'email', _generationId);
+      if (selected.includes('email') && sec?.email) addOutput(root, 'EMAIL', await contentForEmailOutput(sec.email), 'email', _generationId);
       if (selected.includes('crm') && sec?.crm) {
         if (sec.crm.trim() === 'NO_NEW_NOTE') showToast(root, 'Nothing new to log. Last note covers this.');
         else addOutput(root, 'CRM NOTE', sec.crm, 'crm', _generationId);
@@ -2005,6 +2073,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       const firstReady = tabOrder.find(t => !!root.querySelector(`.out-card[data-output-type="${t}"]`));
       if (firstReady) setActiveOutputTab(root, firstReady);
       await markFirstGenerationComplete(root);
+      await recordSuccessfulGeneration(root);
 
       // Honest event tracking via background
       try {

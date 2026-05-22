@@ -14,6 +14,43 @@ const GENERATION_POLL_TIMEOUT_MS = 60_000;
 const BLANK_CONTEXT_IMAGE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 
+async function updateFreeTierBadge(usage?: { remaining?: number; generations_remaining?: number }, tier?: string) {
+  try {
+    const local = await browser.storage.local.get(['brevmont_tier', 'brevmont_usage']);
+    const resolvedTier = String(tier || local.brevmont_tier || '').toLowerCase();
+    const isFree = resolvedTier === 'free' || resolvedTier === 'free_trial';
+    if (!isFree) {
+      await chrome.action.setBadgeText({ text: '' });
+      return;
+    }
+    const localUsage = local.brevmont_usage || {};
+    const remaining = Number(
+      usage?.remaining ??
+      usage?.generations_remaining ??
+      localUsage.generations_remaining ??
+      Math.max(0, Number(localUsage.generations_limit || 500) - Number(localUsage.generations_used || 0))
+    );
+    await chrome.action.setBadgeBackgroundColor({ color: '#0D6E6E' });
+    await chrome.action.setBadgeText({ text: Number.isFinite(remaining) ? String(Math.max(0, remaining)) : '' });
+  } catch {
+    // Badge updates should never block auth or generation.
+  }
+}
+
+async function claimReferralAfterFirstGeneration() {
+  try {
+    const local = await browser.storage.local.get([REFERRAL_CODE_KEY, REFERRAL_CLAIMED_KEY]);
+    if (!local[REFERRAL_CODE_KEY] || local[REFERRAL_CLAIMED_KEY]) return;
+    const base = (await getResolvedApiUrl()).replace(/\/$/, '');
+    const resp = await signedFetch(`${base}/api/v1/referrals/first-generation`, {
+      referral_code: String(local[REFERRAL_CODE_KEY]),
+    });
+    if (resp.ok) await browser.storage.local.set({ [REFERRAL_CLAIMED_KEY]: true });
+  } catch {
+    // Best-effort. The next successful generation can retry.
+  }
+}
+
 /**
  * Retry wrapper with linear backoff for transient network failures.
  * Returns the Response on success (<500) or throws after exhausting attempts.
@@ -39,6 +76,21 @@ import { initSentry, setSentryContext, captureError, addBreadcrumb } from '../li
 import { fetchRemoteConfig, getResolvedApiUrl, applyConfig } from '../lib/remoteConfig';
 import { hasCompleteActivation } from './lib/activationState';
 import * as storage from '../lib/storage';
+import {
+  BREVMONT_UNINSTALL_URL,
+  BREVMONT_WELCOME_URL,
+  REFERRAL_CLAIMED_KEY,
+  REFERRAL_CODE_KEY,
+} from './lib/cwsDistribution';
+
+try {
+  const uninstallResult = chrome.runtime.setUninstallURL?.(BREVMONT_UNINSTALL_URL);
+  if (uninstallResult && typeof (uninstallResult as Promise<void>).catch === 'function') {
+    void (uninstallResult as Promise<void>).catch(() => {});
+  }
+} catch {
+  // Missing browser API in tests should not block startup.
+}
 
 void storage.init();
 import { leadDb } from '../lib/leadDb';
@@ -427,6 +479,14 @@ export default defineBackground(() => {
         return false;
       }
     }
+    if ((message as { type?: string; referral_code?: string })?.type === 'BREVMONT_REFERRAL_CODE') {
+      const referralCode = String((message as any).referral_code || '').trim();
+      if (referralCode) {
+        void browser.storage.local.set({ [REFERRAL_CODE_KEY]: referralCode });
+        sendResponse({ ok: true });
+        return false;
+      }
+    }
     return false;
   });
 
@@ -563,6 +623,21 @@ export default defineBackground(() => {
           sendResponse({ ok: true, ...status });
         } catch (err: any) {
           sendResponse({ ok: false, error: err?.message || 'status_unavailable' });
+        }
+      })();
+      return true;
+    }
+
+    if (msg.type === 'GET_REFERRAL_LINK') {
+      (async () => {
+        try {
+          const base = (await getResolvedApiUrl()).replace(/\/$/, '');
+          const resp = await signedFetch(`${base}/api/v1/referrals/link`, {});
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(data?.error || 'referral_unavailable');
+          sendResponse({ ok: true, referral_code: data.referral_code, referral_url: data.referral_url });
+        } catch (err: any) {
+          sendResponse({ ok: false, error: err?.message || 'referral_unavailable' });
         }
       })();
       return true;
@@ -2034,6 +2109,7 @@ export default defineBackground(() => {
       // affordance and assume the extension isn't installed.
       if (details.reason === 'install' && !alreadySetup) {
         try {
+          await browser.tabs.create({ url: BREVMONT_WELCOME_URL });
           await browser.tabs.create({ url: browser.runtime.getURL('install-screen.html') });
         } catch {
           // ignore; the wizard fallback below would not run anyway because
@@ -2047,6 +2123,7 @@ export default defineBackground(() => {
       // they can click "I pinned it" which routes them to the legacy
       // onboarding wizard (fallback bootstrap path).
       try {
+        await browser.tabs.create({ url: BREVMONT_WELCOME_URL });
         await browser.tabs.create({ url: browser.runtime.getURL('install-screen.html') });
       } catch {
         // Final fallback — permission page (mic + setup gate).
@@ -2454,6 +2531,7 @@ async function handleGenerationStatus(): Promise<any> {
       resets_at: data.resets_at || null,
     },
   });
+  await updateFreeTierBadge({ remaining }, tier);
   return { tier, limit, used, remaining, resets_at: data.resets_at || null };
 }
 
@@ -2542,8 +2620,10 @@ async function generateViaProxy(
     : await resp.json();
   const text = data.content?.[0]?.text || '';
   if (!text) throw new Error('Empty response from AI. Please try again.');
+  if (data?.brevmont_usage) await updateFreeTierBadge(data.brevmont_usage, data.tier);
+  void claimReferralAfterFirstGeneration();
 
-  return { text, usage: data.usage || {} };
+  return { text, usage: data.usage || {}, brevmont_usage: data.brevmont_usage || null, tier: data.tier || null };
 }
 
 // Poll for async generation result from BullMQ queue

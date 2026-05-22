@@ -82,6 +82,12 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .upgrade-prompt .upgrade-btn { display:inline-block; padding:8px 16px; background:#0D6E6E; color:#fff; border-radius:6px; font-size:12px; font-weight:600; text-decoration:none; cursor:pointer; border:none; }
 .upgrade-prompt .upgrade-btn:hover { background:#0A5555; }
 .upgrade-prompt .upgrade-phone { font-size:11px; color:#78350f; margin-top:6px; }
+.review-prompt { margin:10px 12px 0; border:1px solid rgba(13,110,110,.22); background:#F0FDF4; border-radius:8px; padding:10px 34px 10px 12px; position:relative; }
+.review-title { color:#0F1419; font-size:12px; font-weight:700; line-height:1.35; }
+.review-link { margin-top:6px; border:0; background:#0D6E6E; color:white; border-radius:6px; padding:7px 10px; font:700 11px Inter,system-ui,sans-serif; cursor:pointer; }
+.review-dismiss { position:absolute; top:6px; right:8px; border:0; background:transparent; color:#64748b; font-size:18px; cursor:pointer; line-height:1; }
+.referral-footer { margin:10px 12px 0; padding:8px 0 4px; border-top:1px solid #E5E7EB; text-align:center; }
+.referral-footer button { border:0; background:transparent; color:#0D6E6E; font:800 11px Inter,system-ui,sans-serif; cursor:pointer; }
 .gm-invite-backdrop { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:14px; background:rgba(15,20,25,.48); }
 .gm-invite-modal { position:relative; width:100%; max-width:340px; border-radius:12px; background:#fff; box-shadow:0 20px 60px rgba(15,23,42,.28); padding:16px; color:#0F1419; }
 .gm-invite-close { position:absolute; top:10px; right:10px; width:24px; height:24px; border:0; border-radius:999px; background:#F1F5F9; color:#64748B; cursor:pointer; font-size:17px; line-height:1; }
