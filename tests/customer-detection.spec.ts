@@ -8,8 +8,7 @@ const root = path.resolve(__dirname, '..');
 const bundlePath = path.join(tmpdir(), 'brevmont-customer-detection-test.js');
 
 test.beforeAll(() => {
-  execFileSync(process.execPath, [
-    path.join(root, 'node_modules/esbuild/bin/esbuild'),
+  execFileSync(path.join(root, 'node_modules/esbuild/bin/esbuild'), [
     path.join(root, 'entrypoints/lib/customerDetection.ts'),
     '--bundle',
     '--format=iife',

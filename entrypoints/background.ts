@@ -38,6 +38,9 @@ import { dlog } from './lib/dev';
 import { initSentry, setSentryContext, captureError, addBreadcrumb } from '../lib/sentry';
 import { fetchRemoteConfig, getResolvedApiUrl, applyConfig } from '../lib/remoteConfig';
 import { hasCompleteActivation } from './lib/activationState';
+import * as storage from '../lib/storage';
+
+void storage.init();
 import { leadDb } from '../lib/leadDb';
 import { syncPendingLeads, getSyncStats } from '../lib/leadSync';
 import type { LocalLead } from '../lib/types/lead';
@@ -473,7 +476,7 @@ export default defineBackground(() => {
     if (msg.type === 'SUPPORT_REPORT') {
       (async () => {
         try {
-          const sync = await browser.storage.sync.get(['dealer_token', 'rep_name']);
+          const sync = await browser.storage.local.get(['dealer_token', 'rep_name']);
           if (!sync.dealer_token) {
             sendResponse({ ok: false, error: 'not_configured' });
             return;
@@ -664,7 +667,7 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'GET_SETTINGS') {
-      browser.storage.sync.get(['rep_name', 'dealership', 'dealer_token'])
+      browser.storage.local.get(['rep_name', 'dealership', 'dealer_token'])
         .then(sendResponse);
       return true;
     }
@@ -677,7 +680,7 @@ export default defineBackground(() => {
       browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token', 'rep_id', 'dealer_token']).then(async (local) => {
         let repToken = (local.rep_auth_token as string) || (local.brevmont_rep_auth_token as string) || '';
         if (!repToken) {
-          const sync = await browser.storage.sync.get(['rep_auth_token', 'dealer_token']);
+          const sync = await browser.storage.local.get(['rep_auth_token', 'dealer_token']);
           repToken = (sync.rep_auth_token as string) || '';
           // Fallback: use dealer_token if rep_auth_token unavailable (server accepts both via requireExtensionAuth)
           if (!repToken) repToken = (local.dealer_token as string) || (sync.dealer_token as string) || '';
@@ -713,7 +716,7 @@ export default defineBackground(() => {
       browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token', 'rep_id', 'dealer_token']).then(async (local) => {
         let repToken = (local.rep_auth_token as string) || (local.brevmont_rep_auth_token as string) || '';
         if (!repToken) {
-          const sync = await browser.storage.sync.get(['rep_auth_token', 'dealer_token']);
+          const sync = await browser.storage.local.get(['rep_auth_token', 'dealer_token']);
           repToken = (sync.rep_auth_token as string) || '';
           if (!repToken) repToken = (local.dealer_token as string) || (sync.dealer_token as string) || '';
         }
@@ -788,7 +791,7 @@ export default defineBackground(() => {
       (async () => {
         try {
           await requireFeature('lead_capture', 'Deal outcomes');
-          const settings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'dealership']);
+          const settings = await browser.storage.local.get(['dealer_token', 'rep_name', 'dealership']);
           const resp = await signedFetch(`${PROXY_URL}/api/outcome`, {
             dealer_token: settings.dealer_token || '',
             customer_name: msg.payload.customer_name || '',
@@ -943,7 +946,7 @@ export default defineBackground(() => {
 
     // --- Pending Notes ---
     if (msg.type === 'SAVE_PENDING_NOTE') {
-      browser.storage.sync.get(['dealer_token', 'rep_name']).then(async (settings) => {
+      browser.storage.local.get(['dealer_token', 'rep_name']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ error: 'No dealer_token' }); return; }
         try {
           const resp = await signedFetch(`${PROXY_URL}/api/pending-notes`, {
@@ -957,7 +960,7 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'GET_PENDING_NOTES') {
-      browser.storage.sync.get(['dealer_token']).then(async (settings) => {
+      browser.storage.local.get(['dealer_token']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ notes: [] }); return; }
         try {
           // Proxy reads dealer_token from Authorization header (req.headers['authorization']
@@ -974,7 +977,7 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'MARK_NOTE_LOGGED') {
-      browser.storage.sync.get(['dealer_token']).then(async (settings) => {
+      browser.storage.local.get(['dealer_token']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ error: 'No token' }); return; }
         try {
           const resp = await fetch(`${PROXY_URL}/api/pending-notes/${msg.payload.id}`, {
@@ -989,7 +992,7 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'SAVE_PENDING_EMAIL') {
-      browser.storage.sync.get(['dealer_token', 'rep_name']).then(async (settings) => {
+      browser.storage.local.get(['dealer_token', 'rep_name']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ error: 'No dealer_token' }); return; }
         try {
           const resp = await signedFetch(`${PROXY_URL}/api/pending-emails`, {
@@ -1003,7 +1006,7 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'GET_PENDING_EMAILS') {
-      browser.storage.sync.get(['dealer_token']).then(async (settings) => {
+      browser.storage.local.get(['dealer_token']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ emails: [] }); return; }
         try {
           const resp = await fetch(`${PROXY_URL}/api/pending-emails`, {
@@ -1313,7 +1316,7 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'MARK_EMAIL_APPLIED') {
-      browser.storage.sync.get(['dealer_token']).then(async (settings) => {
+      browser.storage.local.get(['dealer_token']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ error: 'No token' }); return; }
         try {
           const resp = await fetch(`${PROXY_URL}/api/pending-emails/${msg.payload.id}`, {
@@ -1329,7 +1332,7 @@ export default defineBackground(() => {
 
     // ===== Intelligence: Edit-distance telemetry =====
     if (msg.type === 'TELEMETRY_EDIT_DISTANCE') {
-      browser.storage.sync.get(['dealer_token']).then(async (settings) => {
+      browser.storage.local.get(['dealer_token']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ ok: false }); return; }
         try {
           await fetch(`${PROXY_URL}/api/telemetry/edit-distance`, {
@@ -1350,7 +1353,7 @@ export default defineBackground(() => {
     if (msg.type === 'LOG_HONEST_EVENT') {
       (async () => {
         try {
-          const settings = await browser.storage.sync.get(['dealer_token']);
+          const settings = await browser.storage.local.get(['dealer_token']);
           const local = await browser.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']);
           const token = settings.dealer_token || local.dealer_token;
           const repToken = local.rep_auth_token || local.brevmont_rep_auth_token;
@@ -1380,7 +1383,7 @@ export default defineBackground(() => {
     if (msg.type === 'GET_REP_STATS') {
       (async () => {
         try {
-          const syncSettings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'rep_auth_token']);
+          const syncSettings = await browser.storage.local.get(['dealer_token', 'rep_name', 'rep_auth_token']);
           const localSettings = await browser.storage.local.get(['dealer_token', 'rep_name', 'rep_auth_token', 'brevmont_rep_auth_token']);
           const dealerToken = syncSettings.dealer_token || localSettings.dealer_token;
           const repToken = syncSettings.rep_auth_token || localSettings.rep_auth_token || localSettings.brevmont_rep_auth_token;
@@ -1403,7 +1406,7 @@ export default defineBackground(() => {
 
     // ===== Intelligence: DOM discovery telemetry =====
     if (msg.type === 'TELEMETRY_DOM_DISCOVERY') {
-      browser.storage.sync.get(['dealer_token']).then(async (settings) => {
+      browser.storage.local.get(['dealer_token']).then(async (settings) => {
         if (!settings.dealer_token) { sendResponse({ ok: false }); return; }
         try {
           await fetch(`${PROXY_URL}/api/telemetry/dom-discovery`, {
@@ -1511,7 +1514,7 @@ export default defineBackground(() => {
   }
 
   async function sendHeartbeatV2(apiUrl: string): Promise<void> {
-    const settings = await browser.storage.sync.get(['dealer_token', 'rep_name']);
+    const settings = await browser.storage.local.get(['dealer_token', 'rep_name']);
     if (!settings.dealer_token) return;
     const local = await browser.storage.local.get([
       'brevmont_last_error',
@@ -1576,7 +1579,7 @@ export default defineBackground(() => {
 
   async function sendHeartbeat() {
     try {
-      const settings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'dealership']);
+      const settings = await browser.storage.local.get(['dealer_token', 'rep_name', 'dealership']);
       if (!settings.dealer_token) return;
       const manifest = browser.runtime.getManifest();
       let platform = 'idle';
@@ -1717,31 +1720,23 @@ export default defineBackground(() => {
 
   // ===== AUTH HARDENING: Self-heal sync.dealer_token for pre-fix installs =====
   // Context: prior versions of entrypoints/onboarding/main.ts wrote the raw
-  // human license_key (e.g. TEST-B34BD25E-6CF7EF7E) into sync.dealer_token at
-  // finish(). authSigning.getLicenseCredentials reads that value as the
-  // X-Brevmont-License-Key header. On a Phase 2 dealership the proxy's
-  // lookupLicenseKey resolves it to dealerships.license_secret, while the
-  // extension signs with dealer_tokens.license_secret — HMAC mismatch, every
-  // signed request 401s. The onboarding flow now writes the dtk_ UUID
-  // instead, but existing installs still carry the bad value. This heal runs
-  // once on startup and swaps the value if local holds the correct one.
+  // Previous builds mirrored dealer_token into chrome.storage.sync. Keep this
+  // as a cleanup shim so auth tokens live in local storage only.
   async function healDealerTokenSync() {
     try {
-      const sync = await browser.storage.sync.get(['dealer_token']);
-      const local = await browser.storage.local.get(['dealer_token']);
+      const sync = await browser.storage.sync.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']);
+      const local = await browser.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']);
       const syncVal = sync?.dealer_token as string | undefined;
       const localVal = local?.dealer_token as string | undefined;
-      // Heal only when local holds a dtk_-prefixed session token and sync
-      // still has the human license_key. Never overwrite a valid dtk_ sync.
-      if (localVal && localVal.startsWith('dtk_') && syncVal && !syncVal.startsWith('dtk_')) {
-        await browser.storage.sync.set({ dealer_token: localVal });
-        // The stale license_secret was bootstrapped with license_key=TEST-...
-        // and (pre-proxy-fix) holds dealerships.license_secret, which does not
-        // match the dealer_tokens.license_secret that the server verifies
-        // against. Clear it so bootstrapLicenseSecret re-fetches with the
-        // dtk_ value + post-fix server returns the unified secret.
-        await browser.storage.local.remove(['brevmont_license_secret']);
-        dlog('[Brevmont] healed sync.dealer_token and cleared stale license_secret');
+      const localPatch: Record<string, string> = {};
+      if (!localVal && syncVal) localPatch.dealer_token = syncVal as string;
+      if (!local.rep_auth_token && sync.rep_auth_token) localPatch.rep_auth_token = sync.rep_auth_token as string;
+      if (!local.brevmont_rep_auth_token && sync.brevmont_rep_auth_token) localPatch.brevmont_rep_auth_token = sync.brevmont_rep_auth_token as string;
+      if (Object.keys(localPatch).length) await browser.storage.local.set(localPatch);
+      if (syncVal || sync.rep_auth_token || sync.brevmont_rep_auth_token) {
+        await browser.storage.sync.remove(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']);
+        await browser.storage.local.remove(['license_secret', 'brevmont_license_secret']);
+        dlog('[Brevmont] moved legacy sync auth tokens to local storage');
       }
     } catch (err) {
       console.warn('[Brevmont] dealer_token heal error:', (err as Error).message);
@@ -1849,8 +1844,6 @@ export default defineBackground(() => {
       await browser.storage.local.set({
         license_key: data.license_key,
         dealer_token: dealerToken,
-        brevmont_license_secret: data.license_secret || '',
-        license_secret: data.license_secret || '',
         rep_auth_token: repAuthToken,
         brevmont_rep_auth_token: repAuthToken,
         dealership_id: data.dealership_id || '',
@@ -1871,8 +1864,7 @@ export default defineBackground(() => {
       await browser.storage.local.remove(SETUP_KEY);
       await browser.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
 
-      // Sync mirror for legacy readers and hasCompleteActivation repair.
-      await browser.storage.sync.set({
+      await browser.storage.sync.set(storage.sanitizeSyncPayload({
         dealer_token: dealerToken,
         rep_auth_token: repAuthToken,
         rep_name: repName,
@@ -1883,7 +1875,7 @@ export default defineBackground(() => {
         dealership_plan: data.plan || data.tier || 'free',
         profile_onboarded: false,
         brevmont_extension_role: 'rep',
-      });
+      }));
       await browser.storage.sync.remove(['profile_onboarding']);
 
       // Clear the cookie after successful activation — one-time use.
@@ -1925,7 +1917,7 @@ export default defineBackground(() => {
     try {
       const manifest = browser.runtime.getManifest();
       const chromeMatch = navigator.userAgent.match(/Chrome\/([\d.]+)/);
-      const settings = await browser.storage.sync.get(['dealer_token']);
+      const settings = await browser.storage.local.get(['dealer_token']);
 
       const publicStatus = await fetch(
         `${PROXY_URL}/api/extension-status?current_version=${encodeURIComponent(manifest.version || 'unknown')}`,
@@ -2159,10 +2151,8 @@ async function buildRepContext(): Promise<{ repName: string; dealership: string;
   return { repName, dealership, contextBlock: ctx };
 }
 
-/** Dealer license: sync first, then local — must match side panel `requireToken()` and onboarding dual-write. */
+/** Dealer license: local storage only; sync storage must not carry auth tokens. */
 async function resolveDealerToken(): Promise<string> {
-  const sync = await browser.storage.sync.get(['dealer_token']);
-  if (sync.dealer_token) return String(sync.dealer_token);
   const local = await browser.storage.local.get(['dealer_token']);
   return String(local.dealer_token || '');
 }
@@ -2178,7 +2168,7 @@ async function handleGenerate(payload: {
 }) {
   // Phase T7: block generation outright if license is revoked
   await assertNotRevoked();
-  const settings = await browser.storage.sync.get(['rep_auth_token']);
+  const settings = await browser.storage.local.get(['rep_auth_token']);
   const dealerToken = await resolveDealerToken();
   const { repName, dealership, contextBlock } = await buildRepContext();
 
@@ -2571,7 +2561,7 @@ async function pollForResult(jobId: string, maxWait = GENERATION_POLL_TIMEOUT_MS
 // Generate button. The proxy's system prompt handles automotive coaching
 // context; we just wrap the objection in an instruction prefix.
 async function handleCoach(payload: { situation: string; vehicleContext?: string; platform?: string; leadContext?: Record<string, any> }) {
-  const settings = await browser.storage.sync.get(['rep_auth_token']);
+  const settings = await browser.storage.local.get(['rep_auth_token']);
   const dealerToken = await resolveDealerToken();
   const { repName, dealership, contextBlock } = await buildRepContext();
   if (!dealerToken) throw new Error('No license key found. Complete onboarding at brevmont.com.');
@@ -2623,7 +2613,7 @@ Keep it to 3-5 short sentences.`;
 
 // --- Ask Anything (Command Mode) via /v1/generate ---
 async function handleCommand(payload: { command: string; currentUrl?: string; vehicleContext?: string; platform?: string; leadContext?: Record<string, any> }) {
-  const settings = await browser.storage.sync.get(['rep_auth_token']);
+  const settings = await browser.storage.local.get(['rep_auth_token']);
   const dealerToken = await resolveDealerToken();
   const { repName, dealership, contextBlock } = await buildRepContext();
   if (!dealerToken) throw new Error('No license key found. Complete onboarding at brevmont.com.');
@@ -2679,7 +2669,7 @@ async function handleContextReply(payload: {
   image_meta?: any;
   leadContext?: Record<string, any>;
 }) {
-  const settings = await browser.storage.sync.get(['rep_name', 'rep_auth_token']);
+  const settings = await browser.storage.local.get(['rep_name', 'rep_auth_token', 'brevmont_rep_auth_token']);
   const dealerToken = await resolveDealerToken();
   if (!dealerToken) throw new Error('No license key found.');
 
@@ -2770,7 +2760,7 @@ Write one concise, natural customer reply. If dollar amounts, payment terms, veh
 
 // ===== VOICE REPLY (transcription → generate) =====
 async function handleVoiceReply(payload: { transcription: string }) {
-  const settings = await browser.storage.sync.get(['rep_auth_token']);
+  const settings = await browser.storage.local.get(['rep_auth_token']);
   const dealerToken = await resolveDealerToken();
   const { repName, dealership, contextBlock } = await buildRepContext();
   if (!dealerToken) throw new Error('No license key found.');
@@ -2816,7 +2806,7 @@ async function handleVoiceReply(payload: { transcription: string }) {
 // ===== ERROR REPORTING =====
 async function reportError(errorType: string, errorMessage: string) {
   try {
-    const settings = await browser.storage.sync.get(['dealer_token', 'rep_name', 'dealership']);
+    const settings = await browser.storage.local.get(['dealer_token', 'rep_name', 'dealership']);
     if (!settings.dealer_token) return;
     const manifest = browser.runtime.getManifest();
     let platform = 'unknown';

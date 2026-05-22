@@ -125,7 +125,7 @@ function App() {
         'brevmont_rep_auth_token',
         'brevmont_extension_role',
       ])) as Record<string, string>;
-      const sync = (await browser.storage.sync.get(['rep_name', 'dealership', 'dealer_token', 'rep_auth_token'])) as Record<
+      const sync = (await browser.storage.sync.get(['rep_name', 'dealership'])) as Record<
         string,
         string
       >;

@@ -57,8 +57,7 @@ async function getRepToken(): Promise<string | null> {
       (local.rep_auth_token as string | undefined) ||
       (local.brevmont_rep_auth_token as string | undefined);
     if (fromLocal) return fromLocal;
-    const sync = await browser.storage.sync.get(['rep_auth_token']);
-    return (sync.rep_auth_token as string | undefined) || null;
+    return null;
   } catch {
     return null;
   }

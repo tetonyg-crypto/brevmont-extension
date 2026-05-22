@@ -44,8 +44,6 @@ async function buildAuthHeaders(): Promise<Record<string, string>> {
       (local.rep_auth_token as string | undefined) ||
       (local.brevmont_rep_auth_token as string | undefined);
     if (token) return { 'X-Rep-Token': token };
-    const sync = await browser.storage.sync.get(['rep_auth_token']);
-    if (sync.rep_auth_token) return { 'X-Rep-Token': sync.rep_auth_token as string };
   } catch {
     // ignore
   }

@@ -328,7 +328,7 @@ function accessEndedMessage(message?: string): string {
 
 async function requireToken(): Promise<string> {
   const [sync, local] = await Promise.all([
-    chrome.storage.sync.get(['dealer_token', 'rep_auth_token']),
+    chrome.storage.local.get(['dealer_token', 'rep_auth_token']),
     chrome.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'license_revoked', 'license_revoked_message']),
   ]);
   if (local.license_revoked) {
@@ -1395,10 +1395,10 @@ function loadAccountInfo(root: HTMLElement): void {
 
   // Storage data
   chrome.storage.local.get(['rep_name', 'dealership', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']).then(local => {
-    chrome.storage.sync.get(['rep_name', 'dealership', 'dealer_token']).then(sync => {
+    chrome.storage.sync.get(['rep_name', 'dealership']).then(sync => {
       setText('sp-dealership', (local.dealership || sync.dealership || 'Not configured') as string);
       setText('sp-rep-name', (local.rep_name || sync.rep_name || 'Not configured') as string);
-      setText('sp-license', maskToken((local.dealer_token || sync.dealer_token || '') as string));
+      setText('sp-license', maskToken((local.dealer_token || '') as string));
     });
   });
 

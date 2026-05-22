@@ -322,7 +322,7 @@ function openGoogleActivation(): void {
 
 /**
  * Validate the URL-supplied install_token against the proxy. On success,
- * persists license_key + license_secret + dealer_token + identity to
+ * persists license_key + dealer_token + identity to
  * chrome.storage.local atomically.
  */
 async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
@@ -367,7 +367,7 @@ async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
     });
     try {
       await chrome.storage.local.remove(SETUP_KEY);
-      await chrome.storage.sync.set({
+      await chrome.storage.sync.set(storage.sanitizeSyncPayload({
         dealer_token: data.dealer_token || data.license_key,
         rep_auth_token: data.rep_auth_token || null,
         rep_name: data.rep_name || data.rep_email || 'Rep',
@@ -378,7 +378,7 @@ async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
         dealership_plan: data.plan || data.tier || 'free',
         profile_onboarded: false,
         brevmont_extension_role: (data.rep_id || data.rep_auth_token) ? 'rep' : 'manager',
-      });
+      }));
     } catch (_) { /* noop */ }
     return true;
   } catch (e: any) {
@@ -434,10 +434,6 @@ async function tryAutoConfigFromCookie(): Promise<boolean> {
       dealership_tier: data.tier || 'free',
       dealership_plan: data.plan || data.tier || 'free',
     };
-    if (data.license_secret) {
-      toStore.license_secret = data.license_secret;
-      toStore.brevmont_license_secret = data.license_secret;
-    }
     if (dealershipName) toStore.dealership = dealershipName;
     if (data.dealership_id) toStore.dealership_id = data.dealership_id;
     if (repName) toStore.rep_name = repName;
@@ -450,7 +446,7 @@ async function tryAutoConfigFromCookie(): Promise<boolean> {
 
     await chrome.storage.local.set(toStore);
     await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
-    await chrome.storage.sync.set({
+    await chrome.storage.sync.set(storage.sanitizeSyncPayload({
       dealer_token: dealerToken,
       rep_auth_token: repAuthToken,
       rep_name: repName,
@@ -461,7 +457,7 @@ async function tryAutoConfigFromCookie(): Promise<boolean> {
       dealership_plan: data.plan || data.tier || 'free',
       profile_onboarded: false,
       brevmont_extension_role: 'rep',
-    });
+    }));
     await chrome.storage.local.remove(SETUP_KEY);
     await chrome.storage.sync.remove('profile_onboarding');
     try { chrome.action?.setBadgeText?.({ text: '' }); } catch {}
@@ -680,22 +676,14 @@ async function validateLicense(key: string) {
       }
     }
 
-    // Persist credentials returned by proxy. Clear any prior revocation flag.
-    // Stored under BOTH `license_secret` (legacy key, kept for backward compat)
-    // AND `brevmont_license_secret` (the key authSigning.getLicenseCredentials
-    // actually reads). Without the canonical key, requests stay unsigned until
-    // the 15s bootstrap fetcher runs — and Phase 2 rejects every unsigned
-    // generate in that window with 401 signature_required.
+    // Persist credentials returned by proxy. JWT auth no longer stores
+    // license_secret; any legacy secret keys are removed by storage migration.
     const toStore: Record<string, any> = {
       license_key: normalizedKey,
       activated_at: Date.now(),
       license_revoked: false,
     };
     if (data.dealer_token) toStore.dealer_token = data.dealer_token;
-    if (data.license_secret) {
-      toStore.license_secret = data.license_secret;
-      toStore.brevmont_license_secret = data.license_secret;
-    }
     if (dbName) toStore.dealership = dbName;
     if (dealer && typeof dealer === 'object' && dealer.id) toStore.dealership_id = dealer.id;
     toStore.brevmont_extension_role = 'manager';
@@ -806,7 +794,7 @@ async function validateRepToken(token: string) {
     const resolvedRepToken = data.rep_auth_token || normalizedToken;
 
     // Cache validated payload for finish() to persist. The endpoint now returns
-    // full credentials (license_key, license_secret, dealer_token) plus identity.
+    // full credentials (license_key, dealer_token) plus identity.
     repSession = {
       rep_auth_token: resolvedRepToken,
       rep_id: data.rep_id || '',
@@ -830,10 +818,6 @@ async function validateRepToken(token: string) {
     };
     if (data.license_key) toStore.license_key = data.license_key;
     if (data.dealer_token) toStore.dealer_token = data.dealer_token;
-    if (data.license_secret) {
-      toStore.license_secret = data.license_secret;
-      toStore.brevmont_license_secret = data.license_secret;
-    }
     if (data.dealership_id) toStore.dealership_id = data.dealership_id;
     if (repSession.dealership_name) toStore.dealership = repSession.dealership_name;
     if (data.rep_id) toStore.rep_id = data.rep_id;
@@ -843,7 +827,7 @@ async function validateRepToken(token: string) {
     try {
       await chrome.storage.local.set(toStore);
       await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
-      await chrome.storage.sync.set({
+      await chrome.storage.sync.set(storage.sanitizeSyncPayload({
         dealer_token: data.dealer_token || data.license_key || '',
         rep_auth_token: resolvedRepToken,
         rep_name: data.rep_name || typedName || 'Rep',
@@ -854,7 +838,7 @@ async function validateRepToken(token: string) {
         dealership_plan: data.plan || data.tier || 'free',
         profile_onboarded: false,
         brevmont_extension_role: 'rep',
-      });
+      }));
       await chrome.storage.local.remove(SETUP_KEY);
       await chrome.storage.sync.remove('profile_onboarding');
     } catch {}
@@ -890,18 +874,7 @@ async function finish() {
     onboarded: true,
     onboarded_at: new Date().toISOString()
   };
-  // The dealer_token written here must be the server-issued dtk_xxx UUID
-  // returned by /v1/license/validate (stored into chrome.storage.local by
-  // validateLicense at line ~202), NOT the human license key the rep typed
-  // into the form. If we write the raw license_key into sync.dealer_token,
-  // lib/authSigning.getLicenseCredentials reads that for every signed
-  // request. The server's lookupLicenseKey then resolves it to
-  // dealerships.license_secret, but the extension is signing with
-  // dealer_tokens.license_secret — the two don't match on Phase 2
-  // dealerships and every /v1/generate returns 401 signature_invalid.
-  //
-  // This bug was confirmed live against prod on 2026-04-19 and was the
-  // reason the Saturday dry-run was going to die at the first pill click.
+  // dealer_token stays in local storage only; sync gets display/profile data.
   let dealerTokenForSync: string;
   try {
     const stored = await chrome.storage.local.get(['dealer_token']);
@@ -910,9 +883,8 @@ async function finish() {
     dealerTokenForSync = profileData.dealership.licenseKey;
   }
 
-  // Write to BOTH local (instant, source of truth) and sync (cross-device
-  // mirror). sync can lag several seconds replicating through Chrome sync
-  // servers; local reads never lag. Options page + popup read local first.
+  // Write auth/profile to local, then mirror only non-auth display fields to
+  // sync via sanitizeSyncPayload.
   const payload: Record<string, any> = {
     'profile': JSON.stringify(profile),
     'profile_onboarded': true,
@@ -922,10 +894,7 @@ async function finish() {
     brevmont_extension_role: authRole === 'rep' ? 'rep' : 'manager',
   };
   // If this install used the rep-token path, write the rep session fields to
-  // sync so popup/options can display identity, and dual-write the token to
-  // local under BOTH key names. Matches the license_secret / brevmont_license_secret
-  // dual-write pattern in validateLicense — keeps legacy readers working while
-  // moving to the canonical brevmont_-prefixed key.
+  // local under both current key names; sync gets identity only.
   if (authRole === 'rep' && repSession) {
     payload.rep_auth_token = repSession.rep_auth_token;
     if (repSession.rep_id) payload.rep_id = repSession.rep_id;
@@ -953,7 +922,7 @@ async function finish() {
     await chrome.storage.local.set(payload);
     await chrome.storage.local.set({ [SETUP_KEY]: true });
   } catch (_) { /* noop */ }
-  chrome.storage.sync.set(payload, () => {
+  chrome.storage.sync.set(storage.sanitizeSyncPayload(payload), () => {
     chrome.storage.sync.remove('profile_onboarding');
     chrome.storage.local.remove('profile_onboarding');
     document.getElementById('comp-name')!.textContent = profileData.identity.firstName + ' ' + profileData.identity.lastName;
@@ -1023,7 +992,7 @@ async function finishQuickRepOnboarding() {
   }
 
   await chrome.storage.local.set(payload);
-  await chrome.storage.sync.set(payload);
+  await chrome.storage.sync.set(storage.sanitizeSyncPayload(payload));
   await chrome.storage.local.remove('profile_onboarding');
   await chrome.storage.sync.remove('profile_onboarding');
   syncProfileToSupabase(profile).catch((e: any) => {
@@ -1079,7 +1048,7 @@ async function finishManagerOnboarding() {
     payload.dealership_plan = stored.dealership_plan || stored.dealership_tier || stored.brevmont_tier;
   }
   await chrome.storage.local.set(payload);
-  await chrome.storage.sync.set(payload);
+  await chrome.storage.sync.set(storage.sanitizeSyncPayload(payload));
   await chrome.storage.local.remove('profile_onboarding');
   await chrome.storage.sync.remove('profile_onboarding');
   syncProfileToSupabase(profile).catch(() => {});
@@ -1111,7 +1080,7 @@ async function syncProfileToSupabase(profile: any) {
   // Phase 1e: Supabase key removed from extension. Rep profile now flows
   // through the proxy. If a proxy profile-sync endpoint exists it goes here;
   // otherwise this is a best-effort no-op — the profile is already persisted
-  // locally in chrome.storage.sync and the proxy can re-derive rep identity
+  // locally in chrome.storage.local and the proxy can re-derive rep identity
   // from dealer_token + heartbeat.
   try {
     const r = await chrome.storage.local.get(['dealer_token']);

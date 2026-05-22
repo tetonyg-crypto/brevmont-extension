@@ -31,7 +31,14 @@
  */
 
 const SCHEMA_VERSION_KEY = '__brevmont_schema_version__';
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
+export const AUTH_SYNC_KEYS = [
+  'license_secret',
+  'brevmont_license_secret',
+  'rep_auth_token',
+  'brevmont_rep_auth_token',
+  'dealer_token',
+] as const;
 
 // =============================================================================
 // Schema definition. Add new keys here. The compiler enforces every set/get
@@ -72,6 +79,7 @@ export interface BrevmontStorage {
 
   // Schema metadata.
   __brevmont_schema_version__: number;
+  brevmont_auth_storage_hardened: boolean;
 }
 
 const DEFAULTS: BrevmontStorage = {
@@ -96,9 +104,17 @@ const DEFAULTS: BrevmontStorage = {
   ui_last_active_step: null,
   ui_dismissed_announcements: [],
   __brevmont_schema_version__: CURRENT_SCHEMA_VERSION,
+  brevmont_auth_storage_hardened: false,
 };
 
 type StorageKey = keyof BrevmontStorage;
+type AnyRecord = Record<string, unknown>;
+
+export function sanitizeSyncPayload<T extends AnyRecord>(payload: T): Partial<T> {
+  const clean: Partial<T> = { ...payload };
+  for (const key of AUTH_SYNC_KEYS) delete clean[key as keyof T];
+  return clean;
+}
 
 // =============================================================================
 // Core read/write primitives.
@@ -259,13 +275,65 @@ async function runMigrations(): Promise<void> {
         });
         break;
       }
-      // Add future migrations here:
-      // case 2: { ... }
+      case 2: {
+        await migrateAuthTokensOutOfSync();
+        await new Promise<void>((resolve, reject) => {
+          chrome.storage.local.set({ [SCHEMA_VERSION_KEY]: 2 }, () => {
+            const err = chrome.runtime.lastError;
+            if (err) reject(new Error(err.message || String(err)));
+            else resolve();
+          });
+        });
+        break;
+      }
       default:
         // Unknown future version — log but don't break.
         console.warn('[Brevmont storage] unknown migration version:', v);
     }
   }
+}
+
+export async function migrateAuthTokensOutOfSync(): Promise<void> {
+  const local = await new Promise<AnyRecord>((resolve) => {
+    chrome.storage.local.get([...AUTH_SYNC_KEYS, 'brevmont_auth_storage_hardened'], (r) => resolve(r));
+  });
+  if (local.brevmont_auth_storage_hardened) return;
+
+  const sync = await new Promise<AnyRecord>((resolve) => {
+    chrome.storage.sync.get([...AUTH_SYNC_KEYS], (r) => resolve(r));
+  });
+
+  const localPatch: AnyRecord = { brevmont_auth_storage_hardened: true };
+  for (const key of ['rep_auth_token', 'brevmont_rep_auth_token', 'dealer_token']) {
+    if (!local[key] && sync[key]) localPatch[key] = sync[key];
+  }
+  if (localPatch.rep_auth_token && !localPatch.brevmont_rep_auth_token && !local.brevmont_rep_auth_token) {
+    localPatch.brevmont_rep_auth_token = localPatch.rep_auth_token;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    chrome.storage.local.set(localPatch, () => {
+      const err = chrome.runtime.lastError;
+      if (err) reject(new Error(err.message || String(err)));
+      else resolve();
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    chrome.storage.local.remove(['license_secret', 'brevmont_license_secret'], () => {
+      const err = chrome.runtime.lastError;
+      if (err) reject(new Error(err.message || String(err)));
+      else resolve();
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    chrome.storage.sync.remove([...AUTH_SYNC_KEYS], () => {
+      const err = chrome.runtime.lastError;
+      if (err) reject(new Error(err.message || String(err)));
+      else resolve();
+    });
+  });
 }
 
 let initPromise: Promise<void> | null = null;
@@ -309,8 +377,8 @@ export async function setCredentialsFromInstallToken(payload: {
   // writes never sees half-state.
   const updates: Partial<BrevmontStorage> = {
     license_key: payload.license_key,
-    license_secret: payload.license_secret || '',
-    brevmont_license_secret: payload.license_secret || '',
+    license_secret: null,
+    brevmont_license_secret: null,
     dealer_token: payload.dealer_token,
     dealership_id: payload.dealership_id || null,
     dealership: payload.dealership_name || null,

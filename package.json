@@ -39,21 +39,21 @@
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "wxt": "^0.20.20"
+    "wxt": "^0.20.26"
   },
   "devDependencies": {
+    "@playwright/test": "^1.44.0",
     "@thedutchcoder/postcss-rem-to-px": "^0.0.2",
     "@types/chrome": "^0.1.38",
-    "stylelint": "^16.10.0",
-    "stylelint-config-standard": "^36.0.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@wxt-dev/module-react": "^1.2.2",
     "autoprefixer": "^10.4.27",
-    "postcss": "^8.5.8",
+    "postcss": "^8.5.15",
+    "stylelint": "^16.10.0",
+    "stylelint-config-standard": "^36.0.1",
     "tailwindcss": "^4.2.2",
     "terser": "^5.46.1",
-    "typescript": "^6.0.2",
-    "@playwright/test": "^1.44.0"
+    "typescript": "^6.0.2"
   }
 }
