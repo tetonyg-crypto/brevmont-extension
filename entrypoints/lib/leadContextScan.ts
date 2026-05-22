@@ -274,6 +274,19 @@ export function safeInjectText(target: HTMLElement, text: string) {
   target.dispatchEvent(new Event('blur', { bubbles: true }));
 }
 
+export function getActiveComposeRoot(platform: string): Element | null {
+  if (platform !== 'gmail') return null;
+  return (
+    document.querySelector('div[role="dialog"]') ||
+    document.querySelector('[role="region"][aria-label*="compose" i]') ||
+    null
+  );
+}
+
+export function hasActiveComposeSurface(platform: string): boolean {
+  return Boolean(getActiveComposeRoot(platform));
+}
+
 /** Non-Vin contact name (Gmail, Facebook/Messenger, LinkedIn, Instagram, …). */
 export function extractContactName(platform: string): string | null {
   if (platform === 'gmail') {
@@ -283,10 +296,7 @@ export function extractContactName(platform: string): string | null {
     // customer being written to. v1.14.3 had compose-mode after open-
     // thread paths and returned the wrong "Brevmont"-style sender on
     // every compose-over-thread case. v1.14.4 inverts the priority.
-    const composeRoot =
-      document.querySelector('div[role="dialog"]') ||
-      document.querySelector('[role="region"][aria-label*="compose" i]') ||
-      null;
+    const composeRoot = getActiveComposeRoot(platform);
     if (composeRoot) {
       // Resolved chips carry email + display name on the same element.
       const hover = composeRoot.querySelector('[data-hovercard-id]');

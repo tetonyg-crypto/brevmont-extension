@@ -16,8 +16,9 @@
 import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
-import { extractContactName as extractContactNameForPlatform, gatherAllText } from './lib/leadContextScan';
+import { extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface } from './lib/leadContextScan';
 import { detectCustomerFromPage } from './lib/customerDetection';
+import { trimCrmNoteForCompatibility } from './lib/crmNote';
 
 type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
 
@@ -115,6 +116,34 @@ export default defineContentScript({
 
     // ===== STATE =====
     let leadData: any = null;
+
+    function clearLeadContextCache(reason: string) {
+      if (leadData) dlog(`[Brevmont] Clearing lead context cache: ${reason}`);
+      leadData = null;
+      browser.storage.local.remove(['brevmont_lead', 'brevmont_lead_time', 'brevmont_vehicle_info', 'brevmont_vehicle_info_time']);
+    }
+
+    function showHostToast(message: string, tone: 'info' | 'warn' = 'info') {
+      try {
+        const toast = document.createElement('div');
+        toast.textContent = message;
+        Object.assign(toast.style, {
+          position: 'fixed',
+          bottom: '16px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: tone === 'warn' ? '#C4841D' : '#0F1419',
+          color: '#fff',
+          padding: '8px 16px',
+          borderRadius: '6px',
+          fontSize: '12px',
+          fontWeight: '500',
+          zIndex: '2147483647',
+        });
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+      } catch {}
+    }
 
     // ===== CLEANUP REGISTRY =====
     const __CLEANUP: Array<() => void> = [];
@@ -910,15 +939,18 @@ export default defineContentScript({
           let note = response?.sections?.crm || response?.text || '';
           if (!note) throw new Error('Empty response from proxy');
           note = note.replace(/^CRM\s*NOTE\s*\n?/i, '').trim();
+          const compatible = trimCrmNoteForCompatibility(note, PLATFORM);
 
-          safeInjectText(notesField, note);
+          safeInjectText(notesField, compatible.text);
           notesField.dispatchEvent(new Event('input', { bubbles: true }));
           notesField.dispatchEvent(new Event('change', { bubbles: true }));
           notesField.dispatchEvent(new Event('blur', { bubbles: true }));
 
           const toast = document.createElement('div');
-          toast.textContent = 'Call note generated.';
-          Object.assign(toast.style, { position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background:'#0F1419', color:'#fff', padding:'8px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:'500', zIndex:'99999' });
+          toast.textContent = compatible.trimmed
+            ? `Note trimmed to ${compatible.limit} characters for CRM compatibility`
+            : 'Call note generated.';
+          Object.assign(toast.style, { position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background: compatible.trimmed ? '#C4841D' : '#0F1419', color:'#fff', padding:'8px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:'500', zIndex:'99999' });
           document.body.appendChild(toast);
           setTimeout(() => toast.remove(), 3000);
 
@@ -1226,6 +1258,22 @@ export default defineContentScript({
 
     // ===== NON-VINSOLUTIONS CONTACT NAME WATCHER =====
     if (!isVinSolutions) {
+      let composeActive = hasActiveComposeSurface(PLATFORM);
+      if (composeActive) clearLeadContextCache('compose surface active on load');
+      const composeObserver = new MutationObserver(() => {
+        const nextComposeActive = hasActiveComposeSurface(PLATFORM);
+        if (nextComposeActive && !composeActive) {
+          clearLeadContextCache('compose surface opened');
+        }
+        composeActive = nextComposeActive;
+      });
+      addObserver(composeObserver, document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['role', 'aria-label', 'style', 'class'],
+      });
+
       addInterval(() => {
         const name = extractContactNameForPlatform(PLATFORM);
         if (name && (!leadData || !leadData.customerName)) {
@@ -1292,7 +1340,8 @@ export default defineContentScript({
 
     async function pasteIntoCRM(noteText: string): Promise<boolean> {
       if (!isVinSolutions) return false;
-      await browser.storage.local.set({ brevmont_paste_note: noteText, brevmont_paste_note_time: Date.now() });
+      const compatible = trimCrmNoteForCompatibility(noteText, PLATFORM);
+      await browser.storage.local.set({ brevmont_paste_note: compatible.text, brevmont_paste_note_time: Date.now() });
       let textarea = findNoteTextarea();
       if (!textarea) {
         const clicked = clickNoteIcon();
@@ -1306,18 +1355,24 @@ export default defineContentScript({
       }
       if (textarea) {
         textarea.focus();
-        safeInjectText(textarea, noteText);
+        safeInjectText(textarea, compatible.text);
         textarea.style.border = '2px solid #16a34a';
         setTimeout(() => { textarea!.style.border = ''; }, 2000);
         browser.storage.local.remove(['brevmont_paste_note', 'brevmont_paste_note_time']);
+        if (compatible.trimmed) {
+          showHostToast(`Note trimmed to ${compatible.limit} characters for CRM compatibility`, 'warn');
+        }
         return true;
       } else {
         try {
           browser.runtime.sendMessage({
             type: 'SAVE_PENDING_NOTE',
-            payload: { customer_name: leadData?.customerName || safeExtractContactName() || '', note_text: noteText, contact_id: null }
+            payload: { customer_name: leadData?.customerName || safeExtractContactName() || '', note_text: compatible.text, contact_id: null }
           });
         } catch(e) {}
+        if (compatible.trimmed) {
+          showHostToast(`Note trimmed to ${compatible.limit} characters for CRM compatibility`, 'warn');
+        }
         return false;
       }
     }
