@@ -108,7 +108,7 @@ Telemetry events written to Supabase are filtered by the same PII scrubber docum
 
 ## Chrome Web Store status
 
-Brevmont is currently a side-loaded extension distributed only to founding-pilot dealerships through a signed bundle at `app.brevmont.com/install`. Chrome Web Store submission is intentionally deferred until pilot 5 ships clean. During the pilot phase Brevmont's own engineering (founder direct) is in the loop on every install and CRM session. This is the QA strategy.
+Brevmont is published on the Chrome Web Store under extension ID `onbnhkpggamfbnjdaelgimgimcchamah`. Customer installs should use the official listing. The signed bundle path remains only for support diagnostics and legacy fallback.
 
 ---
 

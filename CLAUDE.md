@@ -114,7 +114,7 @@ Brevmont is a Chrome extension (MV3) that acts as an AI sales assistant for auto
 
 4. **host_permissions missing Gmail, LinkedIn, WhatsApp** — wxt.config.ts:48-57 includes `host_permissions` for VinSolutions, Facebook, Instagram, Messenger, and the proxy/Supabase, but does NOT include `mail.google.com`, `linkedin.com`, or `web.whatsapp.com`. These ARE in the content script matches and web_accessible_resources, but without host_permissions the extension cannot access cross-origin iframe content on these platforms.
 
-5. **No Chrome Web Store submission** — extension is sideloaded. Distribution is manual.
+5. ~~**No Chrome Web Store submission**~~ — **RESOLVED 2026-05-22.** Brevmont is published on the Chrome Web Store under extension ID `onbnhkpggamfbnjdaelgimgimcchamah`. Customer installs use the official listing; diagnostic ZIP builds are support-only fallback.
 
 ## Every File and What It Does
 
