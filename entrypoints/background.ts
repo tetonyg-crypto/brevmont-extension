@@ -1724,7 +1724,13 @@ export default defineBackground(() => {
   // as a cleanup shim so auth tokens live in local storage only.
   async function healDealerTokenSync() {
     try {
-      const sync = await browser.storage.sync.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']);
+      const sync = await browser.storage.sync.get([
+        'dealer_token',
+        'rep_auth_token',
+        'brevmont_rep_auth_token',
+        'license_secret',
+        'brevmont_license_secret',
+      ]);
       const local = await browser.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']);
       const syncVal = sync?.dealer_token as string | undefined;
       const localVal = local?.dealer_token as string | undefined;
@@ -1733,8 +1739,14 @@ export default defineBackground(() => {
       if (!local.rep_auth_token && sync.rep_auth_token) localPatch.rep_auth_token = sync.rep_auth_token as string;
       if (!local.brevmont_rep_auth_token && sync.brevmont_rep_auth_token) localPatch.brevmont_rep_auth_token = sync.brevmont_rep_auth_token as string;
       if (Object.keys(localPatch).length) await browser.storage.local.set(localPatch);
-      if (syncVal || sync.rep_auth_token || sync.brevmont_rep_auth_token) {
-        await browser.storage.sync.remove(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']);
+      if (syncVal || sync.rep_auth_token || sync.brevmont_rep_auth_token || sync.license_secret || sync.brevmont_license_secret) {
+        await browser.storage.sync.remove([
+          'dealer_token',
+          'rep_auth_token',
+          'brevmont_rep_auth_token',
+          'license_secret',
+          'brevmont_license_secret',
+        ]);
         await browser.storage.local.remove(['license_secret', 'brevmont_license_secret']);
         dlog('[Brevmont] moved legacy sync auth tokens to local storage');
       }

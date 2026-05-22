@@ -297,13 +297,14 @@ export async function migrateAuthTokensOutOfSync(): Promise<void> {
   const local = await new Promise<AnyRecord>((resolve) => {
     chrome.storage.local.get([...AUTH_SYNC_KEYS, 'brevmont_auth_storage_hardened'], (r) => resolve(r));
   });
-  if (local.brevmont_auth_storage_hardened) return;
 
   const sync = await new Promise<AnyRecord>((resolve) => {
     chrome.storage.sync.get([...AUTH_SYNC_KEYS], (r) => resolve(r));
   });
+  const hasSyncAuth = AUTH_SYNC_KEYS.some((key) => sync[key]);
+  if (local.brevmont_auth_storage_hardened && !hasSyncAuth && !local.license_secret && !local.brevmont_license_secret) return;
 
-  const localPatch: AnyRecord = { brevmont_auth_storage_hardened: true };
+  const localPatch: AnyRecord = {};
   for (const key of ['rep_auth_token', 'brevmont_rep_auth_token', 'dealer_token']) {
     if (!local[key] && sync[key]) localPatch[key] = sync[key];
   }
@@ -312,7 +313,7 @@ export async function migrateAuthTokensOutOfSync(): Promise<void> {
   }
 
   await new Promise<void>((resolve, reject) => {
-    chrome.storage.local.set(localPatch, () => {
+    chrome.storage.local.set({ ...localPatch, brevmont_auth_storage_hardened: true }, () => {
       const err = chrome.runtime.lastError;
       if (err) reject(new Error(err.message || String(err)));
       else resolve();

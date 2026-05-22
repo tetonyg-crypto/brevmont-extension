@@ -81,3 +81,27 @@ test('new sync payloads strip auth tokens before write', () => {
 
   expect(payload).toEqual({ rep_name: 'Sam', dealership: 'Ridgeline' });
 });
+
+test('auth storage migration retries cleanup if hardening flag already exists', async () => {
+  installChrome(
+    {
+      brevmont_auth_storage_hardened: true,
+      dealer_token: 'dtk_local',
+    },
+    {
+      dealer_token: 'dtk_sync',
+      rep_auth_token: 'BRVMT-REP-SYNC',
+      license_secret: 'legacy-secret',
+    },
+  );
+
+  await migrateAuthTokensOutOfSync();
+
+  const local = (globalThis as any).chrome.storage.local.data;
+  const sync = (globalThis as any).chrome.storage.sync.data;
+  expect(local.dealer_token).toBe('dtk_local');
+  expect(local.rep_auth_token).toBe('BRVMT-REP-SYNC');
+  expect(sync.dealer_token).toBeUndefined();
+  expect(sync.rep_auth_token).toBeUndefined();
+  expect(sync.license_secret).toBeUndefined();
+});
