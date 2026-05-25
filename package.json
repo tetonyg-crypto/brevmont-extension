@@ -5,8 +5,9 @@
   "main": "index.js",
   "scripts": {
     "build": "wxt build",
+    "postbuild": "cp .output/*chrome-web-store*.zip ~/Desktop/ 2>/dev/null; echo 'CWS zip copied to Desktop'",
     "ship": "node scripts/ship.mjs",
-    "zip:cws": "node scripts/build-cws-zip.mjs",
+    "zip:cws": "node scripts/build-cws-zip.mjs && cp .output/*chrome-web-store*.zip ~/Desktop/ 2>/dev/null && echo 'CWS zip copied to Desktop'",
     "build:dev": "wxt build && bash .scripts/tg.sh \"[EXTENSION DEV BUILD] v$npm_package_version complete. Reload extension at chrome://extensions and hard-refresh VinSolutions.\"",
     "build:release": "node scripts/verify-registry-sync.js && wxt build && wxt zip",
     "verify:registry": "node scripts/verify-registry-sync.js",
