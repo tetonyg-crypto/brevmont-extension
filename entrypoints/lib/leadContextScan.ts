@@ -9,9 +9,30 @@ const STOP_WORDS =
   'Created|Attempted|Contacted|Looking|Wants|Also|Stock|Source|Status|miles|General|Customer|Interested|Trade|lineup|options|inventory|Calculated|Equity|Payoff|hover|details|Bad|Sold|Active|Lost';
 const POISON_BEFORE = /(?:Equity|Payoff|Trade-in|trade\s+value|Credit)\b[\s\S]{0,50}$/i;
 const POISON_AFTER = /^[\s\S]{0,20}(?:Calculated|Payoff|payoff|appraised)/i;
+const LINKEDIN_UI_NAME_RE =
+  /^(?:ad options|advertising|sponsored|promoted|2023 grade|grade|follow|message|connect|open to|profile|activity|about|experience|education|people also viewed|linkedin|notifications|jobs|home|my network|premium)$/i;
 
 function isPoisoned(text: string, mi: number, ml: number): boolean {
   return POISON_BEFORE.test(text.slice(Math.max(0, mi - 60), mi)) || POISON_AFTER.test(text.slice(mi + ml, mi + ml + 40));
+}
+
+function cleanCandidateText(value: unknown): string {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function isLikelyUiName(value: unknown): boolean {
+  const candidate = cleanCandidateText(value);
+  if (!candidate || candidate.length < 2 || candidate.length > 80) return true;
+  if (candidate.includes('@')) return true;
+  if (LINKEDIN_UI_NAME_RE.test(candidate)) return true;
+  if (/\b(?:ad|options|grade|sponsored|promoted|follow|connect)\b/i.test(candidate)) return true;
+  return false;
+}
+
+function textFromSelector(selector: string): string | null {
+  const el = document.querySelector(selector) as HTMLElement | null;
+  const text = cleanCandidateText(el?.innerText || el?.textContent || '');
+  return text || null;
 }
 
 export function extractVehicle(text: string): string {
@@ -387,15 +408,38 @@ export function extractContactName(platform: string): string | null {
     return null;
   }
   if (platform === 'linkedin') {
-    const nameEl =
-      document.querySelector('.msg-overlay-bubble-header__title') ||
-      document.querySelector('.msg-s-message-group__name') ||
-      document.querySelector('.msg-thread__link-to-profile') ||
-      document.querySelector('.msg-entity-lockup__entity-title') ||
-      document.querySelector('[class*="msg-overlay-conversation-bubble"] h2');
-    if (nameEl) {
-      const name = (nameEl as HTMLElement).textContent?.trim();
-      if (name && name.length > 1 && name.length < 60) return name;
+    const selectors = [
+      'main h1.text-heading-xlarge',
+      '.pv-text-details__left-panel h1',
+      '.ph5 h1',
+      'h1.text-heading-xlarge',
+      '.msg-overlay-bubble-header__title',
+      '.msg-s-message-group__name',
+      '.msg-thread__link-to-profile',
+      '.msg-entity-lockup__entity-title',
+      '[data-anonymize="person-name"]',
+      '[aria-label^="View "] [dir="ltr"]',
+    ];
+    for (const selector of selectors) {
+      const name = textFromSelector(selector);
+      if (name && !isLikelyUiName(name)) return name;
+    }
+    const labelled = Array.from(document.querySelectorAll('[aria-label]')).find((el) => {
+      const label = el.getAttribute('aria-label') || '';
+      if (!/^(?:Message|Conversation with|Open profile for|View)\s+/i.test(label)) return false;
+      const cleaned = label
+        .replace(/^(?:Message|Conversation with|Open profile for|View)\s+/i, '')
+        .replace(/\s+(?:profile|conversation)$/i, '')
+        .trim();
+      return !isLikelyUiName(cleaned);
+    });
+    if (labelled) {
+      const label = labelled.getAttribute('aria-label') || '';
+      const cleaned = label
+        .replace(/^(?:Message|Conversation with|Open profile for|View)\s+/i, '')
+        .replace(/\s+(?:profile|conversation)$/i, '')
+        .trim();
+      if (!isLikelyUiName(cleaned)) return cleaned;
     }
     return null;
   }

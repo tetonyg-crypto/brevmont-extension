@@ -255,6 +255,50 @@ export default defineContentScript({
       return candidate;
     }
 
+    function isLikelyUiName(name: unknown): boolean {
+      const cleaned = String(name || '').replace(/\s+/g, ' ').trim();
+      if (!cleaned || cleaned.length < 2 || cleaned.length > 80) return true;
+      if (cleaned.includes('@')) return true;
+      return /^(?:ad options|advertising|sponsored|promoted|2023 grade|grade|follow|message|connect|open to|profile|activity|about|experience|education|people also viewed|linkedin|notifications|jobs|home|my network|premium)$/i.test(cleaned)
+        || /\b(?:ad|options|grade|sponsored|promoted|follow|connect)\b/i.test(cleaned);
+    }
+
+    function extractLinkedInProfileSignal(): { customerName?: string | null; headline?: string | null; company?: string | null; rawPrefix?: string; confidence?: number } {
+      if (!isLinkedIn) return {};
+      const pickText = (selector: string): string | null => {
+        const el = document.querySelector(selector) as HTMLElement | null;
+        const text = (el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
+        return text || null;
+      };
+      const nameSelectors = [
+        'main h1.text-heading-xlarge',
+        '.pv-text-details__left-panel h1',
+        '.ph5 h1',
+        'h1.text-heading-xlarge',
+        '.msg-overlay-bubble-header__title',
+        '.msg-s-message-group__name',
+        '.msg-thread__link-to-profile',
+        '.msg-entity-lockup__entity-title',
+        '[data-anonymize="person-name"]',
+      ];
+      const rawName = nameSelectors.map(pickText).find((candidate) => candidate && !isLikelyUiName(candidate)) || null;
+      const headline = pickText('.text-body-medium.break-words')
+        || pickText('.pv-text-details__left-panel .text-body-medium')
+        || pickText('.msg-entity-lockup__entity-info')
+        || null;
+      const company = pickText('.pv-text-details__right-panel a[href*="/company/"]')
+        || pickText('a[data-field="experience_company_logo"]')
+        || null;
+      const confidence = rawName ? 0.9 : 0.25;
+      const rawPrefix = [
+        rawName ? `Profile name: ${rawName}` : '',
+        headline ? `Headline: ${headline}` : '',
+        company ? `Company: ${company}` : '',
+        rawName && isLikelyUiName(rawName) ? 'Lead scan confidence: low - LinkedIn UI text ignored' : '',
+      ].filter(Boolean).join('\n');
+      return { customerName: rawName, headline, company, rawPrefix, confidence };
+    }
+
     function extractPartialLeadSignals(rawText: string): { customerName?: string | null; email?: string | null; phone?: string | null; vehicle?: string | null } {
       const raw = String(rawText || '');
       const email = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || null;
@@ -1542,6 +1586,27 @@ export default defineContentScript({
       return true;
     }
 
+    function findLinkedInMessageBox(): HTMLElement | null {
+      const selectors = [
+        '.msg-form__contenteditable[contenteditable="true"]',
+        '.msg-form__msg-content-container [contenteditable="true"]',
+        '.msg-overlay-conversation-bubble [contenteditable="true"]',
+        '.msg-form [role="textbox"][contenteditable="true"]',
+        'div[aria-label*="Write a message" i][contenteditable="true"]',
+        'div[aria-label*="message" i][contenteditable="true"]',
+        'div[role="textbox"][contenteditable="true"]',
+      ];
+      for (const selector of selectors) {
+        const matches = Array.from(document.querySelectorAll(selector)) as HTMLElement[];
+        const visible = matches.find((el) => {
+          const rect = el.getBoundingClientRect();
+          return rect.width > 20 && rect.height > 10;
+        });
+        if (visible) return visible;
+      }
+      return null;
+    }
+
     function isDuplicateInject(content: string): boolean {
       const text = String(content || '');
       if (!text.trim()) return false;
@@ -1560,7 +1625,7 @@ export default defineContentScript({
       if ((action === 'write_email' || PLATFORM === 'gmail') && isGmail) return injectGmailEmail(content, subject);
       if (action === 'write_email' && isKnownEmailInjectionPage()) return injectGenericEmail(content, subject);
       if ((action === 'write_facebook_message' || PLATFORM === 'facebook') && isFacebook) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
-      if ((action === 'write_linkedin_message' || PLATFORM === 'linkedin') && isLinkedIn) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
+      if ((action === 'write_linkedin_message' || PLATFORM === 'linkedin') && isLinkedIn) { const box = findLinkedInMessageBox(); if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
       if (PLATFORM === 'whatsapp') { const box = document.querySelector('div[contenteditable="true"][data-tab="10"]') as HTMLElement ?? document.querySelector('footer div[contenteditable="true"]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
       if (isInstagram) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement ?? document.querySelector('textarea[placeholder]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
       if (action === 'log_crm_note' && isVinSolutions) return await pasteIntoCRM(content || '');
@@ -1661,7 +1726,12 @@ export default defineContentScript({
           }
           const partialSignal = extractPartialLeadSignals(rawText);
           const scanned = isVinSolutions ? scanText(rawText) : {};
-          const name = scanned.customerName || leadData?.customerName || gmailSignal.customerName || detected?.name || extractFacebookConversationName() || safeExtractContactName() || partialSignal.customerName;
+          const linkedinSignal = extractLinkedInProfileSignal();
+          if (linkedinSignal.rawPrefix) {
+            rawText = `${linkedinSignal.rawPrefix}\n\n${rawText}`.slice(0, 5000);
+          }
+          const rawName = scanned.customerName || leadData?.customerName || gmailSignal.customerName || linkedinSignal.customerName || detected?.name || extractFacebookConversationName() || safeExtractContactName() || partialSignal.customerName;
+          const name = isLikelyUiName(rawName) ? null : rawName;
           const phone = scanned.phone || leadData?.phone || detected?.phone || partialSignal.phone || null;
           const email = scanned.email || leadData?.email || detected?.email || gmailSignal.email || partialSignal.email || null;
           const vehicle = scanned.vehicle || leadData?.vehicle || leadData?.vehicleOfInterest || detected?.vehicle || partialSignal.vehicle || null;
@@ -1679,8 +1749,8 @@ export default defineContentScript({
             platform: PLATFORM,
             raw_text: rawText,
             source_raw_text: rawText,
-            detectionConfidence: detected?.confidence ?? (name ? 0.55 : 0),
-            detectionMethod: detected ? `auto_${detected.method}` : null,
+            detectionConfidence: linkedinSignal.confidence ?? detected?.confidence ?? (name ? 0.55 : 0),
+            detectionMethod: linkedinSignal.customerName ? 'linkedin_profile_selector' : (detected ? `auto_${detected.method}` : null),
           });
         } catch {
           sendResponse({ name: null, customerName: null, platform: PLATFORM });

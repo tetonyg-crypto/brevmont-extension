@@ -52,11 +52,12 @@ export function getPanelHTML(platform: Platform): string {
 
   return `
 <div class="header">
-  <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0D6E6E"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">BM</text></svg>
-  <span class="logo">BREVMONT</span>
+  <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0D6E6E"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">b</text></svg>
+  <span class="logo">Brevmont</span>
   <span class="version-badge" id="o8-version-badge"></span>
   <span style="flex:1"></span>
   ${badge.label ? `<span id="o8-platform-badge" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;color:${badge.color};background:${badge.bg}">${esc(badge.label)}</span>` : '<span id="o8-platform-badge" style="display:none"></span>'}
+  <button id="o8-account-btn" class="account-btn" type="button" title="Account" aria-label="Account">•</button>
   <button id="o8-lead-btn" class="lead-btn">+ Lead</button>
   <span id="o8-close" class="close">&times;</span>
 </div>
@@ -159,6 +160,7 @@ export function getPanelHTML(platform: Platform): string {
     <div class="account-chip-text">
       <div id="o8-account-chip-name" class="account-chip-name"></div>
       <div id="o8-account-chip-dealership" class="account-chip-dealership"></div>
+      <div id="o8-account-chip-email" class="account-chip-email"></div>
     </div>
     <span id="o8-account-chip-plan" class="account-chip-plan"></span>
     <button id="o8-account-chip-upgrade" class="account-chip-upgrade" type="button" style="display:none;">Upgrade</button>

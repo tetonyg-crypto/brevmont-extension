@@ -1233,6 +1233,13 @@ function renderPanel(): void {
   wireHandlers(root);
   startCustomerDetection(root);
 
+  chrome.runtime.sendMessage({ type: 'SYNC_AUTH_FROM_COOKIE' }).then((resp: any) => {
+    if (resp?.configured) {
+      renderAccountChip().catch(() => {});
+      refreshGenerationStatus(root).catch(() => {});
+    }
+  }).catch(() => {});
+
   // Show free tier usage counter if applicable
   applyFirstUseGuide(root);
   updateUsageCounter(root);
@@ -1257,6 +1264,7 @@ async function renderAccountChip(): Promise<void> {
   const chip = document.getElementById('o8-account-chip') as HTMLElement | null;
   const nameEl = document.getElementById('o8-account-chip-name');
   const dealershipEl = document.getElementById('o8-account-chip-dealership');
+  const emailEl = document.getElementById('o8-account-chip-email');
   const planEl = document.getElementById('o8-account-chip-plan') as HTMLElement | null;
   const upgradeBtn = document.getElementById('o8-account-chip-upgrade') as HTMLButtonElement | null;
   if (!chip || !nameEl || !dealershipEl || !planEl) return;
@@ -1266,13 +1274,15 @@ async function renderAccountChip(): Promise<void> {
   // with the resolved access; if the API is offline we still show the
   // rep + dealership name + cached tier.
   let repName = '';
+  let repEmail = '';
   let dealership = '';
   let cachedTier = 'free';
   try {
     const sync = await browser.storage.sync.get(['rep_name', 'dealership']);
     repName = String(sync.rep_name || '');
     dealership = String(sync.dealership || '');
-    const local = await browser.storage.local.get(['brevmont_tier']);
+    const local = await browser.storage.local.get(['brevmont_tier', 'rep_email']);
+    repEmail = String(local.rep_email || '');
     cachedTier = String(local.brevmont_tier || 'free').toLowerCase();
   } catch { /* storage may not be available in some test contexts */ }
 
@@ -1300,6 +1310,7 @@ async function renderAccountChip(): Promise<void> {
     : 'free';
   nameEl.textContent = repName || 'Brevmont rep';
   dealershipEl.textContent = dealership || 'No dealership linked';
+  if (emailEl) emailEl.textContent = repEmail;
   setPlanBadge(cachedPlan, 'active', false);
   if (upgradeBtn) {
     upgradeBtn.style.display = cachedPlan === 'free' ? 'inline-block' : 'none';
@@ -1540,6 +1551,17 @@ function wireHandlers(root: HTMLElement): void {
   // Generate button
   const genBtn = el('o8-generate');
   if (genBtn) genBtn.onclick = () => doGenerate(root);
+  const accountBtn = el('o8-account-btn') as HTMLButtonElement | null;
+  if (accountBtn) {
+    accountBtn.onclick = () => {
+      const chip = document.getElementById('o8-account-chip') as HTMLElement | null;
+      if (!chip) return;
+      chip.style.display = 'block';
+      chip.scrollIntoView({ block: 'end', behavior: 'smooth' });
+      chip.classList.add('account-chip-focus');
+      window.setTimeout(() => chip.classList.remove('account-chip-focus'), 900);
+    };
+  }
   const referralBtn = el('o8-referral-link') as HTMLButtonElement | null;
   if (referralBtn) {
     referralBtn.onclick = async () => {

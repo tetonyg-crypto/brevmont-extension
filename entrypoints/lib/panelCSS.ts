@@ -332,6 +332,27 @@ ${domMode && isLinkedIn ? `
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.account-chip-email {
+  font-size: 10px;
+  color: rgba(248, 246, 241, 0.45);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid rgba(13, 110, 110, 0.25);
+  background: #fff;
+  color: #0D6E6E;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 900;
+  cursor: pointer;
+}
+.account-btn:hover { background: #F0EFFF; }
 .account-chip-plan {
   flex-shrink: 0;
   font-size: 9px;
@@ -365,8 +386,10 @@ ${domMode && isLinkedIn ? `
   transition: filter 0.15s ease;
 }
 .account-chip-upgrade:hover { filter: brightness(1.12); }
+.account-chip.account-chip-focus { box-shadow: 0 -2px 0 #0D6E6E; }
 /* Reserve space at the bottom of the scrollable area so the chip doesn't
    cover the last UI element. */
-body { padding-bottom: 44px; }
+body { padding-bottom: 88px; }
+.tool-content { padding-bottom: 96px; }
 `;
 }

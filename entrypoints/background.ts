@@ -504,6 +504,29 @@ export default defineBackground(() => {
     // Health check — content script pings to verify service worker is alive
     if (msg.type === 'PING') { sendResponse({ pong: true }); return false; }
 
+    if (msg.type === 'SYNC_AUTH_FROM_COOKIE') {
+      (async () => {
+        try {
+          const configured = await tryCookieShareAutoConfig();
+          if (configured) sendHeartbeat().catch(() => {});
+          const local = await browser.storage.local.get([
+            'dealer_token',
+            'rep_auth_token',
+            'brevmont_rep_auth_token',
+            'rep_name',
+            'dealership',
+            'brevmont_tier',
+            'dealership_tier',
+            'dealership_plan',
+          ]);
+          sendResponse({ ok: true, configured, auth: local });
+        } catch (err: any) {
+          sendResponse({ ok: false, configured: false, error: err?.message || 'auth_sync_failed' });
+        }
+      })();
+      return true;
+    }
+
     if (msg.type === 'OPEN_BREVMONT_SIDE_PANEL') {
       (async () => {
         try {

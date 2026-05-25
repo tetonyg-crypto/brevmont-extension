@@ -4,10 +4,12 @@ import SupportModal from './SupportModal';
 
 interface PopupState {
   rep_name: string;
+  rep_email: string;
   dealership: string;
   dealer_token: string;
   rep_auth_token: string;
   extension_role: string;
+  tier: string;
 }
 
 const CRM_HOST_FRAGMENTS = [
@@ -45,10 +47,12 @@ function isRepLike(role: string): boolean {
 function App() {
   const [settings, setSettings] = useState<PopupState>({
     rep_name: '',
+    rep_email: '',
     dealership: '',
     dealer_token: '',
     rep_auth_token: '',
     extension_role: 'rep',
+    tier: 'Free',
   });
   const [queueSize, setQueueSize] = useState(0);
   const [version, setVersion] = useState('');
@@ -117,13 +121,22 @@ function App() {
 
   useEffect(() => {
     const loadSettings = async () => {
+      try {
+        await browser.runtime.sendMessage({ type: 'SYNC_AUTH_FROM_COOKIE' });
+      } catch {
+        /* service worker may be waking; storage fallback below still renders */
+      }
       const local = (await browser.storage.local.get([
         'rep_name',
+        'rep_email',
         'dealership',
         'dealer_token',
         'rep_auth_token',
         'brevmont_rep_auth_token',
         'brevmont_extension_role',
+        'brevmont_tier',
+        'dealership_tier',
+        'dealership_plan',
       ])) as Record<string, string>;
       const sync = (await browser.storage.sync.get(['rep_name', 'dealership'])) as Record<
         string,
@@ -142,10 +155,12 @@ function App() {
       setIsOnCrm(onCrm);
       setSettings({
         rep_name: local.rep_name || sync.rep_name || '',
+        rep_email: local.rep_email || '',
         dealership: local.dealership || sync.dealership || '',
         dealer_token: local.dealer_token || sync.dealer_token || '',
         rep_auth_token: local.brevmont_rep_auth_token || local.rep_auth_token || sync.rep_auth_token || '',
         extension_role: local.brevmont_extension_role || 'rep',
+        tier: local.brevmont_tier || local.dealership_tier || local.dealership_plan || 'Free',
       });
     };
     void loadSettings();
@@ -205,6 +220,11 @@ function App() {
     return token.slice(0, 6) + '...' + token.slice(-4);
   };
 
+  const displayTier = (tier: string) => {
+    const value = String(tier || 'free').replace(/[_-]+/g, ' ').trim();
+    return value ? value.replace(/\b\w/g, (ch) => ch.toUpperCase()) : 'Free';
+  };
+
   /** Reps use many CRMs — open extension options (instructions / dealership CRM field), not a fixed host. */
   const openCrmSetupInstructions = () => {
     void browser.runtime.openOptionsPage();
@@ -245,7 +265,7 @@ function App() {
   const statusColor =
     status === 'online' ? PALETTE.statusOk : status === 'offline' ? PALETTE.statusCrit : PALETTE.statusWarn;
 
-  const authenticated = !!settings.dealer_token;
+  const authenticated = !!(settings.dealer_token || settings.rep_auth_token);
   const role = settings.extension_role || 'rep';
   const showGmLink = isManagerRole(role) && !isRepLike(role);
 
@@ -362,6 +382,14 @@ function App() {
           Rep
         </div>
         <div style={{ fontSize: 14, fontWeight: 600, color: PALETTE.charcoal }}>{settings.rep_name || 'Not configured'}</div>
+        {settings.rep_email && <div style={{ fontSize: 12, color: PALETTE.textMuted, marginTop: 4 }}>{settings.rep_email}</div>}
+      </div>
+
+      <div style={{ background: PALETTE.cardWhite, border: `1px solid ${PALETTE.border}`, borderRadius: 8, padding: '10px 12px' }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: PALETTE.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
+          Tier
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: PALETTE.charcoal }}>{displayTier(settings.tier)}</div>
       </div>
 
       <div style={{ background: PALETTE.cardWhite, border: `1px solid ${PALETTE.border}`, borderRadius: 8, padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
