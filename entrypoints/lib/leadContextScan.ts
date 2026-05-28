@@ -354,16 +354,53 @@ export function extractContactName(platform: string): string | null {
     return null;
   }
   if (platform === 'linkedin') {
-    const nameEl =
-      document.querySelector('.msg-overlay-bubble-header__title') ||
-      document.querySelector('.msg-s-message-group__name') ||
-      document.querySelector('.msg-thread__link-to-profile') ||
-      document.querySelector('.msg-entity-lockup__entity-title') ||
-      document.querySelector('[class*="msg-overlay-conversation-bubble"] h2');
-    if (nameEl) {
-      const name = (nameEl as HTMLElement).textContent?.trim();
-      if (name && name.length > 1 && name.length < 60) return name;
+    const cleanName = (raw: string | null | undefined): string | null => {
+      const name = (raw || '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s*•.*$/, '')
+        .replace(/\s+\d+(?:st|nd|rd|th)\b.*$/i, '')
+        .trim();
+      if (!name || name.length < 2 || name.length > 60) return null;
+      if (/@|^messaging$|^search messages$|^focused$|^jobs$|^unread$|^connections$|^inmail$|^starred$/i.test(name)) return null;
+      return name;
+    };
+
+    const detailRoot =
+      document.querySelector('.msg-conversations-container__thread-view') ||
+      document.querySelector('.msg-conversation-card__content') ||
+      document.querySelector('.scaffold-layout__detail') ||
+      document.querySelector('main');
+
+    const detailSelectors = [
+      '.msg-thread__link-to-profile',
+      '.msg-entity-lockup__entity-title',
+      '.msg-s-message-group__name',
+      '[data-anonymize="person-name"]',
+      'a[href*="/in/"] span[aria-hidden="true"]',
+      'h2',
+    ];
+    for (const sel of detailSelectors) {
+      const nodes = Array.from((detailRoot || document).querySelectorAll(sel));
+      for (const node of nodes) {
+        const name = cleanName((node as HTMLElement).innerText || node.textContent);
+        if (name) return name;
+      }
     }
+
+    const activeThread =
+      document.querySelector('.msg-conversation-listitem--active') ||
+      document.querySelector('[aria-selected="true"][data-view-name*="messaging"]') ||
+      document.querySelector('[class*="conversation-listitem"][class*="active"]');
+    if (activeThread) {
+      const candidates = Array.from(activeThread.querySelectorAll('h3, h4, span, strong'));
+      for (const node of candidates) {
+        const name = cleanName((node as HTMLElement).innerText || node.textContent);
+        if (name) return name;
+      }
+    }
+
+    const titleName = cleanName(document.title.replace(/\| LinkedIn.*$/i, '').replace(/Messaging\s*/i, ''));
+    if (titleName) return titleName;
     return null;
   }
   if (platform === 'instagram') {

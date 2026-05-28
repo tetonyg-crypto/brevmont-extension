@@ -1078,7 +1078,7 @@ export default defineContentScript({
     let pill: HTMLElement | null = document.getElementById('brevmont-pill') as HTMLElement || document.createElement('div');
     if (!pill.id) {
       pill.id = 'brevmont-pill';
-      pill.textContent = 'BM';
+      pill.textContent = 'B';
 
       Object.assign(pill.style, {
         position:'fixed', zIndex:'9999',
@@ -1091,7 +1091,7 @@ export default defineContentScript({
       });
 
       pill.onmouseenter = () => { if(pill) { pill.style.opacity = '1'; pill.textContent = 'Brevmont'; } };
-      pill.onmouseleave = () => { if(pill) { pill.style.opacity = '0.85'; pill.textContent = 'BM'; } };
+      pill.onmouseleave = () => { if(pill) { pill.style.opacity = '0.85'; pill.textContent = 'B'; } };
       pill.onclick = () => { sidebarOpen ? closeSidebar() : openSidebar(); };
       document.documentElement.appendChild(pill);
       addBreadcrumb({ category: 'state', message: 'pill_mounted', data: { platform: PLATFORM } }).catch(() => {});
@@ -1396,7 +1396,7 @@ export default defineContentScript({
             dlog('[Brevmont] SPA re-injection: pill was removed, re-creating');
             pill = document.createElement('div');
             pill.id = 'brevmont-pill';
-            pill.textContent = 'BM';
+            pill.textContent = 'B';
             Object.assign(pill.style, {
               position:'fixed', zIndex:'9999',
               background:'#0D6E6E', color:'#fff', padding:'5px 8px', borderRadius:'6px',
@@ -1407,7 +1407,7 @@ export default defineContentScript({
             });
             pill.onclick = () => { sidebarOpen ? closeSidebar() : openSidebar(); };
             pill.onmouseenter = () => { if(pill) { pill.style.opacity = '1'; pill.textContent = 'Brevmont'; } };
-            pill.onmouseleave = () => { if(pill) { pill.style.opacity = '0.85'; pill.textContent = 'BM'; } };
+            pill.onmouseleave = () => { if(pill) { pill.style.opacity = '0.85'; pill.textContent = 'B'; } };
             document.documentElement.appendChild(pill);
             updatePillPosition();
           }
@@ -2173,17 +2173,7 @@ export default defineContentScript({
         }
 
         if (isLinkedIn) {
-          // LinkedIn: messaging header shows contact name
-          const nameEl = document.querySelector('.msg-overlay-bubble-header__title')
-            || document.querySelector('.msg-s-message-group__name')
-            || document.querySelector('.msg-thread__link-to-profile')
-            || document.querySelector('.msg-entity-lockup__entity-title')
-            || document.querySelector('[class*="msg-overlay-conversation-bubble"] h2');
-          if (nameEl) {
-            const name = (nameEl as HTMLElement).textContent?.trim();
-            if (name && name.length > 1 && name.length < 60) return name;
-          }
-          return null;
+          return safeExtractContactName();
         }
 
         if (isInstagram) {
@@ -2254,18 +2244,46 @@ export default defineContentScript({
         });
         try {
           const resp = await safeSend({ type: 'PARSE_LEAD', payload: { raw_text: rawText, platform: PLATFORM } });
-          if (resp.error) { showToast(s, 'Parse failed: ' + resp.error); return; }
-          const lead = resp.lead || resp;
+          const lead = normalizeParsedLead(resp?.error ? buildFallbackLead(rawText) : (resp.lead || resp), rawText);
           showLeadCard(lead, inputMethod);
         } catch(e: any) {
           logError('API_ERROR', e.message || 'Lead parse failed', `platform=${PLATFORM},method=safeSend`);
-          showToast(s, 'Parse error: ' + e.message);
+          showLeadCard(buildFallbackLead(rawText), inputMethod);
         } finally {
           ['o8-scan-btn', 'o8-lead-voice-parse', 'o8-lead-paste-parse'].forEach(id => {
             const btn = s.getElementById(id) as HTMLButtonElement;
             if (btn) { btn.innerHTML = id.includes('scan') ? 'Scan This Page' : 'Parse'; btn.disabled = false; }
           });
         }
+      }
+
+      function normalizeParsedLead(lead: any, rawText: string) {
+        const fallback = buildFallbackLead(rawText);
+        const normalized = { ...fallback, ...(lead || {}) };
+        const hasAnyField = Boolean(
+          normalized.first_name || normalized.last_name || normalized.phone ||
+          normalized.email || normalized.vehicle_interest || normalized.notes
+        );
+        return hasAnyField ? normalized : fallback;
+      }
+
+      function buildFallbackLead(rawText: string) {
+        const requestedName = rawText.match(/\b(?:add|save|create)\s+([a-z][a-z'-]+(?:\s+[a-z][a-z'-]+){0,3})\s+as\s+(?:a\s+)?lead/i)?.[1] || '';
+        const contactName = leadData?.customerName || safeExtractContactName() || requestedName;
+        const nameParts = contactName.split(/\s+/).filter(Boolean);
+        const email = rawText.match(/[\w.-]+@[\w.-]+\.\w{2,}/)?.[0] || null;
+        const phone = rawText.match(/\+?\d[\d().\-\s]{8,}\d/)?.[0]?.replace(/\D/g, '') || null;
+        const vehicle = rawText.match(/\b((?:19|20)\d{2}\s+[A-Z][a-zA-Z0-9-]+(?:\s+[A-Z][a-zA-Z0-9-]+){0,4})\b/)?.[1] || null;
+        return {
+          first_name: nameParts[0] || null,
+          last_name: nameParts.length > 1 ? nameParts.slice(1).join(' ') : null,
+          phone,
+          email,
+          vehicle_interest: vehicle,
+          source: PLATFORM,
+          notes: rawText.replace(/\s+/g, ' ').trim().slice(0, 240) || null,
+          confidence: contactName ? 55 : 25,
+        };
       }
 
       // Render parsed lead card
@@ -2284,7 +2302,6 @@ export default defineContentScript({
           { key: 'notes', label: 'Notes' }
         ];
 
-        const isLocked = currentTier !== 'command' && currentTier !== 'group';
         const confidence = lead.confidence || 0;
 
         let html = `<div class="lead-confidence">${confidence}% confidence</div>`;
@@ -2293,12 +2310,7 @@ export default defineContentScript({
           html += `<div class="lead-field"><label>${f.label}</label><input class="lead-input ${val ? '' : 'empty'}" data-field="${f.key}" value="${esc(val)}" placeholder="${f.label}" /></div>`;
         }
 
-        if (isLocked) {
-          html += `<button class="lead-inject-btn locked" disabled>🔒 Inject to CRM</button>`;
-          html += `<div class="lead-gate-msg">Lead Capture requires Command. Upgrade at brevmont.com</div>`;
-        } else {
-          html += `<button id="o8-lead-inject" class="lead-inject-btn">Inject to CRM</button>`;
-        }
+        html += `<button id="o8-lead-inject" class="lead-inject-btn">${isVinSolutions ? 'Inject to CRM' : 'Save Lead'}</button>`;
         html += `<button id="o8-lead-cancel" class="lead-cancel-btn">Cancel</button>`;
 
         leadResult.innerHTML = html;
@@ -2318,7 +2330,7 @@ export default defineContentScript({
           if (target) target.style.display = 'block';
         });
 
-        // Inject button (Command tier only)
+        // Inject/save button. Non-CRM platforms save a prospecting lead for later.
         const injectBtn = leadResult.querySelector('#o8-lead-inject');
         if (injectBtn) {
           injectBtn.addEventListener('click', async () => {
@@ -2892,7 +2904,7 @@ export default defineContentScript({
           });
         }
       } else {
-        card.style.display = 'block';
+        card.style.display = 'none';
         const nameEl = s.getElementById('o8-name')!;
         nameEl.textContent = 'Open a customer record';
         nameEl.style.fontStyle = 'italic'; nameEl.style.color = '#94a3b8';
@@ -2912,8 +2924,8 @@ export default defineContentScript({
       if (selected.length === 0) { isGenerating = false; return; }
       const type = selected.length === 3 ? 'all' : selected.length === 1 ? selected[0]! : 'all';
       const btn = s.getElementById('o8-generate') as HTMLButtonElement;
-      btn.innerHTML = '<span class="gen-spinner"></span> Generating\u2026'; btn.disabled = true;
-      s.getElementById('o8-outputs')!.innerHTML = '';
+      btn.innerHTML = '<span class="gen-spinner"></span> Generating'; btn.disabled = true;
+      showGeneratingState(s);
       // Reset tab-active state on chips before the new generation — stale
       // card-specific `.tab-active` would otherwise carry over when the DOM
       // is cleared above (the chip class lives on the chip, not the card).
@@ -2951,13 +2963,28 @@ export default defineContentScript({
             metadata: _meta }
         });
         if ((response as any).queued) {
+          s.getElementById('o8-outputs')!.innerHTML = '';
           showToast(s, (response as any).message || 'Saved. Will sync when online.');
-        } else if (response.error) addOutput(s, 'Error', response.error);
+        } else if (response.error) {
+          s.getElementById('o8-outputs')!.innerHTML = '';
+          addOutput(s, 'Error', response.error);
+        }
         else {
           const sec = response.sections;
           // Intelligence: store AI output for edit-distance tracking
           lastAiOutput = { text: sec?.text || '', email: sec?.email || '', crm: sec?.crm || '', timestamp: Date.now() };
-          if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text); if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email); if (selected.includes('crm') && sec.crm) { if (sec.crm.trim() === 'NO_NEW_NOTE') { showToast(s, 'Nothing new to log. Last note covers this.'); } else { addOutput(s, outputLabels.crm, sec.crm); } } if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.');
+          const outputs = s.getElementById('o8-outputs')!;
+          outputs.innerHTML = '';
+          if (selected.includes('text') && sec.text) addOutput(s, outputLabels.text, sec.text);
+          if (selected.includes('email') && sec.email) addOutput(s, outputLabels.email, sec.email);
+          if (selected.includes('crm') && sec.crm) {
+            if (sec.crm.trim() === 'NO_NEW_NOTE') {
+              showToast(s, 'Nothing new to log. Last note covers this.');
+            } else {
+              addOutput(s, outputLabels.crm, sec.crm);
+            }
+          }
+          if (!sec.text && !sec.email && !sec.crm) addOutput(s, 'OUTPUT', response.text || 'Generation returned empty.');
           // Honest tracking — emit generation.created for each output the rep can see.
           // Reuses the SAME generation_id sent to the proxy (_generationId, _meta.generation_id)
           // so the server-side event_log_v2 UPSERT lands on the same row the
@@ -2996,6 +3023,7 @@ export default defineContentScript({
         }
       } catch (e: any) {
         logError(e.message?.includes('connection') ? 'NETWORK_ERROR' : 'API_ERROR', e.message || 'doGenerate failed', `platform=${PLATFORM},type=${type}`);
+        s.getElementById('o8-outputs')!.innerHTML = '';
         if (e.message.includes('Reload') || e.message.includes('connection') || e.message.includes('invalidated')) { showReconnectBanner(s); }
         addOutput(s, 'Error', e.message.includes('invalidated') ? 'Brevmont needs a refresh. Click Reload Page above.' : e.message);
       }
@@ -3122,6 +3150,20 @@ export default defineContentScript({
         activeCard.classList.add('tab-visible');
         (activeCard as HTMLElement).style.display = 'block';
       }
+    }
+
+    function showGeneratingState(s: ShadowRoot) {
+      const container = s.getElementById('o8-outputs')!;
+      container.innerHTML = `
+        <div class="generating-card" aria-live="polite">
+          <div class="generating-row">
+            <span class="gen-spinner generating-spinner"></span>
+            <span>Generating</span>
+          </div>
+          <div class="generating-sub">Thinking through message, email, and CRM note.</div>
+          <div class="generating-bar"><span></span></div>
+        </div>
+      `;
     }
 
     function addOutput(s: ShadowRoot, label: string, content: string, containerId: string = 'o8-outputs') {
@@ -3409,17 +3451,17 @@ export default defineContentScript({
     }
 
     function getHTML(): string {
-      const badge = getBadge();
-      const customerCard = isVinSolutions ? `<div id="o8-card" class="card"><div id="o8-name" class="name" style="font-style:italic;color:#94a3b8">Open a customer record</div><div id="o8-vehicle" class="vehicle"></div><div id="o8-meta" class="meta"></div></div>` : '';
+      const customerCard = isVinSolutions ? `<div id="o8-card" class="card" style="display:none"><div id="o8-name" class="name" style="font-style:italic;color:#94a3b8">Open a customer record</div><div id="o8-vehicle" class="vehicle"></div><div id="o8-meta" class="meta"></div></div>` : '';
+      const leadButton = !isVinSolutions ? `<button id="o8-lead-btn" class="lead-btn">+ Lead</button>` : '';
       const placeholder = isVinSolutions ? 'Describe the situation or tap the mic...' : isGmail ? 'Describe the email situation...' : isFacebook ? 'Describe the conversation...' : isLinkedIn ? 'Describe the LinkedIn interaction...' : isInstagram ? 'Describe the DM...' : 'Describe the situation...';
 
       return `
 <div class="header">
-  <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0D6E6E"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">BM</text></svg>
-  <span class="logo">BREVMONT</span>
+  <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0D6E6E"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">B</text></svg>
+  <span class="logo">Brevmont</span>
   <span class="version-badge" id="o8-version-badge"></span>
   <span style="flex:1"></span>
-  <button id="o8-lead-btn" class="lead-btn">+ Lead</button>
+  ${leadButton}
   <span id="o8-close" class="close">&times;</span>
 </div>
 <div id="o8-quick" class="quick-mode">
@@ -3521,11 +3563,18 @@ export default defineContentScript({
 .inline-mic.mic-active { background:#B91C1C; animation:mic-pulse 1s infinite; }
 @keyframes mic-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.12)} }
 .gen-btn { width:100%; padding:10px; background:#0D6E6E; color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; margin-top:8px; transition:background 0.15s; }
-.gen-btn:hover { background:#0A5555; } .gen-btn:disabled { background:#94a3b8; cursor:wait; }
+.gen-btn:hover { background:#0A5555; } .gen-btn:disabled { background:#0D6E6E; opacity:.9; cursor:wait; }
 .gen-spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:gen-spin 0.6s linear infinite; vertical-align:middle; margin-right:4px; }
 @keyframes gen-spin { to { transform:rotate(360deg); } }
 .outputs { padding:0 14px; overflow-y:auto; flex:0 0 auto; }
 .outputs:not(:empty) { padding:8px 14px; flex:1 1 auto; min-height:0; }
+.generating-card { border:1px solid rgba(13,110,110,0.18); background:rgba(13,110,110,0.06); border-radius:12px; padding:12px; }
+.generating-row { display:flex; align-items:center; gap:8px; color:#0F1419; font-size:13px; font-weight:700; }
+.generating-spinner { border-color:rgba(13,110,110,0.22); border-top-color:#0D6E6E; margin-right:0; }
+.generating-sub { margin-top:6px; color:#64748b; font-size:11px; line-height:1.35; }
+.generating-bar { height:4px; margin-top:10px; border-radius:999px; overflow:hidden; background:rgba(13,110,110,0.12); }
+.generating-bar span { display:block; width:42%; height:100%; border-radius:999px; background:#0D6E6E; animation:gen-progress 1.15s ease-in-out infinite; }
+@keyframes gen-progress { 0% { transform:translateX(-110%); } 100% { transform:translateX(260%); } }
 .out-card { background:#fff; border:1px solid #E5E7EB; border-radius:12px; padding:10px 12px; margin-bottom:8px; }
 /* Tabbed-outputs refactor (2026-04-19): stamped typed cards hide unless the
    matching chip is .tab-active. Untyped cards (Error / OUTPUT / REPLY) have

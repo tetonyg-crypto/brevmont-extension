@@ -212,7 +212,7 @@ function App() {
   };
 
   const goToGmDashboard = () => {
-    void browser.tabs.create({ url: 'https://app.brevmont.com/manager/overview' });
+    void browser.tabs.create({ url: 'https://app.brevmont.com/manager/team' });
     window.close();
   };
 

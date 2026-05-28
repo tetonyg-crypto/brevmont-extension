@@ -204,8 +204,7 @@ export default defineBackground(() => {
 
     if (msg.type === 'CHECK_FEATURES') {
       browser.storage.local.get(['brevmont_tier', 'brevmont_features', 'brevmont_last_heartbeat']).then(data => {
-        const stale = !data.brevmont_last_heartbeat || (Date.now() - data.brevmont_last_heartbeat > 30 * 60 * 1000);
-        const tier = stale ? 'floor' : (data.brevmont_tier || 'floor');
+        const tier = data.brevmont_tier || 'floor';
         sendResponse({ tier, features: data.brevmont_features || getTierFeatures(tier) });
       }).catch(() => sendResponse({ tier: 'floor', features: getTierFeatures('floor') }));
       return true;
@@ -841,10 +840,6 @@ export default defineBackground(() => {
       const flagState = await browser.storage.local.get(['BREVMONT_AUTO_CONFIG_ENABLED']);
       if (flagState.BREVMONT_AUTO_CONFIG_ENABLED === false) return false;
 
-      // Existing rep with credentials? Don't disturb them.
-      const existingSync = await browser.storage.sync.get(['dealer_token']);
-      if (existingSync.dealer_token) return false;
-
       // Read the cookie set by /join/:id/complete on app.brevmont.com.
       const cookie = await browser.cookies.get({
         url: 'https://app.brevmont.com',
@@ -873,21 +868,26 @@ export default defineBackground(() => {
       };
       if (!data.license_key || !data.license_secret) return false;
 
+      const dealerToken = data.dealer_token || data.license_key;
+
       // Sync storage holds the values authSigning + heartbeat read from.
       await browser.storage.sync.set({
-        dealer_token: data.dealer_token || data.license_key,
+        dealer_token: dealerToken,
         rep_name: data.rep_name || data.rep_email || 'Rep',
         dealership: data.dealership_name || '',
       });
       // Local storage holds the secret + rep_auth_token used by signedFetch.
       await browser.storage.local.set({
+        dealer_token: dealerToken,
         brevmont_license_secret: data.license_secret,
         license_secret: data.license_secret,
         rep_auth_token: data.rep_auth_token || repAuthToken,
         brevmont_rep_auth_token: data.rep_auth_token || repAuthToken,
         dealership_id: data.dealership_id || '',
+        dealership: data.dealership_name || '',
         rep_email: data.rep_email || '',
       });
+      await browser.storage.local.remove(['brevmont_tier', 'brevmont_features', 'brevmont_last_heartbeat']);
       dlog('[Brevmont] auto-config from cookie share complete:', data.dealership_name);
       return true;
     } catch (err) {
@@ -1580,8 +1580,11 @@ async function reportError(errorType: string, errorMessage: string) {
 // ===== FEATURE GATING =====
 function getTierFeatures(tier: string) {
   // Normalize legacy tier names
+  if (tier === 'free' || tier === 'trial' || tier === 'starter') tier = 'free_trial';
   if (tier === 'core') tier = 'floor';
+  if (tier === 'pilot') tier = 'founding_pilot';
   if (tier === 'pro') tier = 'command';
+  if (tier === 'command_monthly' || tier === 'command_annual') tier = 'command';
   if (tier === 'elite') tier = 'group';
 
   const base: Record<string, boolean> = {
@@ -1606,7 +1609,7 @@ function getTierFeatures(tier: string) {
     automated_reactivation: false
   };
 
-  if (tier === 'command' || tier === 'group') {
+  if (tier === 'founding_pilot' || tier === 'floor' || tier === 'command' || tier === 'group') {
     base.gm_dashboard = true;
     base.ghost_leads = true;
     base.rep_leaderboard = true;
@@ -1685,14 +1688,35 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
 }
 
 function parseSections(text: string) {
-  const textMatch = text.match(/(?:^|\n)TEXT(?:\s*MESSAGE)?\s*\n([\s\S]*?)(?=\n(?:EMAIL|CRM)|$)/i);
-  const emailMatch = text.match(/(?:^|\n)EMAIL(?:\s*REPLY)?\s*\n([\s\S]*?)(?=\n(?:TEXT|CRM)|$)/i);
-  const crmMatch = text.match(/(?:^|\n)CRM(?: NOTE)?\s*\n([\s\S]*)$/i);
+  const source = String(text || '').replace(/\r\n/g, '\n').trim();
+  const header = String.raw`(?:\*\*)?\s*(TEXT(?:\s+MESSAGE)?|EMAIL(?:\s+(?:REPLY|FOLLOW-UP))?|CRM(?:\s+NOTE)?|NOTE)\s*(?:\*\*)?\s*:?\s*`;
+  const sectionRegex = new RegExp(`(?:^|\\n)#{0,3}\\s*${header}\\n?`, 'gi');
+  const matches = Array.from(source.matchAll(sectionRegex));
 
-  return {
-    text: textMatch?.[1]?.trim() || '',
-    email: emailMatch?.[1]?.trim() || '',
-    crm: crmMatch?.[1]?.trim() || '',
-    raw: text,
+  const sections: { text: string; email: string; crm: string; raw: string } = {
+    text: '',
+    email: '',
+    crm: '',
+    raw: source,
   };
+
+  for (let i = 0; i < matches.length; i += 1) {
+    const match = matches[i];
+    const label = String(match[1] || '').toLowerCase();
+    const start = match.index! + match[0].length;
+    const end = i + 1 < matches.length ? matches[i + 1].index! : source.length;
+    const body = source.slice(start, end).trim();
+    if (!body) continue;
+    if (label.startsWith('text')) sections.text = body;
+    else if (label.startsWith('email')) sections.email = body;
+    else if (label.startsWith('crm') || label === 'note') sections.crm = body;
+  }
+
+  if (!matches.length) {
+    if (/subject\s*:/i.test(source)) sections.email = source;
+    else if (/crm|note|next step|vehicle|intent|action/i.test(source) && source.includes('|')) sections.crm = source;
+    else sections.text = source;
+  }
+
+  return sections;
 }
