@@ -36,10 +36,8 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 * { margin:0; padding:0; box-sizing:border-box; }
 :host { all:initial; font-family:system-ui,-apple-system,sans-serif; font-size:13px; color:#1a202c; }
 #sp-root, #o8 { width:${rootWidth};${rootBorder} height:auto; max-height:100%; background:#FFFFFF; overflow:hidden; overscroll-behavior:contain; display:flex; flex-direction:column; padding-bottom:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:13px; color:#1a202c; }
-.header { position:relative; padding:0 14px; height:48px; border-bottom:1px solid #E5E7EB; display:flex; align-items:center; gap:8px; flex-shrink:0; background:#fff;${headerRadius} }
-.header-icon { flex-shrink:0; }
-.logo { font-size:13px; font-weight:500; color:#1a202c; letter-spacing:0.5px; }
-.version-badge { position:absolute; top:2px; left:14px; font-size:8px; font-family:'JetBrains Mono',ui-monospace,monospace; color:#0D6E6E; background:transparent; padding:0; border-radius:0; margin:0; letter-spacing:0; white-space:nowrap; line-height:1; pointer-events:none; opacity:0.7; }
+.header { position:relative; padding:10px 14px; min-height:44px; border-bottom:1px solid #E5E7EB; display:flex; align-items:center; gap:8px; flex-shrink:0; background:#fff;${headerRadius} }
+.version-badge { font-size:10px; font-family:'JetBrains Mono',ui-monospace,monospace; color:#4f8f8f; background:#F0FAFA; border:1px solid #D6E4E4; padding:2px 7px; border-radius:999px; letter-spacing:0; white-space:nowrap; line-height:1.2; }
 .close { font-size:20px; color:#94a3b8; cursor:pointer; padding:0 4px; flex-shrink:0; line-height:1; } .close:hover { color:#475569; }
 .quick-mode { display:flex; flex-direction:column; flex:0 0 auto; overflow:hidden; }
 .card { padding:10px 14px; border-bottom:1px solid #e8eaed; flex-shrink:0; }
@@ -86,8 +84,6 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .review-title { color:#0F1419; font-size:12px; font-weight:700; line-height:1.35; }
 .review-link { margin-top:6px; border:0; background:#0D6E6E; color:white; border-radius:6px; padding:7px 10px; font:700 11px Inter,system-ui,sans-serif; cursor:pointer; }
 .review-dismiss { position:absolute; top:6px; right:8px; border:0; background:transparent; color:#64748b; font-size:18px; cursor:pointer; line-height:1; }
-.referral-footer { margin:10px 12px 0; padding:8px 0 4px; border-top:1px solid #E5E7EB; text-align:center; }
-.referral-footer button { border:0; background:transparent; color:#0D6E6E; font:800 11px Inter,system-ui,sans-serif; cursor:pointer; }
 .gm-invite-backdrop { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:14px; background:rgba(15,20,25,.48); }
 .gm-invite-modal { position:relative; width:100%; max-width:340px; border-radius:12px; background:#fff; box-shadow:0 20px 60px rgba(15,23,42,.28); padding:16px; color:#0F1419; }
 .gm-invite-close { position:absolute; top:10px; right:10px; width:24px; height:24px; border:0; border-radius:999px; background:#F1F5F9; color:#64748B; cursor:pointer; font-size:17px; line-height:1; }

@@ -624,7 +624,7 @@ function renderCustomerStamp(root: HTMLElement): void {
         <span class="customer-stamp-badge"></span>
         <div style="min-width:0;flex:1">
           <div class="customer-stamp-main">${esc(pinnedCustomer.name)}</div>
-          <div class="customer-stamp-sub">${esc(pinnedCustomer.vehicle || 'Customer trail active')}</div>
+          <div class="customer-stamp-sub">${esc(pinnedCustomer.vehicle || 'Customer context active')}</div>
         </div>
         <div class="customer-stamp-actions">
           <button class="customer-stamp-btn" id="o8-customer-change" type="button">Change</button>
@@ -1560,29 +1560,6 @@ function wireHandlers(root: HTMLElement): void {
       chip.scrollIntoView({ block: 'end', behavior: 'smooth' });
       chip.classList.add('account-chip-focus');
       window.setTimeout(() => chip.classList.remove('account-chip-focus'), 900);
-    };
-  }
-  const referralBtn = el('o8-referral-link') as HTMLButtonElement | null;
-  if (referralBtn) {
-    referralBtn.onclick = async () => {
-      referralBtn.disabled = true;
-      const original = referralBtn.textContent || 'Invite a rep';
-      referralBtn.textContent = 'Creating link...';
-      try {
-        const resp = await safeSend({ type: 'GET_REFERRAL_LINK' });
-        if (!resp?.ok || !resp.referral_url) throw new Error(resp?.error || 'Could not create invite link.');
-        await navigator.clipboard.writeText(resp.referral_url);
-        showToast(root, 'Referral link copied.');
-        referralBtn.textContent = 'Referral link copied';
-      } catch {
-        chrome.tabs.create({ url: 'https://app.brevmont.com/manager/team?utm_source=extension&utm_medium=sidebar&utm_campaign=referral' });
-        referralBtn.textContent = 'Opening invite page';
-      } finally {
-        setTimeout(() => {
-          referralBtn.disabled = false;
-          referralBtn.textContent = original;
-        }, 2200);
-      }
     };
   }
   const customerBtn = el('o8-customer-open');
