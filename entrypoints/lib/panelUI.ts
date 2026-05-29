@@ -52,8 +52,6 @@ export function getPanelHTML(platform: Platform): string {
 
   return `
 <div class="header">
-  <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0D6E6E"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">b</text></svg>
-  <span class="logo">Brevmont</span>
   <span class="version-badge" id="o8-version-badge"></span>
   <span style="flex:1"></span>
   ${badge.label ? `<span id="o8-platform-badge" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;color:${badge.color};background:${badge.bg}">${esc(badge.label)}</span>` : '<span id="o8-platform-badge" style="display:none"></span>'}
@@ -151,9 +149,6 @@ export function getPanelHTML(platform: Platform): string {
   <button id="o8-review-dismiss" class="review-dismiss" type="button" aria-label="Dismiss review prompt">&times;</button>
   <div class="review-title">Brevmont has saved you a lot of typing.</div>
   <button id="o8-review-link" class="review-link" type="button">Leave a quick rating</button>
-</div>
-<div id="o8-referral-footer" class="referral-footer">
-  <button id="o8-referral-link" type="button">Invite a rep -> both get 100 bonus generations</button>
 </div>
 <div id="o8-account-chip" class="account-chip" style="display:none;">
   <div class="account-chip-row">
