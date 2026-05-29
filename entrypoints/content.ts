@@ -2259,12 +2259,16 @@ export default defineContentScript({
 
       function normalizeParsedLead(lead: any, rawText: string) {
         const fallback = buildFallbackLead(rawText);
+        if (lead?.is_lead === false || lead?.intent === 'not_a_lead') {
+          return fallback || buildProspectingLead(rawText);
+        }
         const normalized = { ...fallback, ...(lead || {}) };
+        normalized.confidence = normalizeLeadConfidence(normalized.confidence);
         const hasAnyField = Boolean(
           normalized.first_name || normalized.last_name || normalized.phone ||
           normalized.email || normalized.vehicle_interest || normalized.notes
         );
-        return hasAnyField ? normalized : fallback;
+        return hasAnyField ? normalized : (fallback || buildProspectingLead(rawText));
       }
 
       function buildFallbackLead(rawText: string) {
@@ -2286,6 +2290,30 @@ export default defineContentScript({
         };
       }
 
+      function buildProspectingLead(rawText: string) {
+        const contactName = leadData?.customerName || safeExtractContactName() || '';
+        const nameParts = contactName.split(/\s+/).filter(Boolean);
+        return {
+          first_name: nameParts[0] || null,
+          last_name: nameParts.length > 1 ? nameParts.slice(1).join(' ') : null,
+          phone: null,
+          email: null,
+          vehicle_interest: null,
+          source: PLATFORM,
+          notes: rawText.replace(/\s+/g, ' ').trim().slice(0, 240) || 'Prospecting lead. Review and fill in details.',
+          confidence: contactName ? 35 : 15,
+        };
+      }
+
+      function normalizeLeadConfidence(value: any) {
+        if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.min(100, Math.round(value)));
+        const text = String(value || '').toLowerCase();
+        if (text === 'high') return 80;
+        if (text === 'medium') return 55;
+        if (text === 'low') return 25;
+        return 25;
+      }
+
       // Render parsed lead card
       function showLeadCard(lead: any, inputMethod: string) {
         if (!leadResult) return;
@@ -2302,7 +2330,7 @@ export default defineContentScript({
           { key: 'notes', label: 'Notes' }
         ];
 
-        const confidence = lead.confidence || 0;
+        const confidence = normalizeLeadConfidence(lead.confidence);
 
         let html = `<div class="lead-confidence">${confidence}% confidence</div>`;
         for (const f of fields) {
@@ -2533,7 +2561,7 @@ export default defineContentScript({
       const ctxDir = s.getElementById('o8-ctx-direction') as HTMLTextAreaElement;
       const ctxGen = s.getElementById('o8-ctx-generate') as HTMLButtonElement;
       const ctxOut = s.getElementById('o8-ctx-output');
-      function updCtx() { if (ctxGen) ctxGen.disabled = !contextImage || !ctxDir?.value.trim(); }
+      function updCtx() { if (ctxGen) ctxGen.disabled = !contextImage; }
       async function setContextImage(dataUrl: string) {
         // Auto-downscale any image to fit within proxy limits
         const compressed = await compressImage(dataUrl, 1568, 0.85);
@@ -2694,12 +2722,13 @@ export default defineContentScript({
       if (ctxDir && ctxMic) attachInlineMic(s, ctxDir, ctxMic);
       if (ctxGen) {
         ctxGen.addEventListener('click', async () => {
-          if (!contextImage || !ctxDir?.value.trim()) return;
+          if (!contextImage) return;
           ctxGen.textContent = 'Compressing...'; ctxGen.disabled = true; if (ctxOut) ctxOut.innerHTML = '';
           try {
             const compressed = await compressImage(contextImage, 800, 0.7);
             ctxGen.textContent = 'Analyzing...';
-            const resp = await safeSend({ type: 'CONTEXT_REPLY', payload: { image: compressed, direction: ctxDir.value.trim() } });
+            const direction = ctxDir?.value.trim() || 'Write the best reply for this conversation.';
+            const resp = await safeSend({ type: 'CONTEXT_REPLY', payload: { image: compressed, direction } });
             if (resp.error) {
               const msg = resp.error.includes('413') ? 'Screenshot too large — try a smaller crop' : resp.error;
               addOutput(s, 'Error', msg, 'o8-ctx-output');
@@ -2925,7 +2954,7 @@ export default defineContentScript({
       const type = selected.length === 3 ? 'all' : selected.length === 1 ? selected[0]! : 'all';
       const btn = s.getElementById('o8-generate') as HTMLButtonElement;
       btn.innerHTML = '<span class="gen-spinner"></span> Generating'; btn.disabled = true;
-      showGeneratingState(s);
+      showGeneratingState(s, selected as string[]);
       // Reset tab-active state on chips before the new generation — stale
       // card-specific `.tab-active` would otherwise carry over when the DOM
       // is cleared above (the chip class lives on the chip, not the card).
@@ -3152,15 +3181,19 @@ export default defineContentScript({
       }
     }
 
-    function showGeneratingState(s: ShadowRoot) {
+    function showGeneratingState(s: ShadowRoot, selected: string[] = []) {
       const container = s.getElementById('o8-outputs')!;
+      const clean = selected.filter(Boolean);
+      const label = clean.length === 1
+        ? clean[0] === 'crm' ? 'Writing CRM note' : clean[0] === 'email' ? 'Writing email' : 'Writing message'
+        : 'Writing selected drafts';
       container.innerHTML = `
         <div class="generating-card" aria-live="polite">
           <div class="generating-row">
             <span class="gen-spinner generating-spinner"></span>
-            <span>Generating</span>
+            <span>${label}</span>
           </div>
-          <div class="generating-sub">Thinking through message, email, and CRM note.</div>
+          <div class="generating-sub">Brevmont is working. Keep the page open.</div>
           <div class="generating-bar"><span></span></div>
         </div>
       `;
