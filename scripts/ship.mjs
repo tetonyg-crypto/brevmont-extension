@@ -7,7 +7,8 @@
  *   npm run ship
  *
  * Replaces the multi-step shuffle that's caused version chaos. The ONLY
- * canonical Desktop folder is C:\Users\Yancy\Desktop\brevmont-extension.
+ * canonical Desktop folder is ~/Desktop/brevmont-extension on macOS
+ * (C:\Users\Yancy\Desktop\brevmont-extension on the retired Windows PC).
  * Every ship pass nukes and re-fills that folder so it can never be
  * stale relative to the build.
  */
@@ -15,6 +16,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, rmSync, cpSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -22,8 +24,14 @@ const REPO_ROOT = resolve(__dirname, '..');
 const BUILD_DIR = resolve(REPO_ROOT, '.output/chrome-mv3');
 const ZIP_PATH = resolve(REPO_ROOT, 'brevmont-extension-latest.zip');
 const MANIFEST_PATH = resolve(REPO_ROOT, 'brevmont-extension-manifest.json');
-const DESKTOP_FOLDER = 'C:\\Users\\Yancy\\Desktop\\brevmont-extension';
-const API_ROOT = 'C:\\Users\\Yancy\\brevmont-api';
+const IS_WINDOWS = process.platform === 'win32';
+const HOME = homedir();
+const DESKTOP_FOLDER = IS_WINDOWS
+  ? 'C:\\Users\\Yancy\\Desktop\\brevmont-extension'
+  : join(HOME, 'Desktop', 'brevmont-extension');
+const API_ROOT = IS_WINDOWS
+  ? 'C:\\Users\\Yancy\\brevmont-api'
+  : join(HOME, 'Projects', 'brevmont-api');
 const API_PUBLIC_ZIP = join(API_ROOT, 'public', 'brevmont-extension-latest.zip');
 const API_PUBLIC_MANIFEST = join(API_ROOT, 'public', 'brevmont-extension-manifest.json');
 const FORCE = process.argv.includes('--force');
@@ -197,16 +205,21 @@ if (desktopManifest.version !== VERSION) {
 }
 
 log('4/6', `Zipping -> ${ZIP_PATH}`);
-run('powershell', [
-  '-NoProfile',
-  '-Command',
-  `Compress-Archive -Path '${BUILD_DIR}\\*' -DestinationPath '${ZIP_PATH}' -Force`,
-]);
+rmSync(ZIP_PATH, { force: true });
+if (IS_WINDOWS) {
+  run('powershell', [
+    '-NoProfile',
+    '-Command',
+    `Compress-Archive -Path '${BUILD_DIR}\\*' -DestinationPath '${ZIP_PATH}' -Force`,
+  ]);
+} else {
+  run('zip', ['-qr', ZIP_PATH, '.'], { cwd: BUILD_DIR });
+}
 
 log('5/6', `Writing manifest -> ${MANIFEST_PATH}`);
 const buildManifest = writeBuildManifest();
 
-log('6/6', `Copying ZIP + manifest -> ${API_ROOT}\\public`);
+log('6/6', `Copying ZIP + manifest -> ${join(API_ROOT, 'public')}`);
 assertApiTarget();
 assertVersionCanShip(buildManifest);
 cpSync(ZIP_PATH, API_PUBLIC_ZIP);
