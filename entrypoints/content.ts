@@ -3454,12 +3454,12 @@ export default defineContentScript({
       const customerCard = isVinSolutions ? `<div id="o8-card" class="card" style="display:none"><div id="o8-name" class="name" style="font-style:italic;color:#94a3b8">Open a customer record</div><div id="o8-vehicle" class="vehicle"></div><div id="o8-meta" class="meta"></div></div>` : '';
       const leadButton = !isVinSolutions ? `<button id="o8-lead-btn" class="lead-btn">+ Lead</button>` : '';
       const placeholder = isVinSolutions ? 'Describe the situation or tap the mic...' : isGmail ? 'Describe the email situation...' : isFacebook ? 'Describe the conversation...' : isLinkedIn ? 'Describe the LinkedIn interaction...' : isInstagram ? 'Describe the DM...' : 'Describe the situation...';
+      const badge = getBadge();
 
       return `
 <div class="header">
-  <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0D6E6E"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">B</text></svg>
-  <span class="logo">Brevmont</span>
   <span class="version-badge" id="o8-version-badge"></span>
+  ${badge.label ? `<span class="platform-badge" style="background:${badge.bg};color:${badge.color};border-color:${badge.color}22">${esc(badge.label)}</span>` : ''}
   <span style="flex:1"></span>
   ${leadButton}
   <span id="o8-close" class="close">&times;</span>
@@ -3538,10 +3538,9 @@ export default defineContentScript({
 * { margin:0; padding:0; box-sizing:border-box; }
 :host { all:initial; font-family:system-ui,-apple-system,sans-serif; font-size:13px; color:#1a202c; }
 #o8 { width:${width}; height:auto; max-height:100%; background:#FFFFFF; border:1px solid #E5E7EB; border-radius:12px; box-shadow:0 0 0 1px rgba(0,0,0,0.05), 0 8px 24px -4px rgba(0,0,0,0.1); overflow:hidden; overscroll-behavior:contain; display:flex; flex-direction:column; padding-bottom:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
-.header { position:relative; padding:0 14px; height:48px; border-bottom:1px solid #E5E7EB; display:flex; align-items:center; gap:8px; flex-shrink:0; background:#fff; border-radius:12px 12px 0 0; }
-.header-icon { flex-shrink:0; }
-.logo { font-size:13px; font-weight:500; color:#1a202c; letter-spacing:0.5px; }
-.version-badge { position:absolute; top:2px; left:14px; font-size:8px; font-family:'JetBrains Mono',ui-monospace,monospace; color:#0D6E6E; background:transparent; padding:0; border-radius:0; margin:0; letter-spacing:0; white-space:nowrap; line-height:1; pointer-events:none; opacity:0.7; }
+.header { position:relative; padding:0 14px; height:42px; border-bottom:1px solid #E5E7EB; display:flex; align-items:center; gap:8px; flex-shrink:0; background:#fff; border-radius:12px 12px 0 0; }
+.version-badge { font-size:9px; font-family:'JetBrains Mono',ui-monospace,monospace; color:#0D6E6E; background:#EEF8F5; padding:3px 7px; border-radius:999px; letter-spacing:0; white-space:nowrap; line-height:1; opacity:0.9; }
+.platform-badge { border:1px solid; border-radius:999px; padding:3px 8px; font-size:10px; font-weight:700; line-height:1; white-space:nowrap; }
 .close { font-size:20px; color:#94a3b8; cursor:pointer; padding:0 4px; flex-shrink:0; line-height:1; } .close:hover { color:#475569; }
 .quick-mode { display:flex; flex-direction:column; flex:0 0 auto; overflow:hidden; }
 .card { padding:10px 14px; border-bottom:1px solid #e8eaed; flex-shrink:0; }
