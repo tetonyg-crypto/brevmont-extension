@@ -1562,29 +1562,6 @@ function wireHandlers(root: HTMLElement): void {
       window.setTimeout(() => chip.classList.remove('account-chip-focus'), 900);
     };
   }
-  const referralBtn = el('o8-referral-link') as HTMLButtonElement | null;
-  if (referralBtn) {
-    referralBtn.onclick = async () => {
-      referralBtn.disabled = true;
-      const original = referralBtn.textContent || 'Invite a rep';
-      referralBtn.textContent = 'Creating link...';
-      try {
-        const resp = await safeSend({ type: 'GET_REFERRAL_LINK' });
-        if (!resp?.ok || !resp.referral_url) throw new Error(resp?.error || 'Could not create invite link.');
-        await navigator.clipboard.writeText(resp.referral_url);
-        showToast(root, 'Referral link copied.');
-        referralBtn.textContent = 'Referral link copied';
-      } catch {
-        chrome.tabs.create({ url: 'https://app.brevmont.com/manager/team?utm_source=extension&utm_medium=sidebar&utm_campaign=referral' });
-        referralBtn.textContent = 'Opening invite page';
-      } finally {
-        setTimeout(() => {
-          referralBtn.disabled = false;
-          referralBtn.textContent = original;
-        }, 2200);
-      }
-    };
-  }
   const customerBtn = el('o8-customer-open');
   if (customerBtn) customerBtn.onclick = () => openCustomerPicker(root);
   const exampleBtn = el('o8-first-use-example') as HTMLButtonElement | null;

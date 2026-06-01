@@ -152,9 +152,6 @@ export function getPanelHTML(platform: Platform): string {
   <div class="review-title">Brevmont has saved you a lot of typing.</div>
   <button id="o8-review-link" class="review-link" type="button">Leave a quick rating</button>
 </div>
-<div id="o8-referral-footer" class="referral-footer">
-  <button id="o8-referral-link" type="button">Invite a rep -> both get 100 bonus generations</button>
-</div>
 <div id="o8-account-chip" class="account-chip" style="display:none;">
   <div class="account-chip-row">
     <div class="account-chip-text">
