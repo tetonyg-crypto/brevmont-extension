@@ -1329,9 +1329,11 @@ async function renderAccountChip(): Promise<void> {
     const plan = String(access.plan || cachedPlan).toLowerCase();
     const status = String(access.status || 'active').toLowerCase();
     const isOverridden = !!(access.source?.plan_overridden_by_rep);
+    await chrome.storage.local.set({ brevmont_tier: plan === 'free' ? 'free_trial' : plan });
     if (resp.rep_name) nameEl.textContent = resp.rep_name;
     if (resp.dealership) dealershipEl.textContent = resp.dealership;
     setPlanBadge(plan, status, isOverridden);
+    applyFirstUseGuide(document.body as HTMLElement).catch(() => {});
     if (upgradeBtn) {
       upgradeBtn.style.display = (plan === 'free' && status === 'active') ? 'inline-block' : 'none';
     }
@@ -1345,7 +1347,12 @@ async function applyFirstUseGuide(root: HTMLElement): Promise<void> {
   const input = root.querySelector('#o8-input') as HTMLTextAreaElement | null;
   if (!card) return;
 
-  const state = await chrome.storage.local.get([FIRST_GENERATION_KEY, ONBOARDING_BANNER_DISMISSED_KEY, 'rep_name']);
+  const state = await chrome.storage.local.get([FIRST_GENERATION_KEY, ONBOARDING_BANNER_DISMISSED_KEY, 'rep_name', 'brevmont_tier']);
+  if (!isLimitedFreeTier(state.brevmont_tier)) {
+    card.style.display = 'none';
+    return;
+  }
+
   if (state[FIRST_GENERATION_KEY] || state[ONBOARDING_BANNER_DISMISSED_KEY]) {
     card.style.display = 'none';
     return;
