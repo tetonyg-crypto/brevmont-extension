@@ -12,13 +12,16 @@
 
 **Pattern interrupt type:** industry insight
 
-**First line (preview):**
-> "Hey [first], wth happened to sales this month. Everybody's pitching marketing when it's really a follow-up problem."
+**First line (preview) — June batch (time-boxed):**
+> "Hey [first], wth happened to May. Everybody's blaming the market but it's really a follow-up problem."
 
-**Full message:**
-> "Hey [first], wth happened to sales this month. Everybody's pitching marketing when it's really a follow-up problem. Built something for the follow-up side. Rep says one line, it writes the text. Quick video below. Worth a look?"
+**Full message — June batch (time-boxed):**
+> "Hey [first], wth happened to May. Everybody's blaming the market but it's really a follow-up problem. Built something for the follow-up side. Rep says one line, it writes the text. Quick video below. Worth a look?"
 
-**Why this works:** Reads like a GM venting to another GM, so it earns the open before the pitch shows up — and it's Yancy's natural voice.
+**Evergreen fallback (use once May's close isn't fresh anymore):**
+> "Hey [first], wth happened to sales this month. Everybody's blaming the market but it's really a follow-up problem. Built something for the follow-up side. Rep says one line, it writes the text. Quick video below. Worth a look?"
+
+**Why this works:** Naming the exact month every GM is staring at ("May") is a sharper pattern interrupt than a generic "this month" — it reads like a peer venting about the thing already on their mind, not a vendor. Swap "May" → "this month" once the timing goes stale so it never reads dated.
 
 ---
 
@@ -80,4 +83,4 @@
 
 ## Recommended launch variant: **A (industry insight)**
 
-Send Variant A first. It's the most authentically Yancy — a 23-year-old ex-car-guy venting about a soft month reads as a peer, not a vendor, which is the whole point of the pattern interrupt. It holds the default slot only until the rotation test (see Part 3) gives us reply-rate data; if shared pain (B) or the question opener (C) beats it across 10 sends each, we promote the winner and kill the laggards.
+Send Variant A first, using the June "wth happened to May" line. It's the most authentically Yancy — a 23-year-old ex-car-guy venting about the exact soft month every GM just closed reads as a peer, not a vendor, which is the whole point of the pattern interrupt. It holds the default slot only until the rotation test (see Part 3) gives us reply-rate data; if shared pain (B) or the question opener (C) beats it across 10 sends each, we promote the winner and kill the laggards. (Swap "May" → "this month" once May's numbers stop stinging so the opener never reads dated.)

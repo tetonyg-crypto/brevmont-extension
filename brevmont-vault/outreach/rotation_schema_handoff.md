@@ -111,7 +111,8 @@ ORDER BY reply_rate_pct DESC NULLS LAST;
 
 > Full text in `dm_variants_v2.md`. Tokens use `[first]`.
 
-- **A (industry insight):** "Hey [first], wth happened to sales this month. Everybody's pitching marketing when it's really a follow-up problem. Built something for the follow-up side. Rep says one line, it writes the text. Quick video below. Worth a look?"
+- **A (industry insight) — June batch:** "Hey [first], wth happened to May. Everybody's blaming the market but it's really a follow-up problem. Built something for the follow-up side. Rep says one line, it writes the text. Quick video below. Worth a look?"
+  - _Time-boxed: swap "May" → "this month" once May's close isn't fresh anymore so the seed never reads dated._
 - **B (shared pain):** "Hey [first], how many leads you figure your guys let go cold this week just because nobody followed up in time. Built a tool for exactly that. They say one sentence, it writes the follow-up. Made a video, free to use. Curious what you'd think?"
 - **C (question):** "Hey [first], real question, what's actually killing your close rate right now, the traffic or the follow-up? Asking cause I built a thing for the follow-up part. Rep says one line, it writes the message. Got a quick video. Thoughts?"
 - **D (controversy):** "Hey [first], hot take, most CRMs are just expensive note-takers. None of them write the follow-up for your guys. So I built one that does. They say one sentence, it writes the text. Made a short video. Tell me I'm wrong?"
