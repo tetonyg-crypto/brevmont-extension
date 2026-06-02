@@ -13,15 +13,15 @@
 **Pattern interrupt type:** industry insight
 
 **First line (preview) — June batch (time-boxed):**
-> "Hey [first], wth happened to May. Everybody's blaming the market but it's really a follow-up problem."
+> "Hey [first], wth happened to May. Everybody blames the market, but it's really a follow-up problem."
 
 **Full message — June batch (time-boxed):**
-> "Hey [first], wth happened to May. Everybody's blaming the market but it's really a follow-up problem. Built something for the follow-up side. Rep says one line, it writes the text. Quick video below. Worth a look?"
+> "Hey [first], wth happened to May. Everybody blames the market, but it's really a follow-up problem. So I built a tool for it. Your rep says one line about a customer and it writes the follow-up text, the email, and the CRM note. Quick video below. Worth a look?"
 
 **Evergreen fallback (use once May's close isn't fresh anymore):**
-> "Hey [first], wth happened to sales this month. Everybody's blaming the market but it's really a follow-up problem. Built something for the follow-up side. Rep says one line, it writes the text. Quick video below. Worth a look?"
+> "Hey [first], wth happened to sales this month. Everybody blames the market, but it's really a follow-up problem. So I built a tool for it. Your rep says one line about a customer and it writes the follow-up text, the email, and the CRM note. Quick video below. Worth a look?"
 
-**Why this works:** Naming the exact month every GM is staring at ("May") is a sharper pattern interrupt than a generic "this month" — it reads like a peer venting about the thing already on their mind, not a vendor. Swap "May" → "this month" once the timing goes stale so it never reads dated.
+**Why this works:** Naming the exact month every GM is staring at ("May") is a sharper pattern interrupt than a generic "this month" — it reads like a peer venting about the thing already on their mind. The product line is plain: one sentence in, three things out (text, email, CRM note). Swap "May" → "this month" once the timing goes stale so it never reads dated.
 
 ---
 
@@ -30,10 +30,10 @@
 **Pattern interrupt type:** shared pain
 
 **First line (preview):**
-> "Hey [first], how many leads you figure your guys let go cold this week just because nobody followed up in time."
+> "Hey [first], how many leads did your guys let go cold last month cause nobody followed up?"
 
 **Full message:**
-> "Hey [first], how many leads you figure your guys let go cold this week just because nobody followed up in time. Built a tool for exactly that. They say one sentence, it writes the follow-up. Made a video, free to use. Curious what you'd think?"
+> "Hey [first], how many leads did your guys let go cold last month cause nobody followed up? I built a tool for that. Rep says one sentence about a customer and it writes the follow-up text, the email, and the CRM note. Made a video, free to use. Curious what you think?"
 
 **Why this works:** Names a pain the GM felt this week before naming the product, so the message lands as "this guy gets it" instead of "another vendor."
 
@@ -44,10 +44,10 @@
 **Pattern interrupt type:** question
 
 **First line (preview):**
-> "Hey [first], real question, what's actually killing your close rate right now, the traffic or the follow-up?"
+> "Hey [first], real question, what's killing your close rate right now, the traffic or the follow-up?"
 
 **Full message:**
-> "Hey [first], real question, what's actually killing your close rate right now, the traffic or the follow-up? Asking cause I built a thing for the follow-up part. Rep says one line, it writes the message. Got a quick video. Thoughts?"
+> "Hey [first], real question, what's killing your close rate right now, the traffic or the follow-up? I built a tool for the follow-up part. Rep says one line and it writes the text, the email, and the CRM note. Got a quick video. Thoughts?"
 
 **Why this works:** A genuine either/or question begs a one-word answer, which is the lowest-friction reply there is, and the pitch rides in on the back of it.
 
@@ -61,7 +61,7 @@
 > "Hey [first], hot take, most CRMs are just expensive note-takers. None of them actually write the follow-up for your guys."
 
 **Full message:**
-> "Hey [first], hot take, most CRMs are just expensive note-takers. None of them write the follow-up for your guys. So I built one that does. They say one sentence, it writes the text. Made a short video. Tell me I'm wrong?"
+> "Hey [first], hot take, most CRMs are just expensive note-takers. None of them write the follow-up for your guys. So I built one that does. Rep says one sentence and it writes the text, the email, and the CRM note. Short video below. Tell me I'm wrong?"
 
 **Why this works:** A take the GM half-agrees with gets opened to argue, and "tell me I'm wrong?" is reply-bait that practically forces a response.
 
@@ -72,10 +72,10 @@
 **Pattern interrupt type:** compliment
 
 **First line (preview):**
-> "Hey [first], been watching how your store moves units, clearly your floor can sell. Bet the follow-up's the leaky part though."
+> "Hey [first], been watching how your store moves units, your floor can clearly sell. Bet the follow-up is the leaky part."
 
 **Full message:**
-> "Hey [first], been watching how your store moves units, clearly your floor can sell. Bet follow-up's the leaky part though. Built a tool for it. Rep says one line, it writes the message. Quick video here. Worth a peek?"
+> "Hey [first], been watching how your store moves units, your floor can clearly sell. Bet the follow-up is the leaky part. I built a tool for it. Rep says one line and it writes the text, the email, and the CRM note. Quick video here. Worth a peek?"
 
 **Why this works:** An earned, specific compliment lowers the guard, then the "leaky part" turn pivots straight into the product without sounding like flattery-for-flattery's-sake.
 

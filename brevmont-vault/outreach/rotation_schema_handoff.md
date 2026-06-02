@@ -111,11 +111,11 @@ ORDER BY reply_rate_pct DESC NULLS LAST;
 
 > Full text in `dm_variants_v2.md`. Tokens use `[first]`.
 
-- **A (industry insight) — June batch:** "Hey [first], wth happened to May. Everybody's blaming the market but it's really a follow-up problem. Built something for the follow-up side. Rep says one line, it writes the text. Quick video below. Worth a look?"
+- **A (industry insight) — June batch:** "Hey [first], wth happened to May. Everybody blames the market, but it's really a follow-up problem. So I built a tool for it. Your rep says one line about a customer and it writes the follow-up text, the email, and the CRM note. Quick video below. Worth a look?"
   - _Time-boxed: swap "May" → "this month" once May's close isn't fresh anymore so the seed never reads dated._
-- **B (shared pain):** "Hey [first], how many leads you figure your guys let go cold this week just because nobody followed up in time. Built a tool for exactly that. They say one sentence, it writes the follow-up. Made a video, free to use. Curious what you'd think?"
-- **C (question):** "Hey [first], real question, what's actually killing your close rate right now, the traffic or the follow-up? Asking cause I built a thing for the follow-up part. Rep says one line, it writes the message. Got a quick video. Thoughts?"
-- **D (controversy):** "Hey [first], hot take, most CRMs are just expensive note-takers. None of them write the follow-up for your guys. So I built one that does. They say one sentence, it writes the text. Made a short video. Tell me I'm wrong?"
-- **E (compliment):** "Hey [first], been watching how your store moves units, clearly your floor can sell. Bet follow-up's the leaky part though. Built a tool for it. Rep says one line, it writes the message. Quick video here. Worth a peek?"
+- **B (shared pain):** "Hey [first], how many leads did your guys let go cold last month cause nobody followed up? I built a tool for that. Rep says one sentence about a customer and it writes the follow-up text, the email, and the CRM note. Made a video, free to use. Curious what you think?"
+- **C (question):** "Hey [first], real question, what's killing your close rate right now, the traffic or the follow-up? I built a tool for the follow-up part. Rep says one line and it writes the text, the email, and the CRM note. Got a quick video. Thoughts?"
+- **D (controversy):** "Hey [first], hot take, most CRMs are just expensive note-takers. None of them write the follow-up for your guys. So I built one that does. Rep says one sentence and it writes the text, the email, and the CRM note. Short video below. Tell me I'm wrong?"
+- **E (compliment):** "Hey [first], been watching how your store moves units, your floor can clearly sell. Bet the follow-up is the leaky part. I built a tool for it. Rep says one line and it writes the text, the email, and the CRM note. Quick video here. Worth a peek?"
 
 **Default launch variant: A.** Seed the rotation pointer to start at A.
