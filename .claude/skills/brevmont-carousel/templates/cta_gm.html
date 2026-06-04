@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif}
+#slide{width:1080px;height:1350px;position:relative;overflow:hidden;background:#0F1419;
+  padding:90px 80px;display:flex;flex-direction:column}
+#slide::after{content:"";position:absolute;left:50%;bottom:-180px;transform:translateX(-50%);
+  width:1100px;height:700px;background:radial-gradient(ellipse at center,
+  rgba(13,110,110,.55)0%,rgba(13,110,110,.12)45%,rgba(15,20,25,0)72%);pointer-events:none}
+.eyebrow{color:#15A8A8;font-size:26px;font-weight:700;letter-spacing:7px;
+  text-transform:uppercase;text-align:center;margin-bottom:55px}
+.headline{font-family:Georgia,serif;color:#F8F6F1;font-size:84px;line-height:1.04;
+  font-weight:400;margin-bottom:38px}
+.headline .it{font-style:italic;color:#15A8A8}
+.body{color:#9BA3AA;font-size:34px;line-height:1.5;max-width:880px;margin-bottom:55px}
+.checks{display:flex;justify-content:center;gap:46px;margin-bottom:60px}
+.chk{display:flex;align-items:center;gap:14px;color:#F8F6F1;font-size:30px;font-weight:600}
+.chk .dot{width:38px;height:38px;border-radius:50%;background:#0D6E6E;color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:22px}
+.cta{background:linear-gradient(135deg,#0D6E6E,#14A8A8);border-radius:18px;
+  padding:42px 40px;text-align:center;margin-top:auto}
+.cta .big{color:#fff;font-size:46px;font-weight:700;margin-bottom:10px}
+.cta .sub{color:rgba(255,255,255,.82);font-size:28px;font-weight:500}
+.footer{display:flex;justify-content:space-between;align-items:center;margin-top:54px;
+  position:relative;z-index:2}
+.brand{display:flex;align-items:center;gap:18px}
+.brand .logo{width:54px;height:54px;border-radius:12px;background:#0D6E6E;color:#fff;
+  font-size:34px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.brand .name{color:#F8F6F1;font-size:34px;font-weight:700;letter-spacing:3px}
+.link{color:#15A8A8;font-size:28px;font-weight:600;letter-spacing:2px}
+.eyebrow,.headline,.body,.checks,.cta{position:relative;z-index:2}
+</style>
+</head>
+<body>
+<div id="slide">
+  <div class="eyebrow">SEE YOUR WHOLE FLOOR</div>
+  <div class="headline">Your reps do the work. Now you can <span class="it">see</span> it.</div>
+  <div class="body">Brevmont captures every follow-up, text, and CRM note the moment it happens. The dashboard shows who is working their leads, who is coasting, and which deals are about to leak. In real time.</div>
+  <div class="checks">
+    <div class="chk"><span class="dot">&#10003;</span>Real-time activity</div>
+    <div class="chk"><span class="dot">&#10003;</span>Captured convos</div>
+    <div class="chk"><span class="dot">&#10003;</span>Leak alerts</div>
+  </div>
+  <div class="cta">
+    <div class="big">See the dashboard in action</div>
+    <div class="sub">Built for managers who want the full picture.</div>
+  </div>
+  <div class="footer">
+    <div class="brand">
+      <div class="logo">B</div>
+      <div class="name">BREVMONT</div>
+    </div>
+    <div class="link">LINK IN BIO &rarr;</div>
+  </div>
+</div>
+</body>
+</html>

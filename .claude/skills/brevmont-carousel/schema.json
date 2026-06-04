@@ -1,0 +1,17 @@
+{
+  "carousel": {
+    "caption": "string — the post caption",
+    "slides": [
+      {
+        "type": "problem | cta_rep | cta_gm",
+        "eyebrow": "string — top label, optional",
+        "headline": "string — use *word* to italicize one teal word",
+        "italic_word": "string — the word to render italic teal",
+        "body": "string — supporting copy, optional",
+        "checks": ["array of short check items, optional"],
+        "cta_big": "string — CTA block headline, cta slides only",
+        "cta_sub": "string — CTA block subtext, cta slides only"
+      }
+    ]
+  }
+}
