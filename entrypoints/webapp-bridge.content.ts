@@ -43,5 +43,34 @@ export default defineContentScript({
     } catch {
       /* noop */
     }
+
+    window.addEventListener('brevmont-lead-form-autofill', (event) => {
+      void (async () => {
+        const customEvent = event as CustomEvent<Record<string, unknown>>;
+        const detail = customEvent.detail || {};
+        const requestId = typeof detail.requestId === 'string' ? detail.requestId : `${Date.now()}`;
+        try {
+          await browser.storage.local.set({
+            brevmont_lead_form_autofill: {
+              ...detail,
+              requestId,
+              queuedAt: Date.now(),
+              source: 'admin-cold-call-center',
+            },
+          });
+          window.dispatchEvent(
+            new CustomEvent('brevmont-lead-form-autofill-ready', {
+              detail: { ok: true, requestId },
+            }),
+          );
+        } catch (error) {
+          window.dispatchEvent(
+            new CustomEvent('brevmont-lead-form-autofill-ready', {
+              detail: { ok: false, requestId, error: error instanceof Error ? error.message : 'autofill_queue_failed' },
+            }),
+          );
+        }
+      })();
+    });
   },
 });
