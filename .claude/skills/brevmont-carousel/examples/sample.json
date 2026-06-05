@@ -1,0 +1,21 @@
+{
+  "carousel": {
+    "caption": "Half your leads never touch the CRM. Reps build real relationships in Messenger and texts, and none of it gets captured. Brevmont turns one sentence into a follow-up, email, and CRM note, then shows managers the whole floor in real time. Free to start. No credit card. Link in bio.",
+    "slides": [
+      {
+        "type": "problem",
+        "eyebrow": "THE LEAK",
+        "headline": "Half your leads *never* touch the system.",
+        "body": "Reps build real relationships in Messenger and texts. None of it gets captured."
+      },
+      {
+        "type": "problem",
+        "eyebrow": "THE COST",
+        "headline": "A lead you can't *see* is a lead you can't save.",
+        "body": "By the time a deal goes quiet in the CRM, the conversation died days ago somewhere you never looked."
+      },
+      { "type": "cta_rep" },
+      { "type": "cta_gm" }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+# Brevmont Carousel render engine dependencies.
+# Install once:
+#   python3 -m pip install -r requirements.txt
+#   python3 -m playwright install chromium
+playwright>=1.40
