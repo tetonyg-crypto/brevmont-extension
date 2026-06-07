@@ -9,6 +9,10 @@
 
 type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
 
+export interface PanelHTMLOptions {
+  chromeSidePanel?: boolean;
+}
+
 export function esc(s: string): string {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
@@ -44,14 +48,15 @@ function getSettingsHTML(): string {
   </div>`;
 }
 
-export function getPanelHTML(platform: Platform): string {
+export function getPanelHTML(platform: Platform, options: PanelHTMLOptions = {}): string {
   const isVinSolutions = platform === 'vinsolutions';
   const badge = getBadge(platform);
   const customerCard = isVinSolutions ? `<div id="o8-card" class="card"><div id="o8-name" class="name" style="font-style:italic;color:#94a3b8">Open a customer record</div><div id="o8-vehicle" class="vehicle"></div><div id="o8-meta" class="meta"></div></div>` : '';
   const placeholder = 'e.g., Customer left the lot, wants to think about the payment';
+  const panelToolbarClass = options.chromeSidePanel ? 'header panel-toolbar' : 'header';
 
   return `
-<div class="header">
+<div class="${panelToolbarClass}">
   <span class="version-badge" id="o8-version-badge"></span>
   <span style="flex:1"></span>
   ${badge.label ? `<span id="o8-platform-badge" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;color:${badge.color};background:${badge.bg}">${esc(badge.label)}</span>` : '<span id="o8-platform-badge" style="display:none"></span>'}

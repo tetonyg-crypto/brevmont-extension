@@ -37,6 +37,7 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 :host { all:initial; font-family:system-ui,-apple-system,sans-serif; font-size:13px; color:#1a202c; }
 #sp-root, #o8 { width:${rootWidth};${rootBorder} height:auto; max-height:100%; background:#FFFFFF; overflow:hidden; overscroll-behavior:contain; display:flex; flex-direction:column; padding-bottom:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:13px; color:#1a202c; }
 .header { position:relative; padding:10px 14px; min-height:44px; border-bottom:1px solid #E5E7EB; display:flex; align-items:center; gap:8px; flex-shrink:0; background:#fff;${headerRadius} }
+.panel-toolbar { min-height:34px; padding:6px 10px; background:#FFFFFF; border-bottom:1px solid #EEF2F7; }
 .version-badge { font-size:10px; font-family:'JetBrains Mono',ui-monospace,monospace; color:#4f8f8f; background:#F0FAFA; border:1px solid #D6E4E4; padding:2px 7px; border-radius:999px; letter-spacing:0; white-space:nowrap; line-height:1.2; }
 .close { font-size:20px; color:#94a3b8; cursor:pointer; padding:0 4px; flex-shrink:0; line-height:1; } .close:hover { color:#475569; }
 .quick-mode { display:flex; flex-direction:column; flex:0 0 auto; overflow:hidden; }

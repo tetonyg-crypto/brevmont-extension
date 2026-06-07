@@ -1223,7 +1223,7 @@ function renderPanel(): void {
   document.head.appendChild(style);
 
   // Inject HTML
-  root.innerHTML = getPanelHTML(currentPlatform.platform);
+  root.innerHTML = getPanelHTML(currentPlatform.platform, { chromeSidePanel: true });
 
   // Hide loading, show panel
   if (loading) loading.style.display = 'none';
