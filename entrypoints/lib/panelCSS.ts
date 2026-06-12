@@ -99,8 +99,11 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .gm-invite-send:disabled { opacity:.62; cursor:wait; }
 .gm-invite-plans { width:100%; margin-top:8px; border:0; background:transparent; color:#0D6E6E; font-size:12px; font-weight:800; font-family:inherit; cursor:pointer; }
 .gm-invite-plans:hover { text-decoration:underline; }
-.version-update-banner { margin:8px 12px 0; padding:10px 11px; border:1px solid #D6E4E4; border-radius:9px; background:#F0FAFA; color:#0F1419; font-size:12px; line-height:1.4; }
+.version-update-banner { position:relative; margin:8px 12px 0; padding:10px 11px; border:1px solid #D6E4E4; border-radius:9px; background:#F0FAFA; color:#0F1419; font-size:12px; line-height:1.4; }
 .version-update-banner.force { border-color:#FCA5A5; background:#FEF2F2; }
+.version-update-close { position:absolute; top:6px; right:8px; border:0; background:transparent; color:#64748B; cursor:pointer; font-size:15px; line-height:1; padding:2px 4px; }
+.version-update-close:hover { color:#0F1419; }
+.version-update-banner.force .version-update-close { display:none; }
 .version-update-title { font-size:11px; font-weight:800; color:#0D6E6E; text-transform:uppercase; letter-spacing:0.7px; margin-bottom:3px; }
 .version-update-banner.force .version-update-title { color:#991B1B; }
 .version-update-copy { color:#4B5563; margin-bottom:8px; }

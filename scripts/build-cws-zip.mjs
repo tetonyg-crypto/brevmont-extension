@@ -36,6 +36,12 @@ const failures = [];
 if ('key' in manifest) failures.push('manifest.key is present');
 if (permissions.includes('notifications')) failures.push('notifications permission is present');
 if (hosts.includes('<all_urls>')) failures.push('<all_urls> host permission is present');
+const BROAD_MATCHES = new Set(['http://*/*', 'https://*/*', '<all_urls>']);
+for (const cs of manifest.content_scripts || []) {
+  for (const m of cs.matches || []) {
+    if (BROAD_MATCHES.has(m)) failures.push(`content script has broad match pattern: ${m}`);
+  }
+}
 
 if (failures.length) {
   console.error('[cws-zip] Invalid Chrome Web Store package:');

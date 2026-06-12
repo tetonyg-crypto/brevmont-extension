@@ -1058,10 +1058,16 @@ async function applyVersionStatus(root: HTMLElement): Promise<void> {
   const status = await getVersionStatus();
   if (!status) return;
 
+  if (!status.forceUpdate) {
+    const dismissed = await chrome.storage.local.get('brevmont_version_banner_dismissed');
+    if (dismissed.brevmont_version_banner_dismissed === status.latest) return;
+  }
+
   const banner = document.createElement('div');
   banner.id = 'o8-version-update-banner';
   banner.className = `version-update-banner${status.forceUpdate ? ' force' : ''}`;
   banner.innerHTML = `
+    ${status.forceUpdate ? '' : '<button class="version-update-close" type="button" aria-label="Dismiss">×</button>'}
     <div class="version-update-title">${status.forceUpdate ? 'Update required' : 'Update available'}</div>
     <div class="version-update-copy">${esc(status.message || '')}</div>
     <button id="o8-version-download" class="version-update-btn" type="button">Download latest${status.latest ? ` v${esc(String(status.latest))}` : ''}</button>
@@ -1070,6 +1076,14 @@ async function applyVersionStatus(root: HTMLElement): Promise<void> {
   const header = root.querySelector('.header');
   if (header) header.insertAdjacentElement('afterend', banner);
   else root.prepend(banner);
+
+  const closeBtn = banner.querySelector('.version-update-close') as HTMLButtonElement | null;
+  if (closeBtn) {
+    closeBtn.onclick = async () => {
+      banner.remove();
+      await chrome.storage.local.set({ brevmont_version_banner_dismissed: status.latest || '' });
+    };
+  }
 
   const download = banner.querySelector('#o8-version-download') as HTMLButtonElement | null;
   if (download) {

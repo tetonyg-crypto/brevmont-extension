@@ -23,9 +23,14 @@ export default defineConfig({
         delete (manifest.action as Record<string, unknown>).default_popup;
       }
       if (chromeWebStoreBuild) {
-        // Chrome Web Store owns the item key. Including the sideload/dev key
-        // makes uploads fail with "key field value ... doesn't match".
         delete (manifest as Record<string, unknown>).key;
+        const cs = (manifest as Record<string, unknown>).content_scripts as Array<{ matches?: string[] }> | undefined;
+        if (Array.isArray(cs)) {
+          const broad = new Set(['http://*/*', 'https://*/*', '<all_urls>']);
+          (manifest as Record<string, unknown>).content_scripts = cs.filter(
+            (entry) => !entry.matches?.some((m) => broad.has(m)),
+          );
+        }
       }
     },
   },
@@ -86,13 +91,9 @@ export default defineConfig({
           '*://vinsolutions.app.coxautoinc.com/*',
           '*://mail.google.com/*',
           '*://*.facebook.com/*',
-          '*://www.facebook.com/*',
           '*://*.messenger.com/*',
-          '*://www.messenger.com/*',
           '*://*.linkedin.com/*',
-          '*://www.linkedin.com/*',
           '*://*.instagram.com/*',
-          '*://www.instagram.com/*',
           '*://web.whatsapp.com/*',
         ],
       },
@@ -114,16 +115,11 @@ export default defineConfig({
       '*://vinsolutions.app.coxautoinc.com/*',
       '*://mail.google.com/*',
       '*://*.facebook.com/*',
-      '*://www.facebook.com/*',
-      '*://www.instagram.com/*',
       '*://*.instagram.com/*',
       '*://*.messenger.com/*',
-      '*://www.messenger.com/*',
       '*://*.linkedin.com/*',
-      '*://www.linkedin.com/*',
       '*://web.whatsapp.com/*',
       '*://*.brevmont.com/*',
-      'https://api.brevmont.com/*'
     ],
   },
 });

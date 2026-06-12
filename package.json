@@ -1,13 +1,13 @@
 {
   "name": "brevmont-extension",
-  "version": "1.16.22",
+  "version": "1.16.23",
   "description": "Brevmont Chrome Extension - AI Sales Co-Pilot",
   "main": "index.js",
   "scripts": {
     "build": "wxt build",
     "postbuild": "cp .output/*chrome-web-store*.zip ~/Desktop/ 2>/dev/null; echo 'CWS zip copied to Desktop'",
     "ship": "node scripts/ship.mjs",
-    "zip:cws": "node scripts/build-cws-zip.mjs && cp .output/*chrome-web-store*.zip ~/Desktop/ 2>/dev/null && echo 'CWS zip copied to Desktop'",
+    "zip:cws": "node scripts/build-cws-zip.mjs && rm -f ~/Desktop/UPLOAD-TO-CWS.zip && cp .output/*chrome-web-store*.zip ~/Desktop/UPLOAD-TO-CWS.zip && echo 'Ready: ~/Desktop/UPLOAD-TO-CWS.zip'",
     "build:dev": "wxt build && bash .scripts/tg.sh \"[EXTENSION DEV BUILD] v$npm_package_version complete. Reload extension at chrome://extensions and hard-refresh VinSolutions.\"",
     "build:release": "node scripts/verify-registry-sync.js && wxt build && wxt zip",
     "verify:registry": "node scripts/verify-registry-sync.js",
