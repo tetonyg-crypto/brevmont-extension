@@ -52,6 +52,9 @@ interface PinnedCustomer {
   source?: string | null;
   confidence?: number | null;
   detectionMethod: string;
+  contextFingerprint?: string | null;
+  threadFingerprint?: string | null;
+  platform?: Platform | string | null;
   pinnedAt: number;
 }
 
@@ -63,6 +66,7 @@ let pinnedCustomer: PinnedCustomer | null = null;
 let pendingCustomerSuggestion: any = null;
 let customerDetectionTimer: number | null = null;
 let customerDetectionUrl = '';
+let customerDetectionFingerprint = '';
 const dismissedChallengeIds = new Set<string>();
 const FIRST_GENERATION_KEY = 'first_generation_completed';
 const ONBOARDING_BANNER_DISMISSED_KEY = 'onboarding_banner_dismissed';
@@ -525,11 +529,14 @@ function customerStampPayload(): Record<string, any> {
     detection_method: pinnedCustomer.detectionMethod || 'auto_pin',
     detection_confidence: pinnedCustomer.confidence ?? 1,
     vehicle_context: pinnedCustomer.vehicle || null,
+    context_fingerprint: pinnedCustomer.contextFingerprint || pinnedCustomer.threadFingerprint || null,
+    thread_fingerprint: pinnedCustomer.threadFingerprint || pinnedCustomer.contextFingerprint || null,
   };
 }
 
 function enrichLeadContextWithPinnedCustomer(leadContext: any = {}): any {
   if (!pinnedCustomer) return leadContext || {};
+  if (!pinMatchesContext(pinnedCustomer, leadContext)) return leadContext || {};
   return {
     ...(leadContext || {}),
     customer_id: pinnedCustomer.id,
@@ -538,13 +545,15 @@ function enrichLeadContextWithPinnedCustomer(leadContext: any = {}): any {
     name: pinnedCustomer.name,
     phone: pinnedCustomer.phone || leadContext?.phone || null,
     email: pinnedCustomer.email || leadContext?.email || null,
-    vehicle: pinnedCustomer.vehicle || leadContext?.vehicle || leadContext?.vehicleOfInterest || null,
-    vehicleOfInterest: pinnedCustomer.vehicle || leadContext?.vehicleOfInterest || leadContext?.vehicle || null,
+    vehicle: leadContext?.vehicle || leadContext?.vehicleOfInterest || pinnedCustomer.vehicle || null,
+    vehicleOfInterest: leadContext?.vehicleOfInterest || leadContext?.vehicle || pinnedCustomer.vehicle || null,
     source: pinnedCustomer.source || leadContext?.source || currentPlatform.platform,
     detectionMethod: pinnedCustomer.detectionMethod,
     detection_method: pinnedCustomer.detectionMethod,
     detectionConfidence: pinnedCustomer.confidence ?? leadContext?.detectionConfidence ?? 1,
     detection_confidence: pinnedCustomer.confidence ?? leadContext?.detection_confidence ?? 1,
+    context_fingerprint: pinnedCustomer.contextFingerprint || leadContext?.context_fingerprint || null,
+    thread_fingerprint: pinnedCustomer.threadFingerprint || leadContext?.thread_fingerprint || null,
   };
 }
 
@@ -554,6 +563,53 @@ function getCustomerNameFromContext(ctx: any): string {
 
 function getCustomerVehicleFromContext(ctx: any): string | null {
   return optionalDisplayText(ctx?.vehicle || ctx?.vehicleOfInterest || ctx?.vehicle_interest || ctx?.vehicle_of_interest) || null;
+}
+
+function normalizeComparable(value: unknown): string {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function getContextFingerprint(ctx: any): string {
+  return String(ctx?.context_fingerprint || ctx?.thread_fingerprint || '').trim();
+}
+
+function vehiclesConflict(a: unknown, b: unknown): boolean {
+  const left = normalizeComparable(a);
+  const right = normalizeComparable(b);
+  return Boolean(left && right && left !== right);
+}
+
+function pinMatchesContext(customer: PinnedCustomer | null, ctx: any): boolean {
+  if (!customer) return false;
+  const ctxFingerprint = getContextFingerprint(ctx);
+  const pinFingerprint = customer.contextFingerprint || customer.threadFingerprint || '';
+  if (ctxFingerprint && pinFingerprint && ctxFingerprint !== pinFingerprint) return false;
+  const ctxName = getCustomerNameFromContext(ctx);
+  if (ctxName && normalizeComparable(customer.name) !== normalizeComparable(ctxName)) return false;
+  const ctxVehicle = getCustomerVehicleFromContext(ctx);
+  if (vehiclesConflict(customer.vehicle, ctxVehicle)) return false;
+  return true;
+}
+
+function pinMismatchReason(customer: PinnedCustomer | null, ctx: any): string | null {
+  if (!customer) return null;
+  const ctxFingerprint = getContextFingerprint(ctx);
+  const pinFingerprint = customer.contextFingerprint || customer.threadFingerprint || '';
+  if (ctxFingerprint && pinFingerprint && ctxFingerprint !== pinFingerprint) return 'thread_changed';
+  const ctxName = getCustomerNameFromContext(ctx);
+  if (ctxName && normalizeComparable(customer.name) !== normalizeComparable(ctxName)) return 'customer_changed';
+  const ctxVehicle = getCustomerVehicleFromContext(ctx);
+  if (vehiclesConflict(customer.vehicle, ctxVehicle)) return 'vehicle_changed';
+  return null;
+}
+
+function clearStalePinnedCustomer(root: HTMLElement, reason: string): void {
+  if (pinnedCustomer || pendingCustomerSuggestion) {
+    pinnedCustomer = null;
+    pendingCustomerSuggestion = null;
+    renderCustomerStamp(root);
+    if (reason !== 'initial') showToast(root, 'Customer context refreshed');
+  }
 }
 
 async function resolveCustomerForDetection(ctx: any): Promise<PinnedCustomer | null> {
@@ -588,19 +644,28 @@ async function resolveCustomerForDetection(ctx: any): Promise<PinnedCustomer | n
   return {
     id,
     name: record.name || name,
-    vehicle: record.vehicle_interest || payload.vehicle || null,
+    vehicle: payload.vehicle || record.vehicle_interest || null,
     phone: record.phone || payload.phone || null,
     email: record.email || payload.email || null,
     source: record.source || payload.source || null,
     confidence: Number(ctx?.detectionConfidence ?? ctx?.detection_confidence ?? 1),
     detectionMethod: ctx?.detectionMethod || ctx?.detection_method || 'auto_page',
+    contextFingerprint: getContextFingerprint(ctx) || null,
+    threadFingerprint: String(ctx?.thread_fingerprint || ctx?.context_fingerprint || '').trim() || null,
+    platform: ctx?.platform || currentPlatform.platform,
     pinnedAt: Date.now(),
   };
 }
 
 function pinCustomer(root: HTMLElement, customer: PinnedCustomer | null): void {
   if (!customer?.id || !customer.name) return;
-  pinnedCustomer = { ...customer, pinnedAt: Date.now() };
+  pinnedCustomer = {
+    ...customer,
+    platform: customer.platform || currentPlatform.platform,
+    contextFingerprint: customer.contextFingerprint || customer.threadFingerprint || null,
+    threadFingerprint: customer.threadFingerprint || customer.contextFingerprint || null,
+    pinnedAt: Date.now(),
+  };
   pendingCustomerSuggestion = null;
   renderCustomerStamp(root);
 }
@@ -718,18 +783,24 @@ async function openCustomerPicker(root: HTMLElement): Promise<void> {
       </button>
     `).join('');
     list.querySelectorAll<HTMLButtonElement>('.customer-picker-row[data-customer-id]').forEach((button) => {
-      button.addEventListener('click', () => {
+      button.addEventListener('click', async () => {
         const customer = customers.find((item) => String(item.id) === button.dataset.customerId);
         if (!customer) return;
+        const currentCtx = pendingCustomerSuggestion || await collectCurrentLeadContext();
+        const currentFingerprint = getContextFingerprint(currentCtx) || null;
+        const currentVehicle = getCustomerVehicleFromContext(currentCtx);
         pinCustomer(root, {
           id: customer.id,
           name: customer.name,
-          vehicle: customer.vehicle_interest || null,
+          vehicle: currentVehicle || customer.vehicle_interest || null,
           phone: customer.phone || null,
           email: customer.email || null,
           source: customer.source || null,
           confidence: 1,
           detectionMethod: 'manual',
+          contextFingerprint: currentFingerprint,
+          threadFingerprint: currentFingerprint,
+          platform: currentPlatform.platform,
           pinnedAt: Date.now(),
         });
       });
@@ -781,6 +852,19 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
     return;
   }
 
+  const fingerprint = getContextFingerprint(ctx);
+  if (fingerprint && fingerprint !== customerDetectionFingerprint) {
+    customerDetectionFingerprint = fingerprint;
+    if (pinnedCustomer && !pinMatchesContext(pinnedCustomer, ctx)) {
+      clearStalePinnedCustomer(root, 'thread_changed');
+    } else {
+      pendingCustomerSuggestion = null;
+    }
+  }
+
+  const mismatch = pinMismatchReason(pinnedCustomer, ctx);
+  if (mismatch) clearStalePinnedCustomer(root, mismatch);
+
   const name = getCustomerNameFromContext(ctx);
   if (!name) {
     pendingCustomerSuggestion = null;
@@ -812,6 +896,7 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
 function startCustomerDetection(root: HTMLElement): void {
   if (customerDetectionTimer) window.clearInterval(customerDetectionTimer);
   customerDetectionUrl = currentPlatform.url || '';
+  customerDetectionFingerprint = '';
   renderCustomerStamp(root);
   refreshCustomerDetection(root).catch(() => {});
   customerDetectionTimer = window.setInterval(async () => {
@@ -819,7 +904,8 @@ function startCustomerDetection(root: HTMLElement): void {
     const activeUrl = currentPlatform.url || '';
     if (activeUrl !== customerDetectionUrl) {
       customerDetectionUrl = activeUrl;
-      pendingCustomerSuggestion = null;
+      customerDetectionFingerprint = '';
+      clearStalePinnedCustomer(root, 'url_changed');
     }
     refreshCustomerDetection(root).catch(() => {});
   }, 3000);
@@ -2004,6 +2090,10 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     const ctx = await sendToContent({ type: 'GET_LEAD_CONTEXT' });
     if (ctx) leadContext = ctx;
   } catch {}
+  const generationMismatch = pinMismatchReason(pinnedCustomer, leadContext);
+  if (generationMismatch) {
+    clearStalePinnedCustomer(root, generationMismatch);
+  }
   if (!pinnedCustomer) {
     const detectedName = getCustomerNameFromContext(leadContext);
     const detectedConfidence = Number(leadContext?.detectionConfidence ?? leadContext?.detection_confidence ?? 0);
@@ -2039,6 +2129,8 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     detection_method: stamp.detection_method || leadContext.detectionMethod || leadContext.detection_method || null,
     detection_confidence: stamp.detection_confidence ?? leadContext.detectionConfidence ?? leadContext.detection_confidence ?? null,
     vehicle_context: stamp.vehicle_context || vehicleForGeneration || null,
+    context_fingerprint: stamp.context_fingerprint || leadContext.context_fingerprint || null,
+    thread_fingerprint: stamp.thread_fingerprint || leadContext.thread_fingerprint || leadContext.context_fingerprint || null,
   };
 
   try {
@@ -3343,6 +3435,8 @@ function wireLeadCapture(root: HTMLElement): void {
               phone: ctx.phone || null,
               email: ctx.email || null,
               vehicle_interest: ctx.vehicle_interest || ctx.vehicle || null,
+              context_fingerprint: ctx.context_fingerprint || null,
+              thread_fingerprint: ctx.thread_fingerprint || ctx.context_fingerprint || null,
             },
           });
           showLeadResult(root, resp?.lead || resp || ctx);
@@ -3400,6 +3494,8 @@ function wireLeadCapture(root: HTMLElement): void {
             phone: leadContext.phone || null,
             email: leadContext.email || null,
             vehicle_interest: leadContext.vehicle || leadContext.vehicleOfInterest || null,
+            context_fingerprint: leadContext.context_fingerprint || null,
+            thread_fingerprint: leadContext.thread_fingerprint || leadContext.context_fingerprint || null,
           },
         });
         showLeadResult(root, resp?.lead || resp);
@@ -3439,6 +3535,8 @@ function wireLeadCapture(root: HTMLElement): void {
             phone: leadContext.phone || null,
             email: leadContext.email || null,
             vehicle_interest: leadContext.vehicle || leadContext.vehicleOfInterest || null,
+            context_fingerprint: leadContext.context_fingerprint || null,
+            thread_fingerprint: leadContext.thread_fingerprint || leadContext.context_fingerprint || null,
           },
         });
         showLeadResult(root, resp?.lead || resp);

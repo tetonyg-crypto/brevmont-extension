@@ -208,6 +208,8 @@ function toolLeadMetadata(payload: any, platformFallback: unknown = 'unknown'): 
     vehicle,
     vehicle_interest: vehicle,
     vehicle_of_interest: vehicle,
+    context_fingerprint: cleanLeadMetaValue(leadContext.context_fingerprint || payload?.context_fingerprint),
+    thread_fingerprint: cleanLeadMetaValue(leadContext.thread_fingerprint || payload?.thread_fingerprint || leadContext.context_fingerprint || payload?.context_fingerprint),
     source_platform: platform,
     platform,
     lead_source: cleanLeadMetaValue(leadContext.source || payload?.source),
@@ -263,6 +265,7 @@ async function customerMatch(payload: any): Promise<any> {
     phone: payload?.phone || payload?.customer_phone,
     email: payload?.email || payload?.customer_email,
     customer_id: payload?.customer_id,
+    vehicle: payload?.vehicle_interest || payload?.vehicle,
   });
   const resp = await signedGet(`${base}/api/v1/customers/match${qs ? `?${qs}` : ''}`);
   const data = await resp.json().catch(() => ({}));
@@ -287,6 +290,8 @@ async function customerCreate(payload: any): Promise<any> {
     email: payload?.email || payload?.customer_email || null,
     vehicle_interest: payload?.vehicle_interest || payload?.vehicle || null,
     source: payload?.source || payload?.platform || null,
+    context_fingerprint: payload?.context_fingerprint || null,
+    thread_fingerprint: payload?.thread_fingerprint || payload?.context_fingerprint || null,
   });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data?.error || `customer_create_${resp.status}`);
@@ -1180,6 +1185,8 @@ export default defineBackground(() => {
               email: leadForSave.email || msg.payload?.email || null,
               vehicle_interest: leadForSave.vehicle_interest || msg.payload?.vehicle_interest || msg.payload?.vehicle || looseFallback.vehicle_interest || null,
               source: msg.payload.platform || 'unknown',
+              context_fingerprint: msg.payload?.context_fingerprint || null,
+              thread_fingerprint: msg.payload?.thread_fingerprint || msg.payload?.context_fingerprint || null,
             });
             const localLead: LocalLead = {
               id: leadId,
@@ -1208,6 +1215,8 @@ export default defineBackground(() => {
                 is_lead: leadForSave.is_lead !== false,
                 lead_stage_at_capture: msg.payload?.lead_stage_at_capture || null,
                 customer_id: customerRecord?.id || null,
+                context_fingerprint: msg.payload?.context_fingerprint || null,
+                thread_fingerprint: msg.payload?.thread_fingerprint || msg.payload?.context_fingerprint || null,
               },
             };
             await leadDb.captured_leads.put(localLead);
@@ -1248,6 +1257,8 @@ export default defineBackground(() => {
                 detection_method: 'auto_page',
                 detection_confidence: 1,
                 captured_lead_id: leadId,
+                context_fingerprint: msg.payload?.context_fingerprint || null,
+                thread_fingerprint: msg.payload?.thread_fingerprint || msg.payload?.context_fingerprint || null,
               }).catch(() => {});
             }
           }
@@ -2364,6 +2375,8 @@ async function handleGenerate(payload: {
     detection_method: payload.metadata?.detection_method || payload.leadContext?.detectionMethod || payload.leadContext?.detection_method || null,
     detection_confidence: payload.metadata?.detection_confidence ?? payload.leadContext?.detectionConfidence ?? payload.leadContext?.detection_confidence ?? null,
     vehicle_context: payload.metadata?.vehicle_context || payload.leadContext?.vehicle_context || payload.leadContext?.vehicle || null,
+    context_fingerprint: payload.metadata?.context_fingerprint || payload.leadContext?.context_fingerprint || null,
+    thread_fingerprint: payload.metadata?.thread_fingerprint || payload.leadContext?.thread_fingerprint || payload.leadContext?.context_fingerprint || null,
   };
 
   const apiBase = await getResolvedApiUrl();

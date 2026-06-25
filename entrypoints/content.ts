@@ -192,6 +192,45 @@ export default defineContentScript({
 
     const AUTO_MAKES_RE = 'Chevrolet|Chevy|Subaru|Toyota|Ford|Ram|Dodge|Jeep|GMC|Honda|Nissan|Hyundai|Kia|BMW|Mercedes|Buick|Cadillac|Lexus|Acura|Audi|Volvo|Mazda|Chrysler|Lincoln|Infiniti|Volkswagen|VW|Porsche|Tesla|Rivian';
 
+    function stableHash(value: string): string {
+      let hash = 2166136261;
+      for (let i = 0; i < value.length; i += 1) {
+        hash ^= value.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return (hash >>> 0).toString(36);
+    }
+
+    function compactFingerprintText(value: unknown, max = 2200): string {
+      return String(value || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, max);
+    }
+
+    function buildContextFingerprint(input: { name?: string | null; vehicle?: string | null; rawText?: string | null; method?: string | null } = {}) {
+      const mainText = compactFingerprintText(input.rawText || (document.querySelector('[role="main"]') as HTMLElement | null)?.innerText || document.body?.innerText || '');
+      const name = compactFingerprintText(input.name || extractFacebookConversationName() || safeExtractContactName() || '', 120).toLowerCase();
+      const vehicle = compactFingerprintText(input.vehicle || extractVehicle(`${document.title}\n${mainText}`) || '', 120).toLowerCase();
+      const basis = [
+        PLATFORM,
+        window.location.origin,
+        window.location.pathname,
+        name,
+        vehicle,
+        compactFingerprintText(document.title, 160).toLowerCase(),
+        mainText.slice(0, 900).toLowerCase(),
+      ].join('|');
+      const fingerprint = `${PLATFORM}:${stableHash(basis)}`;
+      return {
+        context_fingerprint: fingerprint,
+        thread_fingerprint: fingerprint,
+        detected_at: new Date().toISOString(),
+        detection_source: input.method || 'content_scan',
+        raw_vehicle_evidence: vehicle || null,
+      };
+    }
+
     function cleanFacebookNameCandidate(value: string | null | undefined, options: { allowSingleName?: boolean } = {}): string | null {
       const cleaned = String(value || '')
         .replace(/\(\d+\)\s*/g, '')
@@ -1658,6 +1697,11 @@ export default defineContentScript({
             const detected = await detectCustomerFromPage();
             const customerName = leadData?.customerName || detected?.name || extractFacebookConversationName() || safeExtractContactName() || null;
             const vehicle = leadData?.vehicle || detected?.vehicle || null;
+            const fingerprint = buildContextFingerprint({
+              name: customerName,
+              vehicle,
+              method: detected ? `auto_${detected.method}` : 'content_context',
+            });
             sendResponse({
               customerName,
               customer_name: customerName,
@@ -1673,6 +1717,7 @@ export default defineContentScript({
               detectionConfidence: detected?.confidence ?? (customerName ? 0.55 : 0),
               detectionMethod: detected ? `auto_${detected.method}` : null,
               leadCreatedAt: scrapeLeadCreatedAt(),
+              ...fingerprint,
             });
           } catch {
             sendResponse({ platform: PLATFORM });
@@ -1735,6 +1780,8 @@ export default defineContentScript({
           const phone = scanned.phone || leadData?.phone || detected?.phone || partialSignal.phone || null;
           const email = scanned.email || leadData?.email || detected?.email || gmailSignal.email || partialSignal.email || null;
           const vehicle = scanned.vehicle || leadData?.vehicle || leadData?.vehicleOfInterest || detected?.vehicle || partialSignal.vehicle || null;
+          const detectionMethod = linkedinSignal.customerName ? 'linkedin_profile_selector' : (detected ? `auto_${detected.method}` : 'scan_lead');
+          const fingerprint = buildContextFingerprint({ name, vehicle, rawText, method: detectionMethod });
           sendResponse({
             name: name || null,
             customerName: name || null,
@@ -1750,7 +1797,8 @@ export default defineContentScript({
             raw_text: rawText,
             source_raw_text: rawText,
             detectionConfidence: linkedinSignal.confidence ?? detected?.confidence ?? (name ? 0.55 : 0),
-            detectionMethod: linkedinSignal.customerName ? 'linkedin_profile_selector' : (detected ? `auto_${detected.method}` : null),
+            detectionMethod,
+            ...fingerprint,
           });
         } catch {
           sendResponse({ name: null, customerName: null, platform: PLATFORM });
