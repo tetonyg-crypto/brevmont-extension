@@ -75,7 +75,7 @@ const CONTEXT_SCREENSHOT_TARGET_BYTES = 1_600_000;
 const CONTEXT_SCREENSHOT_MAX_DIMS = [1800, 1600, 1400, 1200, 1000, 850];
 const CONTEXT_SCREENSHOT_QUALITIES = [0.82, 0.74, 0.66, 0.58, 0.5];
 const CONTEXT_PAGE_TEXT_MAX = 5000;
-const GENERATION_FAILURE_MESSAGE = 'Generation failed. Try again or contact support@brevmont.com';
+const GENERATION_FAILURE_MESSAGE = 'Generation failed. Try again or contact founder@brevmont.com';
 
 const AUTH_SYNC_KEYS = [
   'license_key',
@@ -1747,7 +1747,7 @@ function wireHandlers(root: HTMLElement): void {
   }
   const helpBtn = root.querySelector('#sp-link-help') as HTMLButtonElement;
   if (helpBtn) {
-    helpBtn.onclick = () => { chrome.tabs.create({ url: 'mailto:support@brevmont.com' }); };
+    helpBtn.onclick = () => { chrome.tabs.create({ url: 'mailto:founder@brevmont.com' }); };
   }
 
   // Tools panel

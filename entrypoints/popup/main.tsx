@@ -318,10 +318,10 @@ function App() {
           Trouble activating? Try manual setup
         </button>
         <a
-          href="mailto:support@brevmont.com"
+          href="mailto:founder@brevmont.com"
           style={{ fontSize: 11, color: PALETTE.textFaint, textDecoration: 'none', textAlign: 'center' }}
         >
-          Need help? support@brevmont.com
+          Need help? founder@brevmont.com
         </a>
       </div>
     );
@@ -512,8 +512,8 @@ function App() {
         >
           Report issue
         </button>
-        <a href="mailto:support@brevmont.com" style={{ fontSize: 12, color: PALETTE.textMuted, textDecoration: 'none' }}>
-          Or email support@brevmont.com
+        <a href="mailto:founder@brevmont.com" style={{ fontSize: 12, color: PALETTE.textMuted, textDecoration: 'none' }}>
+          Or email founder@brevmont.com
         </a>
       </div>
 

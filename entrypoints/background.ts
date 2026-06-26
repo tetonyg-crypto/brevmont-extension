@@ -638,7 +638,7 @@ export default defineBackground(() => {
             : 'UNKNOWN';
           captureError(err instanceof Error ? err : new Error(String(err?.message || err)), { flow: 'GENERATE_OUTPUT', errType });
           reportError(errType, err.message).catch(() => {});
-          sendResponse({ error: 'Generation failed. Try again or contact support@brevmont.com' });
+          sendResponse({ error: 'Generation failed. Try again or contact founder@brevmont.com' });
         }
       })();
       return true;

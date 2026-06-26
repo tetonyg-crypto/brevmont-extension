@@ -285,7 +285,7 @@ function openGoogleActivation(): void {
     // back to manual entry.
     const err = document.getElementById('s2-license-err');
     if (err) {
-      err.textContent = 'This install link expired or was already used. Try Google sign-in or contact support@brevmont.com.';
+      err.textContent = 'This install link expired or was already used. Try Google sign-in or contact founder@brevmont.com.';
       err.style.display = 'block';
     }
   }
@@ -601,7 +601,7 @@ async function validateLicense(key: string) {
     if (INSTALL_TOKEN_RE.test(normalizedKey)) {
       const ok = await tryAutoConfigFromInstallToken(normalizedKey);
       if (!ok) {
-        showError('Activation code is invalid, expired, or already used. Try Google sign-in or contact support@brevmont.com.');
+        showError('Activation code is invalid, expired, or already used. Try Google sign-in or contact founder@brevmont.com.');
         return false;
       }
       if (okEl) okEl.style.display = 'block';
@@ -749,7 +749,7 @@ async function validateRepToken(token: string) {
   if (INSTALL_TOKEN_RE.test(normalizedToken)) {
     const ok = await tryAutoConfigFromInstallToken(normalizedToken);
     if (!ok) {
-      showError('Activation code is invalid, expired, or already used. Try Google sign-in or contact support@brevmont.com.');
+      showError('Activation code is invalid, expired, or already used. Try Google sign-in or contact founder@brevmont.com.');
       return false;
     }
     if (okEl) okEl.style.display = 'block';
@@ -775,7 +775,7 @@ async function validateRepToken(token: string) {
     if (resp.status === 400 || resp.status === 401 || resp.status === 403) {
       let body: any = {};
       try { body = await resp.json(); } catch {}
-      showError(body?.message || body?.error || 'Setup code is invalid or expired. Try Google sign-in or contact support@brevmont.com.');
+      showError(body?.message || body?.error || 'Setup code is invalid or expired. Try Google sign-in or contact founder@brevmont.com.');
       telemetry.trackError(new Error(body?.error || 'rep_setup_code_invalid'), { flow: 'rep_token_validation', status: resp.status, code_type: isRepAuthToken ? 'rep_auth_token' : 'invite_code' });
       return false;
     }
@@ -1068,7 +1068,7 @@ async function connectSetupCode() {
   if (err) err.style.display = 'none';
   const valid = await validateRepToken(token);
   if (!valid) {
-    if (err) { err.textContent = 'Setup code is invalid or expired. Try Google sign-in or contact support@brevmont.com.'; err.style.display = 'block'; }
+    if (err) { err.textContent = 'Setup code is invalid or expired. Try Google sign-in or contact founder@brevmont.com.'; err.style.display = 'block'; }
     if (ok) ok.style.display = 'none';
     return;
   }
