@@ -610,11 +610,43 @@ export default defineContentScript({
         } catch {
           inserted = false;
         }
-        const rendered = (target.textContent || '').trim();
-        const expectedStart = text.trim().slice(0, 24);
-        if (!inserted || (expectedStart && !rendered.includes(expectedStart))) {
+
+        // Fallback ONLY when insertText genuinely failed AND the field is
+        // still empty. Caught 2026-06-27: Messenger's Lexical editor would
+        // double-render the message because execCommand('insertText') succeeded
+        // (text was in Lexical's model AND in the DOM) but the validation
+        // `rendered.includes(expectedStart)` sometimes missed due to Lexical's
+        // wrapper nodes, triggering `target.textContent = text` — which
+        // Lexical's MutationObserver interpreted as a SECOND insert, leaving
+        // its internal model with the text twice. The rendered Messenger
+        // compose field then showed the doubled copy with no separator
+        // ("details?Hey Adrian..."). Trusting `inserted` and checking
+        // emptiness eliminates the double-write.
+        const renderedFull = (target.textContent || '');
+        if (!inserted && renderedFull.trim().length === 0) {
           target.textContent = text;
         }
+
+        // Final dedup safety net: if the field somehow ended up with the same
+        // text >= twice (an upstream MutationObserver loop, a stale draft, or
+        // another extension racing), strip back to a single copy. Checks for
+        // a 40-char chunk of the text appearing more than once.
+        const dedupChunk = text.trim().slice(0, Math.max(40, Math.min(80, text.trim().length)));
+        if (dedupChunk && renderedFull.length > 0) {
+          const occurrences = renderedFull.split(dedupChunk).length - 1;
+          if (occurrences >= 2) {
+            // Wipe the field via the editor pipeline again and re-insert exactly once.
+            try {
+              document.execCommand('selectAll');
+              document.execCommand('delete');
+              document.execCommand('insertText', false, text);
+            } catch {
+              while (target.firstChild) target.removeChild(target.firstChild);
+              target.textContent = text;
+            }
+          }
+        }
+
         const selection = window.getSelection();
         const endRange = document.createRange();
         endRange.selectNodeContents(target);
