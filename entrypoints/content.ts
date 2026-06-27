@@ -656,7 +656,22 @@ export default defineContentScript({
       } else {
         target.textContent = text;
       }
-      target.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
+      // Lexical (Messenger), Draft.js, Slate listen for input/beforeinput
+      // and treat (inputType:'insertText', data:<full text>) as "the user
+      // just typed this entire string" — they then insert the text into
+      // their model. execCommand('insertText') already routed through the
+      // editor pipeline once above, so dispatching a SECOND synthetic
+      // InputEvent with data:text causes Lexical to insert it AGAIN,
+      // producing the observed "...today?Hey Adrian..." doubled output.
+      // For contenteditable, fire a plain input event (no inputType, no
+      // data) so React/MutationObserver change-detection still fires
+      // without re-inserting. For input/textarea, the original synthetic
+      // event is safe and required for React controlled inputs.
+      if ((target as any).isContentEditable) {
+        target.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      } else {
+        target.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
+      }
       target.dispatchEvent(new Event('change', { bubbles: true }));
       target.dispatchEvent(new Event('blur', { bubbles: true }));
     }
