@@ -23,6 +23,12 @@ import {
 import { clearJwtCache } from '../../lib/jwtCache';
 import { clearAuth } from '../../lib/storage';
 import { getFeatureAccess } from '../../lib/featureGate';
+import {
+  TRIAL_ENDED_CTA,
+  accessBlockedMessage,
+  accessEndedBody,
+  accessEndedTitle,
+} from '../../lib/accessState';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
@@ -105,6 +111,7 @@ async function clearCredentialsForReconnect(): Promise<void> {
       'license_revoked',
       'license_revoked_at',
       'license_revoked_message',
+      'license_access_state',
       'brevmont_jwt_cache',
       'brevmont_tier',
       'dealership_tier',
@@ -342,10 +349,10 @@ function accessEndedMessage(message?: string): string {
 async function requireToken(): Promise<string> {
   const [sync, local] = await Promise.all([
     chrome.storage.local.get(['dealer_token', 'rep_auth_token']),
-    chrome.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'license_revoked', 'license_revoked_message']),
+    chrome.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'license_revoked', 'license_revoked_message', 'license_access_state']),
   ]);
   if (local.license_revoked) {
-    throw new Error(accessEndedMessage(local.license_revoked_message as string | undefined));
+    throw new Error(accessBlockedMessage(local.license_access_state as string | undefined, local.license_revoked_message as string | undefined));
   }
   const token = (
     sync.dealer_token ||
@@ -1508,26 +1515,39 @@ function showReviewPrompt(root: HTMLElement): void {
 }
 
 async function showAccessEndedBanner(root: HTMLElement): Promise<void> {
-  const local = await chrome.storage.local.get(['license_revoked', 'license_revoked_message', 'dealership']);
+  const local = await chrome.storage.local.get(['license_revoked', 'license_revoked_message', 'license_access_state', 'dealership']);
   const existing = root.querySelector('#o8-access-ended-banner');
   if (existing) existing.remove();
   if (!local.license_revoked) return;
+
+  const accessState = local.license_access_state as string | undefined;
+  const isTrialEnded = accessState === 'trial_ended';
+  const title = isTrialEnded
+    ? accessEndedTitle(accessState)
+    : `Access ended${local.dealership ? ` at ${String(local.dealership)}` : ''}`;
+  const body = isTrialEnded
+    ? accessEndedBody(accessState)
+    : accessEndedMessage(local.license_revoked_message as string | undefined);
 
   const banner = document.createElement('div');
   banner.id = 'o8-access-ended-banner';
   banner.style.cssText = 'margin:8px 12px 0;padding:10px;border:1px solid #FCA5A5;border-radius:8px;background:#FEF2F2;color:#991B1B;font-size:12px;line-height:1.45;';
   banner.innerHTML = `
-    <div style="font-weight:700;margin-bottom:4px;">Access ended${local.dealership ? ` at ${esc(String(local.dealership))}` : ''}</div>
-    <div>${esc(accessEndedMessage(local.license_revoked_message as string | undefined))}</div>
-    <button id="o8-access-reconnect" style="margin-top:8px;border:0;border-radius:6px;background:#0D6E6E;color:#fff;font-size:12px;font-weight:700;padding:7px 10px;cursor:pointer;">Reconnect</button>
+    <div style="font-weight:700;margin-bottom:4px;">${esc(title)}</div>
+    <div>${esc(body)}</div>
+    <button id="o8-access-action" style="margin-top:8px;border:0;border-radius:6px;background:#0D6E6E;color:#fff;font-size:12px;font-weight:700;padding:7px 10px;cursor:pointer;">${isTrialEnded ? TRIAL_ENDED_CTA : 'Reconnect'}</button>
   `;
   const header = root.querySelector('.header');
   if (header) header.insertAdjacentElement('afterend', banner);
   else root.prepend(banner);
 
-  const reconnect = banner.querySelector('#o8-access-reconnect') as HTMLButtonElement | null;
+  const reconnect = banner.querySelector('#o8-access-action') as HTMLButtonElement | null;
   if (reconnect) {
     reconnect.onclick = async () => {
+      if (isTrialEnded) {
+        chrome.tabs.create({ url: 'mailto:?subject=Activate%20Brevmont%20pilot&body=Our%207-day%20Brevmont%20trial%20ended.%20Can%20you%20activate%20the%20pilot%20so%20we%20can%20reopen%20access%3F' });
+        return;
+      }
       reconnect.disabled = true;
       reconnect.textContent = 'Opening setup...';
       await clearCredentialsForReconnect();
@@ -1901,6 +1921,13 @@ try {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes[MIC_PERM_KEY]) {
       micPermGranted = !!changes[MIC_PERM_KEY].newValue;
+    }
+    if (
+      area === 'local' &&
+      (changes.license_revoked || changes.license_revoked_message || changes.license_access_state)
+    ) {
+      const root = document.getElementById('sp-root');
+      if (root) showAccessEndedBanner(root).catch(() => {});
     }
   });
 } catch { /* side panel may not support onChanged — non-critical */ }

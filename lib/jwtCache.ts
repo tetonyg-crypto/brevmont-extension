@@ -10,6 +10,8 @@
  *   - 2026-05-06: Initial creation — Phase 3 JWT auth client
  */
 
+import { TRIAL_ENDED_BODY, classifyAccessError, getAccessErrorCode } from './accessState';
+
 const REFRESH_BUFFER_SECONDS = 60;
 const STORAGE_KEY = 'brevmont_jwt_cache';
 const JWT_FETCH_TIMEOUT_MS = 8_000;
@@ -22,15 +24,17 @@ interface JwtCacheEntry {
 let memoryCache: JwtCacheEntry | null = null;
 let inflight: Promise<string | null> | null = null;
 
-async function markRepAccessEnded(errorCode: string): Promise<void> {
+async function markRepAccessEnded(errorCode: string, accessState: 'revoked' | 'trial_ended' = 'revoked'): Promise<void> {
   memoryCache = null;
   try {
     await browser.storage.local.remove(STORAGE_KEY);
     await browser.storage.local.set({
       license_revoked: true,
       license_revoked_at: Date.now(),
-      license_revoked_message:
-        'Your access at this dealership has ended. Been invited to a new store? Reconnect below.',
+      license_revoked_message: accessState === 'trial_ended'
+        ? TRIAL_ENDED_BODY
+        : 'Your access at this dealership has ended. Been invited to a new store? Reconnect below.',
+      license_access_state: accessState,
       brevmont_last_error: errorCode,
       brevmont_last_error_at: new Date().toISOString(),
     });
@@ -96,17 +100,15 @@ async function fetchFreshJwt(repToken: string, apiBase: string): Promise<JwtCach
       body: '{}',
     });
     if (!resp.ok) {
-      let body: { error?: string } = {};
+      let body: any = {};
       try {
         body = await resp.json();
       } catch {
         body = {};
       }
-      if (
-        resp.status === 401 &&
-        ['rep_token_revoked', 'rep_token_expired', 'invalid_rep_token'].includes(String(body.error || ''))
-      ) {
-        await markRepAccessEnded(String(body.error));
+      const accessState = classifyAccessError(resp.status, body);
+      if (accessState) {
+        await markRepAccessEnded(getAccessErrorCode(body), accessState);
       }
       return null;
     }

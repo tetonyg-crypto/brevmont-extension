@@ -69,6 +69,7 @@ export interface BrevmontStorage {
   license_revoked: boolean;
   license_revoked_at: number | null;
   license_revoked_message: string | null;
+  license_access_state: 'revoked' | 'trial_ended' | null;
 
   // Install token (single-use, server-validated). Cleared after consumption.
   install_token: string | null;
@@ -100,6 +101,7 @@ const DEFAULTS: BrevmontStorage = {
   license_revoked: false,
   license_revoked_at: null,
   license_revoked_message: null,
+  license_access_state: null,
   install_token: null,
   ui_last_active_step: null,
   ui_dismissed_announcements: [],
@@ -391,6 +393,7 @@ export async function setCredentialsFromInstallToken(payload: {
     license_revoked: false,
     license_revoked_at: null,
     license_revoked_message: null,
+    license_access_state: null,
   };
   await patch(updates);
 }

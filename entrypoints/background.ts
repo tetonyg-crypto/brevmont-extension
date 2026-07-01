@@ -77,6 +77,12 @@ import { fetchRemoteConfig, getResolvedApiUrl, applyConfig } from '../lib/remote
 import { hasCompleteActivation } from './lib/activationState';
 import * as storage from '../lib/storage';
 import {
+  TRIAL_ENDED_BODY,
+  accessBlockedMessage,
+  classifyAccessError,
+  getAccessErrorCode,
+} from '../lib/accessState';
+import {
   BREVMONT_UNINSTALL_URL,
   BREVMONT_WELCOME_URL,
   REFERRAL_CLAIMED_KEY,
@@ -633,12 +639,14 @@ export default defineBackground(() => {
             sendResponse(result);
           }
         } catch (err: any) {
-          const errType = err.message?.includes('License') ? 'AUTH_ERROR'
+          const errMessage = err?.message || 'Generation failed. Try again or contact founder@brevmont.com';
+          const isAccessError = /trial ended|access at this dealership has ended|license has been revoked/i.test(errMessage);
+          const errType = errMessage?.includes('License') || isAccessError ? 'AUTH_ERROR'
             : err.message?.includes('429') ? 'API_ERROR'
             : 'UNKNOWN';
           captureError(err instanceof Error ? err : new Error(String(err?.message || err)), { flow: 'GENERATE_OUTPUT', errType });
           reportError(errType, err.message).catch(() => {});
-          sendResponse({ error: 'Generation failed. Try again or contact founder@brevmont.com' });
+          sendResponse({ error: isAccessError ? errMessage : 'Generation failed. Try again or contact founder@brevmont.com' });
         }
       })();
       return true;
@@ -1980,10 +1988,11 @@ export default defineBackground(() => {
         profile_onboarding: null,
         activated_at: Date.now(),
         license_revoked: false,
+        license_access_state: null,
         brevmont_extension_role: 'rep',
       });
       await browser.storage.local.remove(SETUP_KEY);
-      await browser.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
+      await browser.storage.local.remove(['license_revoked_at', 'license_revoked_message', 'license_access_state']);
 
       await browser.storage.sync.set(storage.sanitizeSyncPayload({
         dealer_token: dealerToken,
@@ -2190,9 +2199,13 @@ async function handleRevocationResponse(resp: Response): Promise<void> {
     // Clone so downstream consumers can still read the body
     body = await resp.clone().json();
   } catch {}
-  if (body?.error === 'license_revoked' || body?.error === 'rep_token_revoked' || body?.error === 'rep_token_expired') {
+  const accessState = classifyAccessError(resp.status, body);
+  if (accessState) {
+    const errorCode = getAccessErrorCode(body);
     const msg = body?.message || body?.error_message ||
-      (body?.error === 'license_revoked'
+      (accessState === 'trial_ended'
+        ? TRIAL_ENDED_BODY
+        : errorCode === 'license_revoked'
         ? 'Your Brevmont license has been revoked. Contact support.'
         : 'Your access at this dealership has ended. Been invited to a new store? Reconnect below.');
     try {
@@ -2200,23 +2213,35 @@ async function handleRevocationResponse(resp: Response): Promise<void> {
         license_revoked: true,
         license_revoked_at: Date.now(),
         license_revoked_message: msg,
+        license_access_state: accessState,
+        brevmont_last_error: errorCode,
+        brevmont_last_error_at: new Date().toISOString(),
       });
     } catch {}
     try {
       (browser as any).action?.setBadgeText?.({ text: '!' });
       (browser as any).action?.setBadgeBackgroundColor?.({ color: '#DC2626' });
     } catch {}
-    try { telemetry.track('license_revoked', { source: 'proxy_401', severity: 'critical', metadata: { status: resp.status } }); } catch {}
+    try { telemetry.track(accessState === 'trial_ended' ? 'trial_ended' : 'license_revoked', { source: 'proxy_401', severity: 'critical', metadata: { status: resp.status } }); } catch {}
   }
 }
 
 async function assertNotRevoked(): Promise<void> {
+  let blockedMessage: string | null = null;
   try {
-    const { license_revoked } = await browser.storage.local.get(['license_revoked']);
-    if (license_revoked) throw new Error('license_revoked');
+    const { license_revoked, license_access_state, license_revoked_message } = await browser.storage.local.get([
+      'license_revoked',
+      'license_access_state',
+      'license_revoked_message',
+    ]);
+    if (license_revoked) {
+      blockedMessage = accessBlockedMessage(license_access_state as string | null, license_revoked_message as string | null);
+    }
   } catch (e: any) {
-    if (e?.message === 'license_revoked') throw e;
+    if (blockedMessage) throw new Error(blockedMessage);
+    return;
   }
+  if (blockedMessage) throw new Error(blockedMessage);
 }
 
 // --- Build rep context from profile for prompt injection ---
@@ -2598,6 +2623,7 @@ async function generateViaProxy(
   idempotencyKey?: string,
   apiBase: string = PROXY_URL
 ) {
+  await assertNotRevoked();
   const base = apiBase.replace(/\/$/, '');
   const body = buildGenerateProxyBody(dealerToken, userMessage, platform, metadata);
   const generationId = body.generation_id || metadata?.generation_id || crypto.randomUUID();
@@ -2623,6 +2649,14 @@ async function generateViaProxy(
 
   // Phase T7: detect revocation responses
   await handleRevocationResponse(resp);
+
+  if (resp.status === 401 || resp.status === 403) {
+    const errBody = await resp.clone().json().catch(() => ({}));
+    const accessState = classifyAccessError(resp.status, errBody);
+    if (accessState) {
+      throw new Error(accessBlockedMessage(accessState, errBody?.message || errBody?.error_message || null));
+    }
+  }
 
   if (resp.status === 202) {
     // Async mode — poll for result from BullMQ queue
@@ -2673,6 +2707,14 @@ async function pollForResult(jobId: string, maxWait = GENERATION_POLL_TIMEOUT_MS
       // so server-side signature enforcement on the status route can be
       // flipped on later without a coordinated client rev.
       const resp = await signedGet(`${base}/v1/generate/status/${jobId}`);
+      await handleRevocationResponse(resp);
+      if (resp.status === 401 || resp.status === 403) {
+        const errBody = await resp.clone().json().catch(() => ({}));
+        const accessState = classifyAccessError(resp.status, errBody);
+        if (accessState) {
+          throw new Error(accessBlockedMessage(accessState, errBody?.message || errBody?.error_message || null));
+        }
+      }
       const data = await resp.json();
       if (data.status === 'completed') return data.data;
       if (data.status === 'failed') throw new Error(data.error || 'Generation failed');
@@ -2797,6 +2839,7 @@ async function handleContextReply(payload: {
   image_meta?: any;
   leadContext?: Record<string, any>;
 }) {
+  await assertNotRevoked();
   const settings = await browser.storage.local.get(['rep_name', 'rep_auth_token', 'brevmont_rep_auth_token']);
   const dealerToken = await resolveDealerToken();
   if (!dealerToken) throw new Error('No license key found.');
@@ -2862,6 +2905,14 @@ Write one concise, natural customer reply. If dollar amounts, payment terms, veh
     throw e;
   }
   await handleRevocationResponse(resp);
+
+  if (resp.status === 401 || resp.status === 403) {
+    const errBody = await resp.clone().json().catch(() => ({}));
+    const accessState = classifyAccessError(resp.status, errBody);
+    if (accessState) {
+      throw new Error(accessBlockedMessage(accessState, errBody?.message || errBody?.error_message || null));
+    }
+  }
 
   if (resp.status === 413) throw new Error('Screenshot too large — try a smaller crop');
   if (!resp.ok) {

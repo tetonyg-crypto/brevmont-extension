@@ -427,6 +427,7 @@ async function tryAutoConfigFromCookie(): Promise<boolean> {
       dealer_token: dealerToken,
       activated_at: Date.now(),
       license_revoked: false,
+      license_access_state: null,
       profile_onboarded: false,
       profile_onboarding: null,
       brevmont_extension_role: 'rep',
@@ -445,7 +446,7 @@ async function tryAutoConfigFromCookie(): Promise<boolean> {
     }
 
     await chrome.storage.local.set(toStore);
-    await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
+    await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message', 'license_access_state']);
     await chrome.storage.sync.set(storage.sanitizeSyncPayload({
       dealer_token: dealerToken,
       rep_auth_token: repAuthToken,
@@ -682,6 +683,7 @@ async function validateLicense(key: string) {
       license_key: normalizedKey,
       activated_at: Date.now(),
       license_revoked: false,
+      license_access_state: null,
     };
     if (data.dealer_token) toStore.dealer_token = data.dealer_token;
     if (dbName) toStore.dealership = dbName;
@@ -690,7 +692,7 @@ async function validateLicense(key: string) {
     try {
       await chrome.storage.local.set(toStore);
       // Also remove the stale revocation fields so old state doesn't linger
-      await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
+      await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message', 'license_access_state']);
     } catch {}
 
     // Clear revocation badge
@@ -810,6 +812,7 @@ async function validateRepToken(token: string) {
       rep_auth_token: resolvedRepToken,
       activated_at: Date.now(),
       license_revoked: false,
+      license_access_state: null,
       profile_onboarded: false,
       profile_onboarding: null,
       brevmont_tier: data.tier || 'free',
@@ -826,7 +829,7 @@ async function validateRepToken(token: string) {
     toStore.brevmont_extension_role = 'rep';
     try {
       await chrome.storage.local.set(toStore);
-      await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message']);
+      await chrome.storage.local.remove(['license_revoked_at', 'license_revoked_message', 'license_access_state']);
       await chrome.storage.sync.set(storage.sanitizeSyncPayload({
         dealer_token: data.dealer_token || data.license_key || '',
         rep_auth_token: resolvedRepToken,

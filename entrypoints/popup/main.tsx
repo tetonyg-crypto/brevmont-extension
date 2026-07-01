@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import SupportModal from './SupportModal';
+import {
+  TRIAL_ENDED_BODY,
+  TRIAL_ENDED_CTA,
+  TRIAL_ENDED_TITLE,
+} from '../../lib/accessState';
 
 interface PopupState {
   rep_name: string;
@@ -10,6 +15,8 @@ interface PopupState {
   rep_auth_token: string;
   extension_role: string;
   tier: string;
+  license_revoked: boolean;
+  license_access_state: string;
 }
 
 const CRM_HOST_FRAGMENTS = [
@@ -53,6 +60,8 @@ function App() {
     rep_auth_token: '',
     extension_role: 'rep',
     tier: 'Free',
+    license_revoked: false,
+    license_access_state: '',
   });
   const [queueSize, setQueueSize] = useState(0);
   const [version, setVersion] = useState('');
@@ -137,6 +146,8 @@ function App() {
         'brevmont_tier',
         'dealership_tier',
         'dealership_plan',
+        'license_revoked',
+        'license_access_state',
       ])) as Record<string, string>;
       const sync = (await browser.storage.sync.get(['rep_name', 'dealership'])) as Record<
         string,
@@ -161,6 +172,8 @@ function App() {
         rep_auth_token: local.brevmont_rep_auth_token || local.rep_auth_token || sync.rep_auth_token || '',
         extension_role: local.brevmont_extension_role || 'rep',
         tier: local.brevmont_tier || local.dealership_tier || local.dealership_plan || 'Free',
+        license_revoked: !!local.license_revoked,
+        license_access_state: local.license_access_state || '',
       });
     };
     void loadSettings();
@@ -174,7 +187,9 @@ function App() {
           'dealer_token' in changes ||
           'rep_auth_token' in changes ||
           'brevmont_rep_auth_token' in changes ||
-          'brevmont_extension_role' in changes)
+          'brevmont_extension_role' in changes ||
+          'license_revoked' in changes ||
+          'license_access_state' in changes)
       ) {
         void loadSettings();
       }
@@ -236,6 +251,13 @@ function App() {
     window.close();
   };
 
+  const notifyGm = () => {
+    void browser.tabs.create({
+      url: 'mailto:?subject=Activate%20Brevmont%20pilot&body=Our%207-day%20Brevmont%20trial%20ended.%20Can%20you%20activate%20the%20pilot%20so%20we%20can%20reopen%20access%3F',
+    });
+    window.close();
+  };
+
   const openGoogleActivation = () => {
     void browser.tabs.create({ url: 'https://app.brevmont.com/auth/extension' });
     window.close();
@@ -268,6 +290,7 @@ function App() {
   const authenticated = !!(settings.dealer_token || settings.rep_auth_token);
   const role = settings.extension_role || 'rep';
   const showGmLink = isManagerRole(role) && !isRepLike(role);
+  const trialEnded = settings.license_revoked && settings.license_access_state === 'trial_ended';
 
   if (supportOpen) {
     return <SupportModal onClose={() => setSupportOpen(false)} repAuthToken={settings.rep_auth_token} />;
@@ -355,6 +378,29 @@ function App() {
           <span style={{ fontSize: 11, color: PALETTE.textMuted }}>{status === 'checking' ? 'Checking' : status}</span>
         </div>
       </div>
+
+      {trialEnded && (
+        <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '10px 12px' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#991B1B', marginBottom: 4 }}>{TRIAL_ENDED_TITLE}</div>
+          <div style={{ fontSize: 12, color: '#991B1B', lineHeight: '1.45', marginBottom: 10 }}>{TRIAL_ENDED_BODY}</div>
+          <button
+            type="button"
+            onClick={notifyGm}
+            style={{
+              padding: '8px 10px',
+              borderRadius: 6,
+              border: 'none',
+              background: PALETTE.deepTeal,
+              color: '#fff',
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+          >
+            {TRIAL_ENDED_CTA}
+          </button>
+        </div>
+      )}
 
       <div style={{ background: PALETTE.cardWhite, border: `1px solid ${PALETTE.border}`, borderRadius: 8, padding: '10px 12px' }}>
         <div style={{ fontSize: 10, fontWeight: 600, color: PALETTE.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
