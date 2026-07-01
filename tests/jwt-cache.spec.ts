@@ -69,3 +69,33 @@ test('getJWT marks rep access ended when token mint rejects a revoked rep token'
   expect(storage.brevmont_last_error).toBe('rep_token_revoked');
   expect(storage.brevmont_jwt_cache).toBeUndefined();
 });
+
+test('getJWT marks trial ended when token mint returns error_code trial_ended', async () => {
+  const storage = installBrowserStorage({ brevmont_rep_auth_token: 'BRVMT-REP-TRIAL' });
+  (globalThis as any).fetch = async () =>
+    new Response(JSON.stringify({ error_code: 'trial_ended' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+  await expect(getJWT('https://api.brevmont.test')).resolves.toBeNull();
+  expect(storage.license_revoked).toBe(true);
+  expect(storage.license_access_state).toBe('trial_ended');
+  expect(storage.license_revoked_message).toBe('Your GM can activate the pilot to reopen access.');
+  expect(storage.brevmont_last_error).toBe('trial_ended');
+  expect(storage.brevmont_jwt_cache).toBeUndefined();
+});
+
+test('getJWT marks trial ended when token mint returns legacy error trial_ended', async () => {
+  const storage = installBrowserStorage({ rep_auth_token: 'BRVMT-REP-TRIAL' });
+  (globalThis as any).fetch = async () =>
+    new Response(JSON.stringify({ error: 'trial_ended' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+  await expect(getJWT('https://api.brevmont.test')).resolves.toBeNull();
+  expect(storage.license_revoked).toBe(true);
+  expect(storage.license_access_state).toBe('trial_ended');
+  expect(storage.brevmont_last_error).toBe('trial_ended');
+});
