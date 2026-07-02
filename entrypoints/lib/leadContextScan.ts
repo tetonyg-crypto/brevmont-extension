@@ -12,6 +12,38 @@ const POISON_AFTER = /^[\s\S]{0,20}(?:Calculated|Payoff|payoff|appraised)/i;
 const LINKEDIN_UI_NAME_RE =
   /^(?:ad options|advertising|sponsored|promoted|2023 grade|grade|follow|message|connect|open to|profile|activity|about|experience|education|people also viewed|linkedin|notifications|jobs|home|my network|premium)$/i;
 
+// Any candidate that equals one of these (case-insensitive, trimmed) is a
+// UI/channel label, not a person. Discovered 2026-07-02 on live demo: on
+// messenger.com/marketplace/t/... the top div[role="main"] h1 is literally
+// "Messenger" (the channel indicator) — extractContactName was returning
+// that as customer_name, and the generated follow-up read "Hi Messenger,
+// this is Yancy Garcia at Ridgeline Chevrolet…". Same class of bug for
+// Marketplace, Buyer, Seller, Facebook, Chats, etc. Add every UI label
+// we've seen — being loud here is fine because a genuine name never
+// collides with these words.
+const CHANNEL_OR_UI_NAMES = new Set([
+  'messenger', 'facebook', 'marketplace', 'chats', 'chat',
+  'gmail', 'inbox', 'mail', 'sent', 'drafts',
+  'linkedin', 'instagram', 'whatsapp', 'twitter', 'x',
+  'vinsolutions', 'cox', 'salesforce', 'hubspot',
+  'buyer', 'seller', 'customer', 'contact', 'lead',
+  'new message', 'new chat', 'no longer available', 'sold',
+  'brevmont', 'save lead', 'scan this page',
+  'profile', 'conversation', 'notifications', 'search',
+  'you', 'me', 'other', 'group',
+]);
+
+export function isChannelOrUiName(value: unknown): boolean {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return true;
+  if (CHANNEL_OR_UI_NAMES.has(raw)) return true;
+  // Multi-word variants: "SOLD - 2015 Subaru Outback", "Facebook Marketplace",
+  // "Marketplace Buyer" etc.
+  if (/^(?:sold|active|available|listed|new)\b/i.test(raw)) return true;
+  if (/^(?:facebook|messenger|marketplace|instagram)\s/i.test(raw)) return true;
+  return false;
+}
+
 function isPoisoned(text: string, mi: number, ml: number): boolean {
   return POISON_BEFORE.test(text.slice(Math.max(0, mi - 60), mi)) || POISON_AFTER.test(text.slice(mi + ml, mi + ml + 40));
 }
@@ -364,20 +396,13 @@ export function extractContactName(platform: string): string | null {
     return null;
   }
   if (platform === 'facebook') {
-    const headerSpan =
-      document.querySelector('div[role="main"] h1') ||
-      document.querySelector('h1') ||
-      document.querySelector('[aria-label*="Profile"] h1') ||
-      document.querySelector('[data-testid="mwthreadlist-item-open"] span') ||
-      document.querySelector('div[role="main"] h2 span') ||
-      document.querySelector('div[role="banner"] a[role="link"] span') ||
-      document.querySelector('[role="main"] strong a[role="link"] span') ||
-      document.querySelector('[role="main"] a[role="link"][href*="/profile.php"] span') ||
-      document.querySelector('[role="main"] a[role="link"][href^="/"] span');
-    if (headerSpan) {
-      const name = (headerSpan as HTMLElement).textContent?.trim();
-      if (name && name.length > 1 && name.length < 50 && !name.includes('@')) return name;
-    }
+    // Every candidate below must pass isChannelOrUiName() BEFORE being
+    // returned. Marketplace conversations put "Messenger" in the top h1,
+    // which was leaking through as customer_name until 2026-07-02.
+    //
+    // Preferred source on messenger.com/marketplace: the marketplace
+    // thread lists "<Buyer> · <Listing title>" or "<Buyer> · Buyer" near
+    // the top. Prefer aria-label paths that explicitly name a person.
     const labelled = Array.from(document.querySelectorAll('[aria-label]')).find(el => {
       const label = el.getAttribute('aria-label') || '';
       return /^(?:Message|Conversation with|Profile picture of|Open profile for)\s+/i.test(label);
@@ -388,13 +413,48 @@ export function extractContactName(platform: string): string | null {
         .replace(/^(?:Message|Conversation with|Profile picture of|Open profile for)\s+/i, '')
         .replace(/\s+(?:profile|conversation)$/i, '')
         .trim();
-      if (cleaned && cleaned.length > 1 && cleaned.length < 50 && !cleaned.includes('@')) return cleaned;
+      if (cleaned && cleaned.length > 1 && cleaned.length < 50 && !cleaned.includes('@') && !isChannelOrUiName(cleaned)) {
+        return cleaned;
+      }
     }
     const convoHeader = document.querySelector('[aria-label*="Conversation with"]');
     if (convoHeader) {
       const label = convoHeader.getAttribute('aria-label') || '';
       const match = label.match(/Conversation with (.+)/i);
-      if (match && match[1].trim().length > 1) return match[1].trim();
+      const candidate = match?.[1]?.trim();
+      if (candidate && candidate.length > 1 && !isChannelOrUiName(candidate)) return candidate;
+    }
+    // Try Marketplace-specific "<Buyer> · <Listing>" pattern near the top
+    // of the thread — that's where "Mark · 2015 Subaru Outback 3.6R" is.
+    const marketplaceHeader = document.querySelector('[role="main"] h1, [role="main"] h2');
+    if (marketplaceHeader) {
+      const raw = ((marketplaceHeader as HTMLElement).innerText || marketplaceHeader.textContent || '').trim();
+      // Split on · (middle dot), • (bullet), or - to grab the name half.
+      const firstSegment = raw.split(/\s*[·•·•-]\s*/)[0]?.trim() || raw;
+      if (
+        firstSegment &&
+        firstSegment.length > 1 &&
+        firstSegment.length < 50 &&
+        !firstSegment.includes('@') &&
+        !isChannelOrUiName(firstSegment)
+      ) {
+        return firstSegment;
+      }
+    }
+    // Fall back to any header span, but reject channel names.
+    const headerSpan =
+      document.querySelector('[aria-label*="Profile"] h1') ||
+      document.querySelector('[data-testid="mwthreadlist-item-open"] span') ||
+      document.querySelector('div[role="main"] h2 span') ||
+      document.querySelector('div[role="banner"] a[role="link"] span') ||
+      document.querySelector('[role="main"] strong a[role="link"] span') ||
+      document.querySelector('[role="main"] a[role="link"][href*="/profile.php"] span') ||
+      document.querySelector('[role="main"] a[role="link"][href^="/"] span');
+    if (headerSpan) {
+      const name = (headerSpan as HTMLElement).textContent?.trim();
+      if (name && name.length > 1 && name.length < 50 && !name.includes('@') && !isChannelOrUiName(name)) {
+        return name;
+      }
     }
     if (window.location.hostname.includes('messenger.com')) {
       const title = document.title
@@ -403,7 +463,7 @@ export function extractContactName(platform: string): string | null {
         .replace(/\s*[·•-]\s*(?:19|20)\d{2}\b.*$/i, '')
         .replace(/\(\d+\)\s*/, '')
         .trim();
-      if (title && title.length > 1 && title.length < 50 && !/^(?:Messenger|Facebook|Chats)$/i.test(title)) return title;
+      if (title && title.length > 1 && title.length < 50 && !isChannelOrUiName(title)) return title;
     }
     return null;
   }

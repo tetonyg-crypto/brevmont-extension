@@ -16,7 +16,7 @@
 import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
-import { extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface } from './lib/leadContextScan';
+import { extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface, isChannelOrUiName } from './lib/leadContextScan';
 import { detectCustomerFromPage } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 
@@ -1742,7 +1742,26 @@ export default defineContentScript({
         (async () => {
           try {
             const detected = await detectCustomerFromPage();
-            const customerName = leadData?.customerName || detected?.name || extractFacebookConversationName() || safeExtractContactName() || null;
+            // Final safety net — some upstream path may still return a
+            // channel or UI label (Messenger, Marketplace, Buyer, SOLD).
+            // The AI turns any non-null customer_name into "Hi <name>",
+            // which is worse than "Hi there." Reject known bad names
+            // here so nothing downstream has to remember to check.
+            const pickCleanName = (...candidates: (string | null | undefined)[]): string | null => {
+              for (const c of candidates) {
+                const trimmed = (c || '').trim();
+                if (!trimmed) continue;
+                if (isChannelOrUiName(trimmed)) continue;
+                return trimmed;
+              }
+              return null;
+            };
+            const customerName = pickCleanName(
+              leadData?.customerName,
+              detected?.name,
+              extractFacebookConversationName(),
+              safeExtractContactName(),
+            );
             const vehicle = leadData?.vehicle || detected?.vehicle || null;
             const fingerprint = buildContextFingerprint({
               name: customerName,
