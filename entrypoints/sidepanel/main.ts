@@ -2165,8 +2165,12 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     if (outputsEl) {
       outputsEl.innerHTML = `
         <div id="o8-streaming-output" class="out-card" data-generation-id="${esc(_generationId)}">
-          <div class="out-label">Generating</div>
-          <textarea class="out-textarea" rows="7" readonly></textarea>
+          <div class="out-label">Writing follow-ups</div>
+          <div class="streaming-status" style="display:flex;align-items:center;gap:8px;color:#64748b;font-size:12px;margin:4px 0 8px;">
+            <span class="gen-spinner"></span>
+            <span>Writing follow-ups...</span>
+          </div>
+          <textarea class="out-textarea" rows="7" readonly placeholder="Writing follow-ups..."></textarea>
         </div>
       `;
     }
@@ -3694,11 +3698,20 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (!card) return false;
   const textarea = card.querySelector('textarea') as HTMLTextAreaElement | null;
   if (!textarea) return false;
+  const status = card.querySelector('.streaming-status') as HTMLElement | null;
+  const label = card.querySelector('.out-label') as HTMLElement | null;
+  if (msg.event === 'start') {
+    if (label) label.textContent = 'Writing follow-ups';
+    return false;
+  }
   if (msg.event === 'delta') {
+    if (status) status.remove();
+    if (label) label.textContent = 'Writing';
     textarea.value += String(msg.text || '');
     textarea.scrollTop = textarea.scrollHeight;
   } else if (msg.event === 'done') {
-    card.querySelector('.out-label')!.textContent = 'Generated';
+    if (status) status.remove();
+    if (label) label.textContent = 'Generated';
   }
   return false;
 });

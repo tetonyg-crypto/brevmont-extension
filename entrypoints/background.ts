@@ -2415,7 +2415,7 @@ async function handleGenerate(payload: {
       apiBase
     );
     const sections = parseSections(result.text);
-    return { text: result.text, sections };
+    return { text: result.text, sections, guard_metrics: result.guard_metrics || null };
   } catch (err: any) {
     const m = String(err?.message || err);
 
@@ -2688,10 +2688,41 @@ async function generateViaProxy(
     : await resp.json();
   const text = data.content?.[0]?.text || '';
   if (!text) throw new Error('Empty response from AI. Please try again.');
+  const headerGuardTime = Number(resp.headers.get('X-Brevmont-Guard-Time-Ms'));
+  const headerTotalTime = Number(resp.headers.get('X-Brevmont-Total-Time-Ms'));
+  const guardMetrics = data.guard_metrics || (
+    Number.isFinite(headerGuardTime) || Number.isFinite(headerTotalTime)
+      ? {
+          guard_time_ms: Number.isFinite(headerGuardTime) ? headerGuardTime : null,
+          total_time_ms: Number.isFinite(headerTotalTime) ? headerTotalTime : null,
+          source: 'headers',
+        }
+      : null
+  );
+  if (guardMetrics) {
+    telemetry.track('generation_guard_timing', {
+      severity: Number(guardMetrics.guard_time_ms || 0) > 3000 ? 'warn' : 'info',
+      metadata: {
+        generation_id: generationId,
+        workflow_type: metadata?.workflow_type || null,
+        guard_time_ms: guardMetrics.guard_time_ms ?? null,
+        total_time_ms: guardMetrics.total_time_ms ?? null,
+        fallback_triggered: guardMetrics.fallback_triggered ?? null,
+        threshold_exceeded: guardMetrics.threshold_exceeded ?? null,
+        model: guardMetrics.model || data.model || null,
+      },
+    });
+  }
   if (data?.brevmont_usage) await updateFreeTierBadge(data.brevmont_usage, data.tier);
   void claimReferralAfterFirstGeneration();
 
-  return { text, usage: data.usage || {}, brevmont_usage: data.brevmont_usage || null, tier: data.tier || null };
+  return {
+    text,
+    usage: data.usage || {},
+    brevmont_usage: data.brevmont_usage || null,
+    tier: data.tier || null,
+    guard_metrics: guardMetrics,
+  };
 }
 
 // Poll for async generation result from BullMQ queue
