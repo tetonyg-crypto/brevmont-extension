@@ -33,10 +33,7 @@ export function reviewClickedState(now = Date.now()): ReviewPromptState {
 }
 
 export function appendFreeTierEmailSignature(value: string): string {
-  const signature = 'Drafted by Brevmont AI - brevmont.com';
-  const text = String(value || '').trimEnd();
-  if (!text || text.includes(signature)) return value;
-  return `${text}\n\n${signature}`;
+  return value;
 }
 
 export function cwsLinkFor(channel: string, campaign: string, medium = 'extension'): string {

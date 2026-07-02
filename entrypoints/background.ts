@@ -17,21 +17,18 @@ const BLANK_CONTEXT_IMAGE =
 async function updateFreeTierBadge(usage?: { remaining?: number; generations_remaining?: number }, tier?: string) {
   try {
     const local = await browser.storage.local.get(['brevmont_tier', 'brevmont_usage']);
-    const resolvedTier = String(tier || local.brevmont_tier || '').toLowerCase();
-    const isFree = resolvedTier === 'free' || resolvedTier === 'free_trial';
-    if (!isFree) {
+    const badge = resolveFreeTierBadgeState({
+      usage,
+      tier,
+      localTier: local.brevmont_tier,
+      localUsage: local.brevmont_usage,
+    });
+    if (!badge.freeTier) {
       await chrome.action.setBadgeText({ text: '' });
       return;
     }
-    const localUsage = local.brevmont_usage || {};
-    const remaining = Number(
-      usage?.remaining ??
-      usage?.generations_remaining ??
-      localUsage.generations_remaining ??
-      Math.max(0, Number(localUsage.generations_limit || 500) - Number(localUsage.generations_used || 0))
-    );
-    await chrome.action.setBadgeBackgroundColor({ color: '#0D6E6E' });
-    await chrome.action.setBadgeText({ text: Number.isFinite(remaining) ? String(Math.max(0, remaining)) : '' });
+    await chrome.action.setBadgeBackgroundColor({ color: badge.backgroundColor || '#0D6E6E' });
+    await chrome.action.setBadgeText({ text: badge.text });
   } catch {
     // Badge updates should never block auth or generation.
   }
@@ -69,6 +66,7 @@ async function fetchWithRetry(url: string, opts: RequestInit, attempts = 3): Pro
 }
 
 import { signedFetch, signedPatch, signedGet } from '../lib/authSigning';
+import { resolveFreeTierBadgeState } from '../lib/badgeState';
 import { enqueue, processQueue, getQueueCount as getDexieQueueCount } from '../lib/retryQueue';
 import { telemetry } from './lib/telemetry';
 import { dlog } from './lib/dev';
