@@ -2087,6 +2087,13 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
 }
 
 // ─── Generate ────────────────────────────────────────────────────────────────
+function removeStreamingOutput(root: HTMLElement, generationId?: string): void {
+  const selector = generationId
+    ? `#o8-streaming-output[data-generation-id="${CSS.escape(String(generationId))}"]`
+    : '#o8-streaming-output';
+  root.querySelector(selector)?.remove();
+}
+
 async function doGenerate(root: HTMLElement): Promise<void> {
   if (!(await ensureGenerationAllowed(root))) return;
   if (isGenerating) return;
@@ -2194,7 +2201,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     } else if (response?.error) {
       addOutput(root, 'Error', GENERATION_FAILURE_MESSAGE);
     } else {
-      root.querySelector('#o8-streaming-output')?.remove();
+      removeStreamingOutput(root, _generationId);
       const sec = response.sections;
       if (selected.includes('text') && sec?.text) addOutput(root, 'MESSAGE', sec.text, 'text', _generationId);
       if (selected.includes('email') && sec?.email) addOutput(root, 'EMAIL', await contentForEmailOutput(sec.email), 'email', _generationId);
@@ -2252,12 +2259,13 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     }
   } catch (_e: any) {
     addOutput(root, 'Error', GENERATION_FAILURE_MESSAGE);
+  } finally {
+    removeStreamingOutput(root, _generationId);
+    btn.innerHTML = 'Generate';
+    btn.disabled = false;
+    isGenerating = false;
+    updateUsageCounter(root);
   }
-
-  btn.innerHTML = 'Generate';
-  btn.disabled = false;
-  isGenerating = false;
-  updateUsageCounter(root);
 }
 
 // ─── Add output card ─────────────────────────────────────────────────────────
@@ -3709,6 +3717,9 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (label) label.textContent = 'Writing';
     textarea.value += String(msg.text || '');
     textarea.scrollTop = textarea.scrollHeight;
+  } else if (msg.event === 'error') {
+    removeStreamingOutput(root, String(msg.generation_id || ''));
+    addOutput(root, 'Error', GENERATION_FAILURE_MESSAGE);
   } else if (msg.event === 'done') {
     if (status) status.remove();
     if (label) label.textContent = 'Generated';
