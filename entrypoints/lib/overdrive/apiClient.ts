@@ -6,15 +6,7 @@
 
 import type { FacebookProfileScrape } from './linkFacebook';
 import type { OverdriveThreadContext } from './types';
-
-async function getRepAuthToken(): Promise<string | null> {
-  try {
-    const stored = await chrome.storage.local.get(['rep_auth_token', 'dealer_token']);
-    return stored?.rep_auth_token || stored?.dealer_token || null;
-  } catch {
-    return null;
-  }
-}
+import { signedFetch, signedGet, signedPatch } from '../../../lib/authSigning';
 
 async function getApiBase(): Promise<string> {
   try {
@@ -26,28 +18,30 @@ async function getApiBase(): Promise<string> {
 }
 
 async function overdriveFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const [token, base] = await Promise.all([getRepAuthToken(), getApiBase()]);
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(init.headers as Record<string, string> | undefined),
-  };
-  if (token) {
-    headers['X-Rep-Token'] = token;
-    if (!headers['Authorization']) headers['Authorization'] = `Bearer ${token}`;
-  }
-  const res = await fetch(`${base}${path}`, { ...init, headers });
+  const base = await getApiBase();
+  const method = String(init.method || 'GET').toUpperCase();
+  const headers = init.headers as Record<string, string> | undefined;
+  const requestBody = typeof init.body === 'string'
+    ? JSON.parse(init.body || '{}')
+    : (init.body || {});
+  const url = `${base}${path}`;
+  const res = method === 'GET'
+    ? await signedGet(url, headers)
+    : method === 'PATCH'
+      ? await signedPatch(url, requestBody, headers)
+      : await signedFetch(url, requestBody, headers);
   const contentType = res.headers.get('content-type') || '';
   const isJson = contentType.includes('application/json');
-  const body = isJson ? await res.json().catch(() => ({})) : await res.text();
+  const responseBody = isJson ? await res.json().catch(() => ({})) : await res.text();
   if (!res.ok) {
     const err = new Error(
-      typeof body === 'object' && body?.error ? String(body.error) : `overdrive_api_${res.status}`
+      typeof responseBody === 'object' && responseBody?.error ? String(responseBody.error) : `overdrive_api_${res.status}`
     );
     (err as any).status = res.status;
-    (err as any).body = body;
+    (err as any).body = responseBody;
     throw err;
   }
-  return body as T;
+  return responseBody as T;
 }
 
 export interface OverdriveSettingsResponse {

@@ -23,6 +23,7 @@ import {
 import { clearJwtCache } from '../../lib/jwtCache';
 import { clearAuth } from '../../lib/storage';
 import { getFeatureAccess } from '../../lib/featureGate';
+import { signedGet } from '../../lib/authSigning';
 import {
   TRIAL_ENDED_CTA,
   accessBlockedMessage,
@@ -92,6 +93,7 @@ const AUTH_SYNC_KEYS = [
   'brevmont_rep_auth_token',
   'rep_id',
   'rep_name',
+  'rep_email',
   'dealership_id',
   'dealership',
   'profile_onboarded',
@@ -1500,12 +1502,8 @@ async function renderRadarStatus(root: HTMLElement): Promise<void> {
   const txt = root.querySelector('#o8-radar-status-text') as HTMLElement | null;
   if (!el || !txt) return;
   try {
-    const token = await getStoredToken();
-    if (!token) { el.style.display = 'none'; return; }
     const base = (await chrome.storage.local.get(['api_base_url']))?.api_base_url || 'https://api.brevmont.com';
-    const resp = await fetch(`${base}/api/v1/radar/status`, {
-      headers: { 'X-Rep-Token': token, Authorization: `Bearer ${token}` },
-    }).catch(() => null);
+    const resp = await signedGet(`${base}/api/v1/radar/status`).catch(() => null);
     if (!resp?.ok) { el.style.display = 'none'; return; }
     const data = await resp.json().catch(() => ({}));
     if (!data?.enabled) { el.style.display = 'none'; return; }

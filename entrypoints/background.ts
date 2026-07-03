@@ -555,7 +555,7 @@ export default defineBackground(() => {
       const SYNC_KEYS = [
         'license_key', 'license_secret', 'brevmont_license_secret',
         'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
-        'rep_id', 'rep_name', 'dealership_id', 'dealership',
+        'rep_id', 'rep_name', 'rep_email', 'dealership_id', 'dealership',
         'profile_onboarded', 'profile', 'install_token',
         'brevmont_tier', 'dealership_tier', 'dealership_plan',
       ];
@@ -659,7 +659,7 @@ export default defineBackground(() => {
           await chrome.storage.sync.remove([
             'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
             'license_key', 'license_secret', 'brevmont_license_secret',
-            'rep_id', 'rep_name', 'dealership_id', 'dealership',
+            'rep_id', 'rep_name', 'rep_email', 'dealership_id', 'dealership',
             'profile', 'profile_onboarded',
             'install_token', 'brevmont_tier', 'dealership_tier', 'dealership_plan',
           ]);

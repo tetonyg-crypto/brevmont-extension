@@ -24,6 +24,8 @@
  * Last Updated: 2026-05-06
  */
 
+import { signedFetch } from '../../lib/authSigning';
+
 const API_BASE = 'https://api.brevmont.com';
 const QUEUE_KEY = 'telemetry_queue_v2';
 const MAX_QUEUE_SIZE = 100;
@@ -138,16 +140,11 @@ export async function flushQueue(): Promise<void> {
       const batch = remaining.slice(0, BATCH_SIZE);
       let ok = false;
       try {
-        const res = await fetch(`${API_BASE}/api/v1/events/batch`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-            'X-Rep-Token': token,
-            'X-Extension-Version': getExtVersion(),
-          },
-          body: JSON.stringify({ events: batch }),
-        });
+        const res = await signedFetch(
+          `${API_BASE}/api/v1/events/batch`,
+          { events: batch },
+          { 'X-Extension-Version': getExtVersion() },
+        );
         if (res.ok) {
           ok = true;
           try { console.info('[brevmont:honest] batch POST 201', batch.length, 'events'); } catch {}

@@ -13,6 +13,8 @@
  * shouldn't spam the user or break the Overdrive path that follows.
  */
 
+import { signedFetch, signedGet } from '../../../lib/authSigning';
+
 export interface RadarCaptureBody {
   conversation_key: string;
   last_inbound_hash?: string | null;
@@ -38,13 +40,6 @@ export interface RadarCaptureResult {
   reason?: string;
 }
 
-async function getRepAuthToken(): Promise<string | null> {
-  try {
-    const stored = await chrome.storage.local.get(['rep_auth_token', 'dealer_token']);
-    return (stored?.rep_auth_token || stored?.dealer_token || null) as string | null;
-  } catch { return null; }
-}
-
 async function getApiBase(): Promise<string> {
   try {
     const cfg = await chrome.storage.local.get(['api_base_url']);
@@ -54,20 +49,21 @@ async function getApiBase(): Promise<string> {
 
 async function radarFetch<T>(path: string, init: RequestInit = {}): Promise<T | null> {
   try {
-    const [token, base] = await Promise.all([getRepAuthToken(), getApiBase()]);
-    if (!token) return null;
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'X-Rep-Token': token,
-      Authorization: `Bearer ${token}`,
-      ...(init.headers as Record<string, string> | undefined),
-    };
-    const res = await fetch(`${base}${path}`, { ...init, headers });
+    const base = await getApiBase();
+    const method = String(init.method || 'GET').toUpperCase();
+    const headers = init.headers as Record<string, string> | undefined;
+    const requestBody = typeof init.body === 'string'
+      ? JSON.parse(init.body || '{}')
+      : (init.body || {});
+    const url = `${base}${path}`;
+    const res = method === 'GET'
+      ? await signedGet(url, headers)
+      : await signedFetch(url, requestBody, headers);
     const contentType = res.headers.get('content-type') || '';
     const isJson = contentType.includes('application/json');
-    const body = isJson ? await res.json().catch(() => ({})) : (await res.text().catch(() => ''));
+    const responseBody = isJson ? await res.json().catch(() => ({})) : (await res.text().catch(() => ''));
     if (!res.ok) return null;
-    return body as T;
+    return responseBody as T;
   } catch { return null; }
 }
 
