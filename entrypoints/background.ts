@@ -521,6 +521,36 @@ export default defineBackground(() => {
         return false;
       }
     }
+    if ((message as { type?: string })?.type === 'BREVMONT_REP_SIGN_OUT') {
+      // 1.16.42 skeptic follow-up: when the web app's "Sign in as a
+      // different account" button fires, it broadcasts this to every
+      // known extension id. We purge chrome.storage so the extension
+      // stops sending API calls carrying the previous rep's token
+      // while the sidepanel is mid-switch. Mirrors
+      // clearCredentialsForReconnect in sidepanel/main.ts:105.
+      const SYNC_KEYS = [
+        'license_key', 'license_secret', 'brevmont_license_secret',
+        'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
+        'rep_id', 'rep_name', 'dealership_id', 'dealership',
+        'profile_onboarded', 'profile', 'install_token',
+        'brevmont_tier', 'dealership_tier', 'dealership_plan',
+      ];
+      const LOCAL_KEYS = [
+        'license_revoked', 'license_revoked_at', 'license_revoked_message',
+        'license_access_state', 'brevmont_jwt_cache',
+        'brevmont_tier', 'dealership_tier', 'dealership_plan',
+        'brevmont_features', 'brevmont_usage',
+        'rep_email', 'rep_id', 'rep_name', 'dealership_id', 'dealership',
+        'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
+      ];
+      void Promise.allSettled([
+        browser.storage.sync.remove(SYNC_KEYS),
+        browser.storage.local.remove(LOCAL_KEYS),
+      ]).then(() => {
+        sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
+      }).catch(() => sendResponse({ ok: false }));
+      return true;
+    }
     if ((message as { type?: string; referral_code?: string })?.type === 'BREVMONT_REFERRAL_CODE') {
       const referralCode = String((message as any).referral_code || '').trim();
       if (referralCode) {
