@@ -455,6 +455,44 @@ export async function installOverdriveController(): Promise<void> {
     });
   } catch { /* noop */ }
 
+  // 1.16.47 W2-A3: OVERDRIVE_STATE_CHANGED subscription via poll.
+  // Cheap /api/overdrive/state returns max(server_ts) of any overdrive
+  // toggle/pause/resume/takeover for this rep+dealership. When it
+  // changes we refresh settings and broadcast to the sidepanel so
+  // per-thread controls repaint. Poll every 8s while the SW is alive;
+  // the sidepanel does its own poll while it's open, so this is the
+  // background layer that keeps the go-light in sync while the panel
+  // is closed.
+  const STATE_POLL_ALARM = 'brevmont_overdrive_state_poll';
+  try {
+    chrome.alarms.create(STATE_POLL_ALARM, { periodInMinutes: 0.15 }); // ~9s
+  } catch { /* noop */ }
+  let lastSeenStateSeq: string | null = null;
+  const pollOverdriveState = async (): Promise<void> => {
+    try {
+      const { getOverdriveStateSeq } = await import('./apiClient');
+      const { seq } = await getOverdriveStateSeq();
+      if (!seq || seq === lastSeenStateSeq) return;
+      lastSeenStateSeq = seq;
+      const cached = await loadSettingsFresh();
+      // Belt-and-suspenders arm the detector — cached may now be
+      // green when it wasn't before (rep flipped their toggle ON from
+      // the web app).
+      if (overdriveGoLightIsGreen(cached)) {
+        await armDetectorOnAllFbTabs();
+      }
+      // Notify sidepanel + any open surface. Sidepanel per-thread UI
+      // re-fetches its own thread state on this signal.
+      try {
+        chrome.runtime.sendMessage({
+          type: 'OVERDRIVE_STATE_CHANGED',
+          seq,
+          at: Date.now(),
+        }).catch(() => {});
+      } catch { /* noop */ }
+    } catch { /* noop — polls silently */ }
+  };
+
   // Register the keepalive alarm (1 min).
   try {
     chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 1 });
@@ -464,6 +502,10 @@ export async function installOverdriveController(): Promise<void> {
     // by the idempotency index (migration 304).
     chrome.alarms.create(RADAR_SWEEP_ALARM, { periodInMinutes: 30, delayInMinutes: 2 });
     chrome.alarms.onAlarm.addListener(async (alarm) => {
+      if (alarm.name === STATE_POLL_ALARM) {
+        await pollOverdriveState();
+        return;
+      }
       if (alarm.name === KEEPALIVE_ALARM) {
         const cached = await activeSettings();
         await ensureFacebookTabIfEnabled(cached);

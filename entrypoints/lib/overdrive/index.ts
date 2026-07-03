@@ -64,6 +64,7 @@ export {
   pauseThread,
   resumeThread,
   requestOverdriveReply,
+  getOverdriveStateSeq,
 } from './apiClient';
 export type {
   OverdriveSettingsResponse,

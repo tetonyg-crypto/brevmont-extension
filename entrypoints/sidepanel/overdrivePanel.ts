@@ -14,12 +14,66 @@ import {
   postUnlinkFacebook,
   postDisclosureAck,
   postRepPhoto,
+  getThreadState,
+  pauseThread,
+  resumeThread,
+  type OverdriveThreadState,
 } from '../lib/overdrive/apiClient';
 
 interface OverdrivePanelState {
   loading: boolean;
   error: string | null;
   data: Awaited<ReturnType<typeof getOverdriveSettings>> | null;
+  currentThread: OverdriveThreadState | null;
+  currentThreadKey: string | null;
+}
+
+// 1.16.47 W2-X1: query the active tab (if on FB/Messenger) for the
+// current conversation_key so the panel can render a per-thread control.
+// The content script's scrapeActiveThread computes conversation_key
+// from the URL / thread header. Returns null if no FB tab is active
+// or the tab doesn't respond in time.
+async function readActiveConversationKey(): Promise<string | null> {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = tabs?.[0];
+    if (!tab?.id) return null;
+    const url = tab.url || '';
+    if (!/facebook\.com|messenger\.com/.test(url)) return null;
+    return await new Promise<string | null>((resolve) => {
+      let resolved = false;
+      const timer = setTimeout(() => {
+        if (!resolved) { resolved = true; resolve(null); }
+      }, 700);
+      try {
+        chrome.tabs.sendMessage(
+          tab.id!,
+          { type: 'OVERDRIVE_ACTIVE_CONVERSATION_KEY' },
+          (resp: { conversation_key?: string } | undefined) => {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+            void chrome.runtime.lastError; // swallow "no receiver"
+            resolve(typeof resp?.conversation_key === 'string' && resp.conversation_key
+              ? resp.conversation_key
+              : null);
+          },
+        );
+      } catch {
+        if (!resolved) { resolved = true; clearTimeout(timer); resolve(null); }
+      }
+    });
+  } catch { return null; }
+}
+
+async function loadCurrentThread(state: OverdrivePanelState): Promise<void> {
+  const key = await readActiveConversationKey();
+  state.currentThreadKey = key;
+  if (!key) { state.currentThread = null; return; }
+  try {
+    const { thread } = await getThreadState(key);
+    state.currentThread = thread || null;
+  } catch { state.currentThread = null; }
 }
 
 const DISCLOSURE_TEXT = [
@@ -44,7 +98,10 @@ const DISCLOSURE_TEXT = [
  * so the UI reflects current state.
  */
 export async function renderOverdrivePanel(container: HTMLElement): Promise<void> {
-  const state: OverdrivePanelState = { loading: true, error: null, data: null };
+  const state: OverdrivePanelState = {
+    loading: true, error: null, data: null,
+    currentThread: null, currentThreadKey: null,
+  };
 
   const paint = () => {
     if (state.loading) {
@@ -56,13 +113,16 @@ export async function renderOverdrivePanel(container: HTMLElement): Promise<void
       wireEvents(container, state, paint);
       return;
     }
-    container.innerHTML = renderPanelHTML(state.data);
+    container.innerHTML = renderPanelHTML(state.data, state.currentThread, state.currentThreadKey);
     wireEvents(container, state, paint);
   };
 
   paint();
   try {
     state.data = await getOverdriveSettings();
+    // Load current thread state in parallel with paint so the chip
+    // renders on the same tick.
+    await loadCurrentThread(state);
     state.loading = false;
     paint();
   } catch (err: any) {
@@ -70,9 +130,86 @@ export async function renderOverdrivePanel(container: HTMLElement): Promise<void
     state.error = err?.message || 'Could not load Overdrive settings.';
     paint();
   }
+
+  // 1.16.47 W2-X1: subscribe to background broadcast. When any toggle,
+  // pause, resume, or takeover fires anywhere, background sends
+  // OVERDRIVE_STATE_CHANGED; we refetch settings + current thread so
+  // the panel always shows live truth. Prevents the reader from seeing
+  // stale state after a takeover or a GM kill switch flip.
+  const wired = (window as any).__brevmontOverdrivePanelListener;
+  if (!wired) {
+    (window as any).__brevmontOverdrivePanelListener = true;
+    try {
+      chrome.runtime.onMessage.addListener((msg) => {
+        if (msg?.type !== 'OVERDRIVE_STATE_CHANGED') return false;
+        (async () => {
+          try {
+            state.data = await getOverdriveSettings();
+            await loadCurrentThread(state);
+            paint();
+          } catch { /* noop */ }
+        })();
+        return false;
+      });
+    } catch { /* noop */ }
+  }
+
+  // Also refresh current thread when the tab focus changes (rep may
+  // switch to a different Messenger conversation). Poll cheap every 5s
+  // while the panel is open — thread state is a single DB lookup.
+  const priorPoll = (window as any).__brevmontOverdriveThreadPoll;
+  if (typeof priorPoll === 'number') { try { window.clearInterval(priorPoll); } catch { /* noop */ } }
+  const poll = window.setInterval(async () => {
+    const before = state.currentThreadKey;
+    const beforePaused = state.currentThread?.paused_at || null;
+    await loadCurrentThread(state);
+    if (
+      before !== state.currentThreadKey ||
+      beforePaused !== (state.currentThread?.paused_at || null)
+    ) {
+      paint();
+    }
+  }, 5000);
+  (window as any).__brevmontOverdriveThreadPoll = poll;
 }
 
-function renderPanelHTML(data: OverdrivePanelState['data']): string {
+function renderPerThreadChip(thread: OverdriveThreadState | null, key: string | null): string {
+  if (!key) return '';
+  if (!thread) {
+    // Sidepanel is on a FB tab that has a conversation key but no
+    // overdrive_threads row yet — Overdrive hasn't qualified it. Show
+    // a lightweight "not yet tracked" hint rather than nothing so the
+    // rep understands why they can't pause it.
+    return `
+      <div class="overdrive-thread-chip overdrive-thread-chip-inactive">
+        <div class="overdrive-thread-label">Overdrive on this conversation</div>
+        <div class="overdrive-thread-state">not yet active</div>
+      </div>`;
+  }
+  if (thread.paused_at) {
+    const by = thread.paused_by || 'unknown';
+    const pausedByLabel =
+      by === 'takeover' ? 'paused after your reply' :
+      by === 'gm' ? 'paused by manager' :
+      by === 'escalation' ? 'paused — escalated' :
+      by === 'rep' ? 'paused by you' :
+      'paused';
+    return `
+      <div class="overdrive-thread-chip overdrive-thread-chip-paused">
+        <div class="overdrive-thread-label">Overdrive on this conversation</div>
+        <div class="overdrive-thread-state">${escapeHtml(pausedByLabel)}</div>
+        <button class="overdrive-btn overdrive-btn-secondary overdrive-thread-btn" data-action="thread-resume" data-key="${escapeHtml(key)}">Resume Overdrive on this conversation</button>
+      </div>`;
+  }
+  return `
+    <div class="overdrive-thread-chip overdrive-thread-chip-active">
+      <div class="overdrive-thread-label">Overdrive on this conversation</div>
+      <div class="overdrive-thread-state">active</div>
+      <button class="overdrive-btn overdrive-btn-secondary overdrive-thread-btn" data-action="thread-pause" data-key="${escapeHtml(key)}">Pause on this conversation</button>
+    </div>`;
+}
+
+function renderPanelHTML(data: OverdrivePanelState['data'], currentThread: OverdriveThreadState | null, currentThreadKey: string | null): string {
   if (!data) return '';
   const linked = data.linked.facebook;
   const disclosureAcked = !!data.linked.disclosure_ack_at;
@@ -125,6 +262,7 @@ function renderPanelHTML(data: OverdrivePanelState['data']): string {
       </div>
       ${dealerBanner}
       ${activeStatus}
+      ${renderPerThreadChip(currentThread, currentThreadKey)}
       ${linkedInfo}
       <div class="overdrive-steps">${stepsHTML}</div>
       <div class="overdrive-toggle-row">${toggleControl}</div>
@@ -171,6 +309,31 @@ function wireEvents(container: HTMLElement, state: OverdrivePanelState, paint: (
   };
 
   container.querySelector('[data-action="reload"]')?.addEventListener('click', () => void reload());
+
+  // 1.16.47 W2-X1: per-thread pause/resume from the current-thread chip.
+  container.querySelector('[data-action="thread-pause"]')?.addEventListener('click', async (ev) => {
+    const key = (ev.currentTarget as HTMLElement).dataset.key || state.currentThreadKey;
+    if (!key) return;
+    try {
+      await pauseThread(key, { paused_by: 'rep', reason: 'rep_paused_from_sidepanel' });
+      await loadCurrentThread(state);
+      paint();
+    } catch (err: any) {
+      alert(`Could not pause: ${err?.message || 'unknown error'}`);
+    }
+  });
+  container.querySelector('[data-action="thread-resume"]')?.addEventListener('click', async (ev) => {
+    const key = (ev.currentTarget as HTMLElement).dataset.key || state.currentThreadKey;
+    if (!key) return;
+    if (!confirm('Resume Overdrive on this conversation? The AI will start replying again.')) return;
+    try {
+      await resumeThread(key);
+      await loadCurrentThread(state);
+      paint();
+    } catch (err: any) {
+      alert(`Could not resume: ${err?.message || 'unknown error'}`);
+    }
+  });
 
   container.querySelector('[data-action="link-fb"]')?.addEventListener('click', async () => {
     await runLinkFacebookFlow(container, reload);
@@ -380,6 +543,13 @@ const STYLES = `
 .overdrive-btn-secondary { background: #E5E7EB; color: #0F1419; }
 .overdrive-toggle-row { margin-top: 12px; text-align: right; }
 .overdrive-error { background: #FEE2E2; color: #7F1D1D; padding: 8px; border-radius: 8px; }
+.overdrive-thread-chip { padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
+.overdrive-thread-chip-active { background: #DCFCE7; color: #14532D; }
+.overdrive-thread-chip-paused { background: #FEF3C7; color: #78350F; }
+.overdrive-thread-chip-inactive { background: #F3F4F6; color: rgba(15,20,25,0.55); }
+.overdrive-thread-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.72; }
+.overdrive-thread-state { font-size: 13px; font-weight: 600; }
+.overdrive-thread-btn { margin-left: 0; align-self: flex-start; margin-top: 4px; }
 .overdrive-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .overdrive-modal-panel { background: white; border-radius: 12px; padding: 24px; max-width: 480px; width: 100%; }
 .overdrive-modal-panel h2 { margin: 0 0 12px; font-size: 16px; }

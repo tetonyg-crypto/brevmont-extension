@@ -1811,6 +1811,26 @@ export default defineContentScript({
         return true;
       }
 
+      // 1.16.47 W2-X1: sidepanel asks for the current conversation_key
+      // so it can render a per-thread pause control. Same source as
+      // scrapeActiveThread but cheap — just the key, no history.
+      if (msg.type === 'OVERDRIVE_ACTIVE_CONVERSATION_KEY') {
+        (async () => {
+          try {
+            if (!isFacebook || window !== window.top) {
+              sendResponse({ conversation_key: null });
+              return;
+            }
+            const mod = await import('./lib/overdrive/contentBridge');
+            const scrape = await mod.scrapeActiveThread();
+            sendResponse({ conversation_key: scrape?.conversation_key || null });
+          } catch {
+            sendResponse({ conversation_key: null });
+          }
+        })();
+        return true;
+      }
+
       if (msg.type === 'RADAR_SWEEP_LIST') {
         // Catch-up sweep (Radar Phase C). Walk the visible Messenger
         // chat list and return top-N recent Marketplace-origin threads.

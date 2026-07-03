@@ -124,6 +124,9 @@ export interface OverdriveThreadState {
   conversation_key: string;
   stage: string;
   paused_at: string | null;
+  paused_by: 'rep' | 'gm' | 'takeover' | 'escalation' | null;
+  pause_reason: string | null;
+  resumed_at: string | null;
   last_inbound_hash: string | null;
   last_inbound_at: string | null;
   last_reply_at: string | null;
@@ -144,11 +147,31 @@ export async function getThreadState(conversation_key: string): Promise<{ thread
   );
 }
 
-export async function pauseThread(conversation_key: string, reason?: string): Promise<{ thread: OverdriveThreadState }> {
+// 1.16.47: pause requires paused_by so the server records origin
+// (rep manual, GM dashboard, takeover, escalation). Default 'rep'
+// matches the pre-1.16.47 behavior for callers that don't specify.
+export async function pauseThread(
+  conversation_key: string,
+  opts?: { reason?: string; paused_by?: 'rep' | 'gm' | 'takeover' | 'escalation' },
+): Promise<{ thread: OverdriveThreadState }> {
   return overdriveFetch<{ thread: OverdriveThreadState }>(
     `/api/overdrive/thread/${encodeURIComponent(conversation_key)}/pause`,
-    { method: 'POST', body: JSON.stringify({ reason: reason || 'rep_paused' }) }
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        reason: opts?.reason || 'rep_paused',
+        paused_by: opts?.paused_by || 'rep',
+      }),
+    }
   );
+}
+
+// 1.16.47: state-poll for cross-surface sync. Client polls every 8s;
+// when seq changes, refetch settings + thread state. Cheap.
+export async function getOverdriveStateSeq(): Promise<{ seq: string }> {
+  try {
+    return await overdriveFetch<{ seq: string }>('/api/overdrive/state');
+  } catch { return { seq: '' }; }
 }
 
 export async function resumeThread(conversation_key: string): Promise<{ thread: OverdriveThreadState | null }> {
