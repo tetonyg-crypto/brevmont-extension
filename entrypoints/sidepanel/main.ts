@@ -1950,6 +1950,29 @@ function wireHandlers(root: HTMLElement): void {
   if (myLeadsBtn) myLeadsBtn.onclick = () => openMyLeads(root);
   if (myLeadsBack) myLeadsBack.onclick = () => { if (myLeadsPanel) myLeadsPanel.style.display = 'none'; el('o8-quick')!.style.display = 'flex'; };
 
+  // Follow-ups pill — polls the queued-drafts endpoint, shows count when >0.
+  // Clicking opens the My Leads view (in the interim; a dedicated
+  // follow-ups view is a Phase 5 candidate). See migration 299 for the
+  // queued_drafts table.
+  const followupsBtn = el('o8-followups-btn-inline');
+  const followupsSep = el('o8-followups-sep');
+  const followupsCount = el('o8-followups-count');
+  if (followupsBtn) followupsBtn.onclick = () => openMyLeads(root);
+  const refreshFollowupsCount = async () => {
+    try {
+      const resp = await safeSend({ type: 'GET_QUEUED_DRAFTS_COUNT' });
+      const n = Number(resp?.count) || 0;
+      if (followupsCount) followupsCount.textContent = n > 0 ? String(n) : '';
+      const show = n > 0;
+      if (followupsBtn) followupsBtn.style.display = show ? '' : 'none';
+      if (followupsSep) followupsSep.style.display = show ? '' : 'none';
+    } catch (_) { /* pill stays hidden on error */ }
+  };
+  refreshFollowupsCount().catch(() => {});
+  // Re-check every 90s while the panel is open.
+  const followupsTimer = setInterval(() => { refreshFollowupsCount().catch(() => {}); }, 90 * 1000);
+  (root as any).__followupsTimer = followupsTimer;
+
   // Coach
   const coachBtn = el('o8-coach-btn');
   if (coachBtn) coachBtn.onclick = () => doCoach(root);

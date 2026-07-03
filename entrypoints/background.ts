@@ -1477,6 +1477,21 @@ export default defineBackground(() => {
       return true;
     }
 
+    // Cadence Phase 4: follow-ups pill count.
+    if (msg.type === 'GET_QUEUED_DRAFTS_COUNT') {
+      (async () => {
+        try {
+          const resp = await signedGet(`${PROXY_URL}/api/v1/rep/queued-drafts`);
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(data.error || `queued-drafts API returned ${resp.status}`);
+          sendResponse({ count: Number(data?.count) || 0, drafts: Array.isArray(data?.drafts) ? data.drafts : [] });
+        } catch (e: any) {
+          sendResponse({ count: 0, error: e.message });
+        }
+      })();
+      return true;
+    }
+
     if (msg.type === 'GET_REP_CHALLENGES') {
       (async () => {
         try {
