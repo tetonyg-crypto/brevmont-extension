@@ -14,6 +14,17 @@ export {
 export { installSpikeHarness } from './spikeHarness';
 export { scrapeFacebookProfile } from './linkFacebook';
 export type { FacebookProfileScrape } from './linkFacebook';
+export { qualifyThread } from './qualification';
+export type { QualificationInput, QualificationResult } from './qualification';
+export {
+  readThreadState,
+  writeThreadState,
+  emptyState,
+  isTerminal,
+  shouldReply,
+  recordReplyOutcome,
+} from './stateMachine';
+export type { LocalThreadState, ShouldReplyInput, ShouldReplyResult } from './stateMachine';
 export {
   getOverdriveSettings,
   patchOverdriveSettings,
