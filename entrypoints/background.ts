@@ -472,8 +472,32 @@ export default defineBackground(() => {
   // app.brevmont.com /install detection — RepLanding pings via externally_connectable
   chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
     if ((message as { type?: string })?.type === 'PING') {
-      sendResponse({ ok: true, pong: true, version: chrome.runtime.getManifest().version });
-      return false;
+      // Auth loop 1.16.38: report signed-in status so /auth/extension can
+      // render an honest state (Installed+SignedIn / Installed+SignedOut
+      // / NotInstalled). Async so we can read storage; return true.
+      (async () => {
+        try {
+          const [sync, local] = await Promise.all([
+            browser.storage.sync.get(['dealer_token', 'rep_auth_token', 'rep_name', 'dealership']),
+            browser.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'rep_email', 'rep_name', 'dealership', 'license_revoked']),
+          ]);
+          const signedIn = !!(
+            !local.license_revoked &&
+            (sync.dealer_token || local.dealer_token || sync.rep_auth_token || local.rep_auth_token || local.brevmont_rep_auth_token)
+          );
+          sendResponse({
+            ok: true, pong: true,
+            version: chrome.runtime.getManifest().version,
+            signed_in: signedIn,
+            rep_name: (sync.rep_name || local.rep_name || '') as string,
+            rep_email: (local.rep_email || '') as string,
+            dealership: (sync.dealership || local.dealership || '') as string,
+          });
+        } catch {
+          sendResponse({ ok: true, pong: true, version: chrome.runtime.getManifest().version, signed_in: false });
+        }
+      })();
+      return true;
     }
     if ((message as { type?: string })?.type === 'WEBAPP_INSTALL_CHECK') {
       try {

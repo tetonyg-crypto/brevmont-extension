@@ -366,6 +366,68 @@ async function requireToken(): Promise<string> {
   return token;
 }
 
+// ─── Auth loop (1.16.38) — signed-in gate for the sidepanel ─────────────
+// The sidepanel refuses to render its generation UI when no rep session
+// exists. Instead we mount a distinct sign-in screen that opens
+// app.brevmont.com/auth/extension so the rep completes Google sign-in;
+// the extension listens for BREVMONT_REP_SESSION_READY (background.ts:486)
+// and re-renders the panel automatically. No 'this account' placeholder.
+async function hasStoredSession(): Promise<boolean> {
+  try {
+    const [sync, local] = await Promise.all([
+      chrome.storage.sync.get(['dealer_token', 'rep_auth_token']),
+      chrome.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'license_revoked']),
+    ]);
+    if (local.license_revoked) return false;   // revoked = signed out for our purposes
+    return !!(sync.dealer_token || local.dealer_token || sync.rep_auth_token || local.rep_auth_token || local.brevmont_rep_auth_token);
+  } catch { return false; }
+}
+
+const AUTH_APP_URL = 'https://app.brevmont.com/auth/extension';
+
+function openAuthExtensionTab(): void {
+  try { chrome.tabs.create({ url: AUTH_APP_URL, active: true }); } catch { /* fallback */ }
+}
+
+function renderSignedOutScreen(): void {
+  const root = document.getElementById('sp-root');
+  const loading = document.getElementById('sp-loading');
+  if (!root) return;
+  if (loading) loading.style.display = 'none';
+  root.style.display = 'block';
+  root.innerHTML = `
+    <div style="min-height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:32px 24px;background:#0F1419;color:#F8F6F1;text-align:center;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:32px;">
+        <div style="width:36px;height:36px;border-radius:10px;background:#0D6E6E;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;">B</div>
+        <div style="font-weight:900;letter-spacing:.24em;font-size:13px;">BREVMONT</div>
+      </div>
+      <h1 style="font-size:22px;font-weight:900;letter-spacing:-0.01em;margin:0 0 12px;">Sign in to keep going.</h1>
+      <p style="font-size:13px;line-height:1.55;color:rgba(255,255,255,0.62);margin:0 0 28px;max-width:280px;">
+        Brevmont writes the follow-up, email, and CRM note beside every customer you work. Sign in with your dealership Google account to activate.
+      </p>
+      <button id="sp-signin-btn" type="button" style="width:100%;max-width:260px;height:44px;border-radius:12px;background:#0D6E6E;color:#F8F6F1;border:0;font-weight:800;font-size:14px;cursor:pointer;">Sign in with Google</button>
+      <button id="sp-signin-refresh" type="button" style="margin-top:12px;background:none;border:0;color:rgba(255,255,255,0.55);font-size:12px;cursor:pointer;">I already signed in</button>
+      <p style="margin-top:28px;font-size:11px;color:rgba(255,255,255,0.35);max-width:260px;line-height:1.5;">
+        Signing in opens app.brevmont.com in a new tab. This sidepanel will refresh automatically once the session lands.
+      </p>
+    </div>
+  `;
+  const signInBtn = document.getElementById('sp-signin-btn');
+  const refreshBtn = document.getElementById('sp-signin-refresh');
+  if (signInBtn) signInBtn.onclick = () => openAuthExtensionTab();
+  if (refreshBtn) refreshBtn.onclick = () => window.location.reload();
+  // Also poll storage every 3s so that once the app-side handoff completes
+  // (BREVMONT_REP_SESSION_READY → tryCookieShareAutoConfig writes storage),
+  // the panel flips itself into the signed-in view without a manual refresh.
+  const pollId = window.setInterval(async () => {
+    if (await hasStoredSession()) {
+      window.clearInterval(pollId);
+      window.location.reload();
+    }
+  }, 3000);
+  (window as any).__brevmontSignInPollId = pollId;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -1320,9 +1382,26 @@ function applyFeatureGates(root: HTMLElement): void {
   });
 }
 
-function renderPanel(): void {
+async function renderPanel(): Promise<void> {
   const root = document.getElementById('sp-root')!;
   const loading = document.getElementById('sp-loading');
+
+  // Auth loop (1.16.38): gate the whole panel on session presence.
+  // Two-shot: if no token in storage yet, first ask the background to
+  // pull it from the cookie (BREVMONT_REP_SESSION_READY may have landed
+  // between wxt build and here). Only fall through to the sign-in
+  // screen after that also comes up empty.
+  let signedIn = await hasStoredSession();
+  if (!signedIn) {
+    try {
+      const resp: any = await chrome.runtime.sendMessage({ type: 'SYNC_AUTH_FROM_COOKIE' });
+      if (resp?.configured) signedIn = await hasStoredSession();
+    } catch { /* SW cold-start / no listener */ }
+  }
+  if (!signedIn) {
+    renderSignedOutScreen();
+    return;
+  }
 
   // Inject CSS
   const style = document.createElement('style');
@@ -1415,9 +1494,27 @@ async function renderAccountChip(): Promise<void> {
     : cachedTier === 'command' ? 'command'
     : cachedTier === 'annual' || cachedTier === 'command_annual' ? 'annual'
     : 'free';
-  nameEl.textContent = repName || 'Brevmont rep';
-  dealershipEl.textContent = dealership || 'No dealership linked';
-  if (emailEl) emailEl.textContent = repEmail;
+  // Auth loop (1.16.38): identity honesty. If storage has no rep name /
+  // dealership yet, we are mid-handoff — hide the chip rather than paint
+  // a placeholder, then re-check every 2s until either the identity
+  // resolves (chip renders) or we time out (5 cycles) and flip the whole
+  // panel to signed-out. No 'Brevmont rep' / 'No dealership linked' filler.
+  if (!repName || !dealership) {
+    chip.style.display = 'none';
+    const attempts = ((chip as any).__brevmontIdentityAttempts as number | undefined) ?? 0;
+    if (attempts >= 5) {
+      // Session storage exists but identity fields never resolved — treat
+      // as signed-out and re-render.
+      renderSignedOutScreen();
+      return;
+    }
+    (chip as any).__brevmontIdentityAttempts = attempts + 1;
+    setTimeout(() => { renderAccountChip().catch(() => {}); }, 2000);
+    return;
+  }
+  nameEl.textContent = repName;
+  dealershipEl.textContent = dealership;
+  if (emailEl) emailEl.textContent = repEmail || '';
   setPlanBadge(cachedPlan, 'active', false);
   if (upgradeBtn) {
     upgradeBtn.style.display = cachedPlan === 'free' ? 'inline-block' : 'none';
@@ -1466,7 +1563,21 @@ function wireSignOutMenu(args: { repEmail: string }): void {
   const confirmBtn = document.getElementById('o8-signout-confirm') as HTMLButtonElement | null;
   if (!chip || !menuBtn || !popover || !signOutBtn || !confirmBlock || !cancelBtn || !confirmBtn) return;
 
-  if (popoverEmail) popoverEmail.textContent = args.repEmail || 'this account';
+  // Auth loop (1.16.38): identity honesty. renderPanel guards against
+  // reaching wireSignOutMenu without a session, and renderAccountChip
+  // now bails out unless repName + dealership resolved — so at this
+  // point args.repEmail is expected to be truthy. If it is somehow
+  // still empty (edge case: sync store shows name but local email
+  // never landed), hide the popover email row instead of painting a
+  // 'this account' placeholder.
+  const popoverEmailRow = document.getElementById('o8-account-chip-popover-email')?.parentElement;
+  if (args.repEmail) {
+    if (popoverEmail) popoverEmail.textContent = args.repEmail;
+    if (popoverEmailRow) popoverEmailRow.style.display = '';
+  } else {
+    if (popoverEmailRow) popoverEmailRow.style.display = 'none';
+    if (popoverEmail) popoverEmail.textContent = '';
+  }
 
   const closeMenu = () => {
     popover.style.display = 'none';
