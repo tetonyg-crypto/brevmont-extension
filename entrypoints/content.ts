@@ -1231,6 +1231,17 @@ export default defineContentScript({
 
     dlog(`[Brevmont] Relay active — platform: ${PLATFORM}, isTop: ${window === window.top}`);
 
+    // ===== UNIVERSAL CAPTURE VERIFICATION HARNESS =====
+    // Registers window.__brevmontVerify on ANY top-frame that matches
+    // the adapter registry (all 12 platforms). Rep runs from DevTools
+    // console to capture per-platform evidence bundles. Zero effect
+    // on normal extension operation.
+    if (window === window.top && PLATFORM !== 'unknown') {
+      try {
+        import('./lib/platforms/verificationHarness').then((m) => m.installVerificationHarness()).catch(() => {});
+      } catch { /* noop */ }
+    }
+
     // ===== OVERDRIVE SPIKE HARNESS (Facebook top frame only) =====
     // Registers window.__overdriveSpike for manual verification of the
     // send / photo attach / detection layers from DevTools. Zero effect

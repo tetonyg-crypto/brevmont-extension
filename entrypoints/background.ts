@@ -522,6 +522,30 @@ export default defineBackground(() => {
     // Health check — content script pings to verify service worker is alive
     if (msg.type === 'PING') { sendResponse({ pong: true }); return false; }
 
+    // Universal Capture verification harness — screenshot the active tab.
+    // Called from window.__brevmontVerify.captureBundle() / dealerKit().
+    if (msg.type === 'CAPTURE_ACTIVE_TAB_PNG') {
+      (async () => {
+        try {
+          const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+          const tabId = tabs[0]?.id;
+          if (!tabId) { sendResponse({ ok: false, error: 'no_active_tab' }); return; }
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            try {
+              chrome.tabs.captureVisibleTab({ format: 'png' }, (result) => {
+                if (chrome.runtime.lastError) { reject(new Error(chrome.runtime.lastError.message || 'capture_failed')); return; }
+                resolve(result);
+              });
+            } catch (err) { reject(err); }
+          });
+          sendResponse({ ok: true, data_url: dataUrl });
+        } catch (err: any) {
+          sendResponse({ ok: false, error: err?.message || 'capture_threw' });
+        }
+      })();
+      return true; // async
+    }
+
     if (msg.type === 'SYNC_AUTH_FROM_COOKIE') {
       (async () => {
         try {
