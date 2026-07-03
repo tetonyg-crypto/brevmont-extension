@@ -1643,6 +1643,35 @@ async function renderAccountChip(): Promise<void> {
     dealership = String(local.dealership || sync.dealership || '');
     repEmail = String(local.rep_email || sync.rep_email || '');
     cachedTier = String(local.brevmont_tier || 'free').toLowerCase();
+
+    // Auth-Final Phase 1: name the source of each field the chip is
+    // about to paint. If Yancy sees "JJ Auto gallery" the trace tells
+    // us whether it came from sync.dealership or local.dealership —
+    // that's the exact key we need to purge / never re-adopt.
+    try {
+      const { authTrace: trace } = await import('../lib/authFlowTrace');
+      trace({
+        surface: 'sidepanel',
+        step: 'render_account_chip_read',
+        event_type: 'identity_render',
+        observed_email: repEmail || null,
+        payload: {
+          rep_name_source: local.rep_name ? 'local' : (sync.rep_name ? 'sync' : 'none'),
+          dealership_source: local.dealership ? 'local' : (sync.dealership ? 'sync' : 'none'),
+          rep_email_source: local.rep_email ? 'local' : (sync.rep_email ? 'sync' : 'none'),
+          painted_rep_name: repName,
+          painted_dealership: dealership,
+          painted_email: repEmail,
+          painted_tier: cachedTier,
+          sync_rep_name_raw: String(sync.rep_name || ''),
+          sync_dealership_raw: String(sync.dealership || ''),
+          local_rep_name_raw: String(local.rep_name || ''),
+          local_dealership_raw: String(local.dealership || ''),
+        },
+        reason: `chip about to paint: ${repEmail || '(no email)'} · ${dealership || '(no dealership)'} · ${cachedTier}`,
+        call_stack_tag: 'sidepanel/main.ts:renderAccountChip',
+      });
+    } catch { /* noop */ }
   } catch { /* storage may not be available in some test contexts */ }
 
   const setPlanBadge = (plan: string, status: string, isOverridden: boolean) => {

@@ -544,7 +544,7 @@ export default defineBackground(() => {
             rep_email: payload.expected_rep_email,
             rep_id: payload.expected_rep_id,
             dealership_id: payload.expected_dealership_id,
-          }))
+          }, 'session_ready_message'))
           .then(async (configured) => {
             const identity = await browser.storage.local.get(['rep_email', 'rep_id', 'dealership_id', 'dealership']);
             if (configured) sendHeartbeat().catch(() => {});
@@ -592,13 +592,37 @@ export default defineBackground(() => {
         'rep_email', 'rep_id', 'rep_name', 'dealership_id', 'dealership',
         'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
       ];
-      void Promise.allSettled([
-        browser.storage.sync.remove(SYNC_KEYS),
-        browser.storage.local.remove(LOCAL_KEYS),
-      ]).then(() => {
-        broadcastIdentityChanged('sign_out');
-        sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
-      }).catch(() => sendResponse({ ok: false }));
+      void (async () => {
+        try {
+          const { authTrace: trace, snapshotExtensionStorage } = await import('./lib/authFlowTrace');
+          const before = await snapshotExtensionStorage();
+          trace({
+            surface: 'background',
+            step: 'rep_sign_out_start',
+            event_type: 'wipe',
+            storage_state: before,
+            reason: 'BREVMONT_REP_SIGN_OUT message received; wiping local + sync identity',
+            call_stack_tag: 'background.ts:BREVMONT_REP_SIGN_OUT',
+          });
+          await Promise.allSettled([
+            browser.storage.sync.remove(SYNC_KEYS),
+            browser.storage.local.remove(LOCAL_KEYS),
+          ]);
+          const after = await snapshotExtensionStorage();
+          trace({
+            surface: 'background',
+            step: 'rep_sign_out_after',
+            event_type: 'wipe',
+            storage_state: after,
+            reason: 'wipe complete — storage snapshot AFTER',
+            call_stack_tag: 'background.ts:BREVMONT_REP_SIGN_OUT',
+          });
+          broadcastIdentityChanged('sign_out');
+          sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
+        } catch {
+          sendResponse({ ok: false });
+        }
+      })();
       return true;
     }
     if ((message as { type?: string; referral_code?: string })?.type === 'BREVMONT_REFERRAL_CODE') {
@@ -649,7 +673,7 @@ export default defineBackground(() => {
             browser.storage.sync.remove(IDENTITY_SYNC),
           ]);
           broadcastIdentityChanged('mismatch_purge');
-          await tryCookieShareAutoConfig();
+          await tryCookieShareAutoConfig(undefined, {}, 'identity_mismatch_recovery');
           broadcastIdentityChanged('mismatch_resynced');
         } catch { /* noop */ }
       })();
@@ -723,7 +747,7 @@ export default defineBackground(() => {
     if (msg.type === 'SYNC_AUTH_FROM_COOKIE') {
       (async () => {
         try {
-          const configured = await tryCookieShareAutoConfig();
+          const configured = await tryCookieShareAutoConfig(undefined, {}, 'sync_auth_from_cookie_msg');
           if (configured) sendHeartbeat().catch(() => {});
           const local = await browser.storage.local.get([
             'dealer_token',
@@ -2124,12 +2148,39 @@ export default defineBackground(() => {
   async function tryCookieShareAutoConfig(
     repAuthTokenOverride?: string,
     expectedIdentity: { rep_email?: string; rep_id?: string; dealership_id?: string } = {},
+    callSite: string = 'unknown',
   ): Promise<boolean> {
     try {
+      const { authTrace: trace, snapshotExtensionStorage } = await import('./lib/authFlowTrace');
+      const storageSnap = await snapshotExtensionStorage();
+      trace({
+        surface: 'background',
+        step: 'try_cookie_share_start',
+        event_type: 'auto_bridge',
+        storage_state: storageSnap,
+        payload: {
+          has_token_override: !!repAuthTokenOverride,
+          expected_email: expectedIdentity.rep_email || '',
+          expected_rep_id_present: !!expectedIdentity.rep_id,
+          expected_dealership_id_present: !!expectedIdentity.dealership_id,
+        },
+        reason: `tryCookieShareAutoConfig called from ${callSite}`,
+        call_stack_tag: `background.ts:tryCookieShareAutoConfig:${callSite}`,
+      });
+
       // Feature flag: founder can flip this off via storage if auto-config
       // misbehaves in production. Defaults to enabled.
       const flagState = await browser.storage.local.get(['BREVMONT_AUTO_CONFIG_ENABLED']);
-      if (flagState.BREVMONT_AUTO_CONFIG_ENABLED === false) return false;
+      if (flagState.BREVMONT_AUTO_CONFIG_ENABLED === false) {
+        trace({
+          surface: 'background',
+          step: 'try_cookie_share_flag_off',
+          event_type: 'decision',
+          reason: 'BREVMONT_AUTO_CONFIG_ENABLED=false; skipping auto-config',
+          call_stack_tag: 'background.ts:tryCookieShareAutoConfig',
+        });
+        return false;
+      }
 
       let cookieValue = String(repAuthTokenOverride || '').trim();
       if (!cookieValue) {
@@ -2137,6 +2188,19 @@ export default defineBackground(() => {
         const cookie = await browser.cookies.get({
           url: 'https://app.brevmont.com',
           name: 'brevmont_rep_session',
+        });
+        trace({
+          surface: 'background',
+          step: 'try_cookie_share_cookie_read',
+          event_type: 'auto_bridge',
+          payload: {
+            cookie_present: !!cookie?.value,
+            called_with_no_expected_identity: !expectedIdentity.rep_email && !expectedIdentity.rep_id,
+          },
+          reason: cookie?.value
+            ? 'brevmont_rep_session cookie found — will adopt whichever identity it validates as'
+            : 'no cookie; auto-config returns false',
+          call_stack_tag: 'background.ts:tryCookieShareAutoConfig:cookie_read',
         });
         if (!cookie?.value) return false;
         cookieValue = cookie.value;
@@ -2267,6 +2331,22 @@ export default defineBackground(() => {
       }
 
       dlog('[Brevmont] auto-config from cookie share complete:', data.dealership_name);
+      try {
+        const { authTrace: trace } = await import('./lib/authFlowTrace');
+        trace({
+          surface: 'background',
+          step: 'try_cookie_share_wrote_identity',
+          event_type: 'auto_bridge',
+          observed_email: data.rep_email || null,
+          payload: {
+            wrote_dealership: dealershipName,
+            wrote_rep_id_present: !!data.rep_id,
+            tier: data.tier || 'free',
+          },
+          reason: `identity WRITTEN to chrome.storage (local + sync) as ${data.rep_email} at ${dealershipName}`,
+          call_stack_tag: 'background.ts:tryCookieShareAutoConfig:wrote_identity',
+        });
+      } catch { /* noop */ }
       broadcastIdentityChanged('cookie_share_configured');
       return true;
     } catch (err) {
@@ -2314,7 +2394,10 @@ export default defineBackground(() => {
   // so the founder gets the ACTIVATED Telegram alert without the 5-min wait.
   // (Browser-startup path; the on-install path is handled below in the
   // merged onInstalled listener.)
-  tryCookieShareAutoConfig().then((configured) => {
+  // Auth-Final Phase 1: this is the phantom suspect. On EVERY SW boot
+  // this fires with no expected identity — whatever cookie is present
+  // gets adopted silently. Tag the callsite so the trace names it.
+  tryCookieShareAutoConfig(undefined, {}, 'browser_startup').then((configured) => {
     if (configured) sendHeartbeat().catch(() => {});
   }).catch(() => {});
 
@@ -2405,7 +2488,7 @@ export default defineBackground(() => {
   browser.runtime.onInstalled.addListener(async (details) => {
     let autoConfigured = false;
     try {
-      autoConfigured = await tryCookieShareAutoConfig();
+      autoConfigured = await tryCookieShareAutoConfig(undefined, {}, 'on_installed');
     } catch {
       autoConfigured = false;
     }
