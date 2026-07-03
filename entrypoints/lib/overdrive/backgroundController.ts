@@ -18,6 +18,7 @@
 
 import type { OrchestratorSettings, OrchestratorDeps, ThreadScrape } from './orchestrator';
 import { orchestrateReply, isHeroStage } from './orchestrator';
+import { radarCapture } from './radarClient';
 import { getOverdriveSettings } from './apiClient';
 
 const KEEPALIVE_ALARM = 'overdrive-keepalive';
@@ -223,7 +224,15 @@ async function armDetectorOnAllFbTabs(): Promise<void> {
 // ─────────────────────────────────────────────────────────────
 async function handleDetectionSignal(tabId: number, signal: { type: string; conversation_hint?: string }): Promise<void> {
   const cached = await activeSettings();
-  if (!overdriveGoLightIsGreen(cached)) {
+
+  // Radar (migration 304) is decoupled from Overdrive: it runs whenever
+  // the rep is signed in AND Facebook is linked, regardless of the
+  // Overdrive toggle. Overdrive being green adds an autonomous reply
+  // ON TOP of the radar capture. Neither gates the other.
+  const radarEligible = !!(cached?.linked && cached?.disclosure_acked);
+  const overdriveEligible = overdriveGoLightIsGreen(cached);
+
+  if (!radarEligible && !overdriveEligible) {
     await overdriveLog({ event: 'skip_master_off', signal });
     return;
   }
@@ -245,6 +254,50 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
   });
   if (!scrape?.ok || !scrape.scrape) {
     await overdriveLog({ event: 'scrape_failed', tab_id: tabId });
+    return;
+  }
+
+  // ── RADAR CAPTURE — always runs on scrape success ──────────
+  // Fire the passive capture regardless of Overdrive eligibility so
+  // every Marketplace inbound the rep's session sees becomes a lead.
+  // Fail-silent — capture is best-effort, must not block Overdrive.
+  if (radarEligible) {
+    try {
+      const s = scrape.scrape;
+      // Header-derived candidates for customer_name / listing —
+      // Facebook Marketplace threads use "<Buyer> · <Listing>" in the
+      // h1. We split here for the server payload; the server also
+      // runs isChannelOrUiName defensively.
+      const headerText = String(s.header_text || '').trim();
+      let customerName: string | null = null;
+      let listingTitle: string | null = null;
+      const parts = headerText.split(/\s*[·•]\s*/);
+      if (parts.length >= 2) {
+        customerName = parts[0].trim() || null;
+        listingTitle = parts.slice(1).join(' · ').trim() || null;
+      } else if (headerText) {
+        customerName = headerText;
+      }
+      const radarResult = await radarCapture({
+        conversation_key: s.conversation_key,
+        last_inbound_hash: s.last_inbound_hash,
+        last_inbound_text: s.last_inbound_text,
+        customer_name: customerName,
+        listing: {
+          title: listingTitle,
+          url: s.url,
+        },
+        source_platform: /marketplace/i.test(s.url || '') ? 'facebook_marketplace' : 'facebook_messenger',
+        sweep_source: 'live',
+      });
+      await overdriveLog({ event: 'radar_capture', tab_id: tabId, result: radarResult });
+    } catch (e: any) {
+      await overdriveLog({ event: 'radar_capture_threw', tab_id: tabId, error: e?.message });
+    }
+  }
+
+  // If Overdrive isn't green, we stop here — radar has already logged.
+  if (!overdriveEligible) {
     return;
   }
 
