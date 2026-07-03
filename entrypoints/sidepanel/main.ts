@@ -1465,16 +1465,27 @@ async function renderPanel(): Promise<void> {
 function wireIdentityReactivity(): void {
   if ((window as any).__brevmontIdentityListenerWired) return;
   (window as any).__brevmontIdentityListenerWired = true;
+  const kick = () => {
+    const chip = document.getElementById('o8-account-chip') as HTMLElement | null;
+    if (chip) (chip as any).__brevmontIdentityAttempts = 0;
+    renderAccountChip().catch(() => {});
+  };
   try {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local' && area !== 'sync') return;
       const identityKeys = ['rep_email', 'rep_name', 'dealership', 'dealership_id', 'rep_id', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token'];
       const touched = identityKeys.some((k) => Object.prototype.hasOwnProperty.call(changes, k));
       if (!touched) return;
-      // Reset the retry counter so a stale attempts-cap doesn't lock us out.
-      const chip = document.getElementById('o8-account-chip') as HTMLElement | null;
-      if (chip) (chip as any).__brevmontIdentityAttempts = 0;
-      renderAccountChip().catch(() => {});
+      kick();
+    });
+  } catch { /* noop */ }
+  // 1.16.44: also listen for the explicit background broadcast so we
+  // don't rely on the storage.onChanged wake happening before the user
+  // clicks. Any identity write, purge, or sign-out fires this.
+  try {
+    chrome.runtime.onMessage.addListener((msg) => {
+      if (msg?.type === 'BREVMONT_IDENTITY_CHANGED') kick();
+      return false;
     });
   } catch { /* noop */ }
 }
@@ -1550,11 +1561,14 @@ async function renderAccountChip(): Promise<void> {
   let dealership = '';
   let cachedTier = 'free';
   try {
-    const sync = await browser.storage.sync.get(['rep_name', 'dealership']);
+    const sync = await browser.storage.sync.get(['rep_name', 'dealership', 'rep_email']);
     repName = String(sync.rep_name || '');
     dealership = String(sync.dealership || '');
     const local = await browser.storage.local.get(['brevmont_tier', 'rep_email']);
-    repEmail = String(local.rep_email || '');
+    // 1.16.44: sync-first for rep_email now that background.ts mirrors it
+    // into sync. Falling back to local keeps the pre-1.16.44 install path
+    // working during upgrade (existing installs may only have local set).
+    repEmail = String(sync.rep_email || local.rep_email || '');
     cachedTier = String(local.brevmont_tier || 'free').toLowerCase();
   } catch { /* storage may not be available in some test contexts */ }
 
@@ -1626,11 +1640,6 @@ async function renderAccountChip(): Promise<void> {
     // RESOLVED_ACCESS returns the fresh identity. Also re-wire the
     // sign-out popover with the new email so its closure isn't stale.
     if (resp.rep_email && emailEl) emailEl.textContent = resp.rep_email;
-    if (resp.rep_email) {
-      try {
-        wireSignOutMenu({ repEmail: resp.rep_email });
-      } catch { /* noop */ }
-    }
     setPlanBadge(plan, status, isOverridden);
     if (upgradeBtn) {
       upgradeBtn.style.display = (plan === 'free' && status === 'active') ? 'inline-block' : 'none';
@@ -1639,7 +1648,9 @@ async function renderAccountChip(): Promise<void> {
     /* keep fallback render */
   }
 
-  wireSignOutMenu({ repEmail });
+  // 1.16.44: wireSignOutMenu no longer takes repEmail — it reads from
+  // storage at click-time, so a stale closure can't hold the wrong email.
+  wireSignOutMenu();
 }
 
 // ─── Sign-out menu (1.16.37) ───────────────────────────────────────────
@@ -1648,7 +1659,7 @@ async function renderAccountChip(): Promise<void> {
 // tear down its cached rep, then route the sidepanel back to sign-in.
 // Content scripts on any open tabs are already coded to silently no-op
 // on missing auth (no error spam) — no change needed there.
-function wireSignOutMenu(args: { repEmail: string }): void {
+function wireSignOutMenu(_args?: { repEmail?: string }): void {
   const chip = document.getElementById('o8-account-chip') as HTMLElement | null;
   const menuBtn = document.getElementById('o8-account-chip-menu') as HTMLButtonElement | null;
   const popover = document.getElementById('o8-account-chip-popover') as HTMLElement | null;
@@ -1659,21 +1670,36 @@ function wireSignOutMenu(args: { repEmail: string }): void {
   const confirmBtn = document.getElementById('o8-signout-confirm') as HTMLButtonElement | null;
   if (!chip || !menuBtn || !popover || !signOutBtn || !confirmBlock || !cancelBtn || !confirmBtn) return;
 
-  // Auth loop (1.16.38): identity honesty. renderPanel guards against
-  // reaching wireSignOutMenu without a session, and renderAccountChip
-  // now bails out unless repName + dealership resolved — so at this
-  // point args.repEmail is expected to be truthy. If it is somehow
-  // still empty (edge case: sync store shows name but local email
-  // never landed), hide the popover email row instead of painting a
-  // 'this account' placeholder.
   const popoverEmailRow = document.getElementById('o8-account-chip-popover-email')?.parentElement;
-  if (args.repEmail) {
-    if (popoverEmail) popoverEmail.textContent = args.repEmail;
-    if (popoverEmailRow) popoverEmailRow.style.display = '';
-  } else {
-    if (popoverEmailRow) popoverEmailRow.style.display = 'none';
-    if (popoverEmail) popoverEmail.textContent = '';
-  }
+
+  // 1.16.44: no closure capture. Read the current rep_email from storage
+  // at menu-open time so the popover always shows the identity that IS
+  // in storage right now, not the one that was there at panel init. The
+  // split-brain bug was: renderAccountChip called wireSignOutMenu once
+  // with the panel-init email, and that value stuck in the closure even
+  // after storage was overwritten by tryCookieShareAutoConfig.
+  const readCurrentRepEmail = async (): Promise<string> => {
+    try {
+      const [sync, local] = await Promise.all([
+        browser.storage.sync.get(['rep_email']),
+        browser.storage.local.get(['rep_email']),
+      ]);
+      return String(sync.rep_email || local.rep_email || '');
+    } catch { return ''; }
+  };
+  const paintPopoverEmail = (email: string): void => {
+    if (email) {
+      if (popoverEmail) popoverEmail.textContent = email;
+      if (popoverEmailRow) popoverEmailRow.style.display = '';
+    } else {
+      if (popoverEmailRow) popoverEmailRow.style.display = 'none';
+      if (popoverEmail) popoverEmail.textContent = '';
+    }
+  };
+  // Paint the current storage value once now (best-effort — the click
+  // handler re-reads on open, so even if this loses the race, the popup
+  // still opens with the correct value).
+  readCurrentRepEmail().then(paintPopoverEmail).catch(() => {});
 
   const closeMenu = () => {
     popover.style.display = 'none';
@@ -1683,7 +1709,18 @@ function wireSignOutMenu(args: { repEmail: string }): void {
   menuBtn.onclick = (ev) => {
     ev.stopPropagation();
     const isOpen = popover.style.display !== 'none';
-    if (isOpen) closeMenu(); else { popover.style.display = 'block'; confirmBlock.style.display = 'none'; }
+    if (isOpen) { closeMenu(); return; }
+    // Re-read from storage at click-time. This is the fix for the
+    // split-brain — the popover email is now always live storage, never
+    // a stale panel-init closure value.
+    readCurrentRepEmail().then((email) => {
+      paintPopoverEmail(email);
+      popover.style.display = 'block';
+      confirmBlock.style.display = 'none';
+    }).catch(() => {
+      popover.style.display = 'block';
+      confirmBlock.style.display = 'none';
+    });
   };
   document.addEventListener('click', (ev) => {
     if (!chip.contains(ev.target as Node)) closeMenu();

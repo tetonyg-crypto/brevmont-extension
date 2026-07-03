@@ -30,8 +30,22 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = REQU
 }
 
 async function buildAuthHeaders(): Promise<Record<string, string>> {
+  // 1.16.44 split-brain guard: every signed call carries the rep_email the
+  // extension believes it is acting as. If the server's token → rep_id
+  // resolves to a different email, requireExtensionAuth returns 409
+  // rep_identity_mismatch and the extension re-syncs identity from cookie.
+  const assertHeaders: Record<string, string> = {};
+  try {
+    const [sync, local] = await Promise.all([
+      browser.storage.sync.get(['rep_email']),
+      browser.storage.local.get(['rep_email']),
+    ]);
+    const asserted = String((sync.rep_email as string | undefined) || (local.rep_email as string | undefined) || '').trim();
+    if (asserted) assertHeaders['X-Current-Rep-Email'] = asserted;
+  } catch { /* noop */ }
+
   const jwt = await getJWT(PROXY_URL);
-  if (jwt) return { Authorization: `Bearer ${jwt}` };
+  if (jwt) return { Authorization: `Bearer ${jwt}`, ...assertHeaders };
 
   // Fallback: legacy rep_auth_token UUID via X-Rep-Token. The dual-validation
   // middleware in the API (Phase 3 requireExtensionAuth) accepts this path
@@ -39,15 +53,39 @@ async function buildAuthHeaders(): Promise<Record<string, string>> {
   // first call after install; getJWT() succeeds on subsequent calls.
   try {
     const local = await browser.storage.local.get(['license_revoked', 'rep_auth_token', 'brevmont_rep_auth_token']);
-    if (local.license_revoked) return {};
+    if (local.license_revoked) return { ...assertHeaders };
     const token =
       (local.rep_auth_token as string | undefined) ||
       (local.brevmont_rep_auth_token as string | undefined);
-    if (token) return { 'X-Rep-Token': token };
+    if (token) return { 'X-Rep-Token': token, ...assertHeaders };
   } catch {
     // ignore
   }
-  return {};
+  return { ...assertHeaders };
+}
+
+// 1.16.44 split-brain guard: any signed call that gets 409
+// rep_identity_mismatch means the token's rep and the extension's stored
+// rep_email diverge. Fire a soft signal so the sidepanel forces a
+// re-render + the background can re-sync from cookie; the caller still
+// gets the Response back (they own retry semantics).
+async function handleIdentityMismatch(resp: Response): Promise<void> {
+  if (resp.status !== 409) return;
+  try {
+    const cloned = resp.clone();
+    const body = await cloned.json().catch(() => null);
+    if (body?.error !== 'rep_identity_mismatch') return;
+    // eslint-disable-next-line no-console
+    console.warn('[Brevmont] identity mismatch — token/rep vs asserted email diverge; re-syncing');
+    try {
+      chrome.runtime.sendMessage({
+        type: 'BREVMONT_IDENTITY_MISMATCH_DETECTED',
+        token_email: body.token_email || '',
+        asserted_email: body.asserted_email || '',
+        at: Date.now(),
+      }).catch(() => {});
+    } catch { /* noop */ }
+  } catch { /* noop */ }
 }
 
 export async function signedFetch(
@@ -56,7 +94,7 @@ export async function signedFetch(
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
   const auth = await buildAuthHeaders();
-  return fetchWithTimeout(url, {
+  const resp = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -65,6 +103,8 @@ export async function signedFetch(
     },
     body: JSON.stringify(body),
   });
+  await handleIdentityMismatch(resp);
+  return resp;
 }
 
 export async function signedPatch(
@@ -73,7 +113,7 @@ export async function signedPatch(
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
   const auth = await buildAuthHeaders();
-  return fetchWithTimeout(url, {
+  const resp = await fetchWithTimeout(url, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -82,6 +122,8 @@ export async function signedPatch(
     },
     body: JSON.stringify(body),
   });
+  await handleIdentityMismatch(resp);
+  return resp;
 }
 
 export async function signedGet(
@@ -89,13 +131,15 @@ export async function signedGet(
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
   const auth = await buildAuthHeaders();
-  return fetchWithTimeout(url, {
+  const resp = await fetchWithTimeout(url, {
     method: 'GET',
     headers: {
       ...auth,
       ...extraHeaders,
     },
   });
+  await handleIdentityMismatch(resp);
+  return resp;
 }
 
 // Legacy: kept exported for any in-flight call sites that pull credentials

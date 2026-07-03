@@ -509,24 +509,33 @@ export default defineBackground(() => {
     }
     if ((message as { type?: string })?.type === 'BREVMONT_REP_SESSION_READY') {
       try {
-        // 1.16.43 fix: purge the previous rep's identity keys BEFORE
-        // tryCookieShareAutoConfig writes the new ones. Otherwise the
-        // sidepanel briefly displays stale rep_email/rep_name/dealership
-        // that were cached from the prior session, and its
-        // wireSignOutMenu closure captures the stale email — never
-        // updating until a manual reload. See vault report for the
-        // full explore-agent trace.
-        const IDENTITY_KEYS = [
+        // 1.16.44: purge from BOTH local AND sync — the 1.16.43 fix only
+        // hit local, so sync.rep_name / sync.dealership from the prior
+        // rep survived until tryCookieShareAutoConfig overwrote them.
+        // Any sync key the new rep lacks (rep_id, dealership_id edges)
+        // stayed stale forever. Mirror the SIGN_OUT purge lists so
+        // sign-in and account-switch clear the same surface.
+        const IDENTITY_LOCAL_KEYS = [
           'rep_email', 'rep_name', 'dealership', 'dealership_id',
           'rep_id', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
           'brevmont_jwt_cache', 'brevmont_tier', 'dealership_tier',
           'dealership_plan', 'brevmont_features', 'brevmont_usage',
         ];
-        void browser.storage.local.remove(IDENTITY_KEYS)
-          .catch(() => {})
+        const IDENTITY_SYNC_KEYS = [
+          'rep_email', 'rep_name', 'dealership', 'dealership_id',
+          'rep_id', 'dealer_token', 'rep_auth_token',
+          'brevmont_tier', 'dealership_tier', 'dealership_plan',
+          'profile_onboarded', 'profile',
+        ];
+        void Promise.allSettled([
+          browser.storage.local.remove(IDENTITY_LOCAL_KEYS),
+          browser.storage.sync.remove(IDENTITY_SYNC_KEYS),
+        ])
+          .then(() => broadcastIdentityChanged('session_ready_purge'))
           .then(() => tryCookieShareAutoConfig())
           .then((configured) => {
             if (configured) sendHeartbeat().catch(() => {});
+            broadcastIdentityChanged(configured ? 'session_ready_configured' : 'session_ready_failed');
             sendResponse({ ok: configured, version: chrome.runtime.getManifest().version });
           })
           .catch(() => sendResponse({ ok: false, version: chrome.runtime.getManifest().version }));
@@ -562,6 +571,7 @@ export default defineBackground(() => {
         browser.storage.sync.remove(SYNC_KEYS),
         browser.storage.local.remove(LOCAL_KEYS),
       ]).then(() => {
+        broadcastIdentityChanged('sign_out');
         sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
       }).catch(() => sendResponse({ ok: false }));
       return true;
@@ -590,6 +600,36 @@ export default defineBackground(() => {
 
     // Health check — content script pings to verify service worker is alive
     if (msg.type === 'PING') { sendResponse({ pong: true }); return false; }
+
+    // 1.16.44 identity split-brain recovery. authSigning fires this when
+    // the API returns 409 rep_identity_mismatch. We drop the stale
+    // identity keys, kick a fresh cookie-share, and broadcast so the
+    // sidepanel repaints. If the cookie is gone, the extension falls
+    // into signed-out state — expected, since something is wrong with
+    // this rep session and re-auth is the safe path.
+    if (msg?.type === 'BREVMONT_IDENTITY_MISMATCH_DETECTED') {
+      (async () => {
+        try {
+          const IDENTITY_LOCAL = [
+            'rep_email', 'rep_name', 'dealership', 'dealership_id',
+            'rep_id', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
+            'brevmont_jwt_cache',
+          ];
+          const IDENTITY_SYNC = [
+            'rep_email', 'rep_name', 'dealership', 'dealership_id',
+            'rep_id', 'dealer_token', 'rep_auth_token',
+          ];
+          await Promise.allSettled([
+            browser.storage.local.remove(IDENTITY_LOCAL),
+            browser.storage.sync.remove(IDENTITY_SYNC),
+          ]);
+          broadcastIdentityChanged('mismatch_purge');
+          await tryCookieShareAutoConfig();
+          broadcastIdentityChanged('mismatch_resynced');
+        } catch { /* noop */ }
+      })();
+      return false;
+    }
 
     // Sign-out teardown (1.16.37) — sidepanel triggers this after it has
     // cleared storage locally. Background side does a defensive second
@@ -895,9 +935,10 @@ export default defineBackground(() => {
       (async () => {
         try {
           const apiBase = await getResolvedApiUrl();
-          const [resp, settings] = await Promise.all([
+          const [resp, syncSettings, localSettings] = await Promise.all([
             signedGet(`${apiBase}/api/v1/access/resolved`),
-            browser.storage.sync.get(['rep_name', 'dealership']),
+            browser.storage.sync.get(['rep_name', 'dealership', 'rep_email']),
+            browser.storage.local.get(['rep_email']),
           ]);
           if (!resp.ok) {
             sendResponse({ ok: false, status: resp.status });
@@ -907,8 +948,9 @@ export default defineBackground(() => {
           sendResponse({
             ok: true,
             access,
-            rep_name: settings.rep_name || '',
-            dealership: settings.dealership || '',
+            rep_name: syncSettings.rep_name || '',
+            dealership: syncSettings.dealership || '',
+            rep_email: syncSettings.rep_email || localSettings.rep_email || access.rep_email || '',
           });
         } catch (err: any) {
           sendResponse({ ok: false, error: err?.message || 'fetch_failed' });
@@ -2152,6 +2194,8 @@ export default defineBackground(() => {
       await browser.storage.sync.set(storage.sanitizeSyncPayload({
         dealer_token: dealerToken,
         rep_auth_token: repAuthToken,
+        rep_id: data.rep_id || '',
+        rep_email: data.rep_email || '',
         rep_name: repName,
         dealership: dealershipName,
         dealership_id: data.dealership_id || '',
@@ -2174,11 +2218,42 @@ export default defineBackground(() => {
       }
 
       dlog('[Brevmont] auto-config from cookie share complete:', data.dealership_name);
+      broadcastIdentityChanged('cookie_share_configured');
       return true;
     } catch (err) {
       console.warn('[Brevmont] auto-config error:', (err as Error).message);
       return false;
     }
+  }
+
+  // Broadcast identity-change to sidepanel + popup + any content script.
+  // Sidepanel already reacts via storage.onChanged, but the message eliminates
+  // the race between storage write and listener wake, and gives content
+  // scripts a signal to invalidate any in-memory Bearer token / rep snapshot
+  // they may have cached during a request. Fire-and-forget by design.
+  function broadcastIdentityChanged(reason: string): void {
+    try {
+      browser.runtime.sendMessage({
+        type: 'BREVMONT_IDENTITY_CHANGED',
+        reason,
+        at: Date.now(),
+      }).catch(() => { /* no listeners is fine */ });
+    } catch { /* noop */ }
+    try {
+      browser.tabs.query({ url: ['*://*.facebook.com/*', '*://*.messenger.com/*'] })
+        .then((tabs) => {
+          for (const tab of tabs) {
+            if (typeof tab.id === 'number') {
+              browser.tabs.sendMessage(tab.id, {
+                type: 'BREVMONT_IDENTITY_CHANGED',
+                reason,
+                at: Date.now(),
+              }).catch(() => { /* content script may not be present */ });
+            }
+          }
+        })
+        .catch(() => { /* noop */ });
+    } catch { /* noop */ }
   }
 
   // Heal sync.dealer_token on startup (runs immediately; idempotent + safe).
