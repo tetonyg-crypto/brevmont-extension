@@ -396,43 +396,119 @@ function openAuthExtensionTab(): void {
   try { chrome.tabs.create({ url: `${AUTH_APP_URL}?force=1`, active: true }); } catch { /* fallback */ }
 }
 
-function renderSignedOutScreen(): void {
+// 1.16.46 auth endgame: the signed-out screen used to enter a poll-forever
+// state with no timeout, no retry, no error surface. If the app-side
+// bridge never completed (multi-store dead-end, closed OAuth tab, network
+// drop, anything), the sidepanel was permanently stuck on "will refresh
+// automatically once the session lands." Now: poll 3s, listen for
+// BREVMONT_IDENTITY_CHANGED broadcast, and at 30s replace the passive
+// message with actionable Retry / Start over buttons.
+const SIDEPANEL_WAIT_TIMEOUT_MS = 30_000;
+
+function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
   const root = document.getElementById('sp-root');
   const loading = document.getElementById('sp-loading');
   if (!root) return;
   if (loading) loading.style.display = 'none';
   root.style.display = 'block';
+
+  // Clear any prior poll from a previous mount so we don't double-poll.
+  const priorPoll = (window as any).__brevmontSignInPollId;
+  if (typeof priorPoll === 'number') {
+    try { window.clearInterval(priorPoll); } catch { /* noop */ }
+  }
+  const priorTimeout = (window as any).__brevmontSignInTimeoutId;
+  if (typeof priorTimeout === 'number') {
+    try { window.clearTimeout(priorTimeout); } catch { /* noop */ }
+  }
+
+  const waiting = !!opts?.waiting;
+
   root.innerHTML = `
     <div style="min-height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:32px 24px;background:#0F1419;color:#F8F6F1;text-align:center;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:32px;">
         <div style="width:36px;height:36px;border-radius:10px;background:#0D6E6E;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;">B</div>
         <div style="font-weight:900;letter-spacing:.24em;font-size:13px;">BREVMONT</div>
       </div>
-      <h1 style="font-size:22px;font-weight:900;letter-spacing:-0.01em;margin:0 0 12px;">Sign in to keep going.</h1>
-      <p style="font-size:13px;line-height:1.55;color:rgba(255,255,255,0.62);margin:0 0 28px;max-width:280px;">
-        Brevmont writes the follow-up, email, and CRM note beside every customer you work. Sign in with your dealership Google account to activate.
+      <h1 id="sp-signin-h1" style="font-size:22px;font-weight:900;letter-spacing:-0.01em;margin:0 0 12px;">${
+        waiting ? 'Still waiting on sign-in.' : 'Sign in to keep going.'
+      }</h1>
+      <p id="sp-signin-body" style="font-size:13px;line-height:1.55;color:rgba(255,255,255,0.62);margin:0 0 28px;max-width:280px;">
+        ${
+          waiting
+            ? 'The sign-in tab did not finish the handoff. This usually means the tab was closed, the network hiccuped, or the store picker was left open.'
+            : 'Brevmont writes the follow-up, email, and CRM note beside every customer you work. Sign in with your dealership Google account to activate.'
+        }
       </p>
-      <button id="sp-signin-btn" type="button" style="width:100%;max-width:260px;height:44px;border-radius:12px;background:#0D6E6E;color:#F8F6F1;border:0;font-weight:800;font-size:14px;cursor:pointer;">Sign in with Google</button>
+      <button id="sp-signin-btn" type="button" style="width:100%;max-width:260px;height:44px;border-radius:12px;background:#0D6E6E;color:#F8F6F1;border:0;font-weight:800;font-size:14px;cursor:pointer;">${
+        waiting ? 'Retry sign-in' : 'Sign in with Google'
+      }</button>
+      <button id="sp-signin-startover" type="button" style="margin-top:10px;width:100%;max-width:260px;height:40px;border-radius:12px;background:transparent;color:#F8F6F1;border:1px solid rgba(255,255,255,0.16);font-weight:700;font-size:13px;cursor:pointer;display:${
+        waiting ? 'block' : 'none'
+      };">Start over — different account</button>
       <button id="sp-signin-refresh" type="button" style="margin-top:12px;background:none;border:0;color:rgba(255,255,255,0.55);font-size:12px;cursor:pointer;">I already signed in</button>
-      <p style="margin-top:28px;font-size:11px;color:rgba(255,255,255,0.35);max-width:260px;line-height:1.5;">
+      <p id="sp-signin-status" style="margin-top:28px;font-size:11px;color:rgba(255,255,255,0.35);max-width:260px;line-height:1.5;">
         Signing in opens app.brevmont.com in a new tab. This sidepanel will refresh automatically once the session lands.
       </p>
     </div>
   `;
   const signInBtn = document.getElementById('sp-signin-btn');
+  const startOverBtn = document.getElementById('sp-signin-startover');
   const refreshBtn = document.getElementById('sp-signin-refresh');
-  if (signInBtn) signInBtn.onclick = () => openAuthExtensionTab();
+  if (signInBtn) {
+    signInBtn.onclick = () => {
+      openAuthExtensionTab();
+      // Restart the waiting lifecycle from scratch.
+      renderSignedOutScreen();
+    };
+  }
+  if (startOverBtn) {
+    startOverBtn.onclick = () => {
+      // Force account picker via ?force=1 — clears any lingering
+      // Supabase session before restarting sign-in.
+      try { chrome.tabs.create({ url: `${AUTH_APP_URL}?force=1`, active: true }); } catch { /* noop */ }
+      renderSignedOutScreen();
+    };
+  }
   if (refreshBtn) refreshBtn.onclick = () => window.location.reload();
-  // Also poll storage every 3s so that once the app-side handoff completes
-  // (BREVMONT_REP_SESSION_READY → tryCookieShareAutoConfig writes storage),
-  // the panel flips itself into the signed-in view without a manual refresh.
+
+  const goSignedIn = () => {
+    const pid = (window as any).__brevmontSignInPollId;
+    const tid = (window as any).__brevmontSignInTimeoutId;
+    if (typeof pid === 'number') { try { window.clearInterval(pid); } catch { /* noop */ } }
+    if (typeof tid === 'number') { try { window.clearTimeout(tid); } catch { /* noop */ } }
+    window.location.reload();
+  };
+
   const pollId = window.setInterval(async () => {
-    if (await hasStoredSession()) {
-      window.clearInterval(pollId);
-      window.location.reload();
-    }
+    if (await hasStoredSession()) goSignedIn();
   }, 3000);
   (window as any).__brevmontSignInPollId = pollId;
+
+  // Belt AND suspenders: the background broadcasts BREVMONT_IDENTITY_CHANGED
+  // whenever it writes/purges identity. Reload immediately on that signal
+  // rather than waiting for the next poll cycle.
+  try {
+    chrome.runtime.onMessage.addListener(function idListener(msg) {
+      if (msg?.type === 'BREVMONT_IDENTITY_CHANGED') {
+        chrome.runtime.onMessage.removeListener(idListener);
+        goSignedIn();
+      }
+      return false;
+    });
+  } catch { /* noop */ }
+
+  // At 30s, replace the passive "will refresh" message with actionable
+  // Retry / Start over buttons and stop the auto-poll. The rep now has
+  // a way out that isn't "close the panel and reopen."
+  if (!waiting) {
+    const timeoutId = window.setTimeout(() => {
+      // If session landed in the last moment, poll interval will have
+      // reloaded — this branch is only reached if we're truly stuck.
+      renderSignedOutScreen({ waiting: true });
+    }, SIDEPANEL_WAIT_TIMEOUT_MS);
+    (window as any).__brevmontSignInTimeoutId = timeoutId;
+  }
 }
 
 function sleep(ms: number): Promise<void> {
