@@ -1217,6 +1217,18 @@ export default defineContentScript({
 
     dlog(`[Brevmont] Relay active — platform: ${PLATFORM}, isTop: ${window === window.top}`);
 
+    // ===== OVERDRIVE SPIKE HARNESS (Facebook top frame only) =====
+    // Registers window.__overdriveSpike for manual verification of the
+    // send / photo attach / detection layers from DevTools. Zero effect
+    // on normal extension operation — only exposes callables.
+    if (isFacebook && window === window.top) {
+      try {
+        // Dynamic import so non-Facebook frames never pay the parse
+        // cost. WXT/esbuild inlines this at build time.
+        import('./lib/overdrive').then((m) => m.installSpikeHarness()).catch(() => {});
+      } catch { /* noop */ }
+    }
+
     // ===== VINSOLUTIONS SCANNING (top frame only) =====
     if (isVinSolutions) {
       function gatherAllText(): string {
