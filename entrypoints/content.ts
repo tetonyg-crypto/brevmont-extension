@@ -1750,6 +1750,30 @@ export default defineContentScript({
         return false;
       }
 
+      if (msg.type === 'OVERDRIVE_SCRAPE_FB_PROFILE') {
+        // Handled only on Facebook top frames. Sidepanel calls this
+        // after the rep clicks "Link personal Facebook" and the
+        // extension has focused a facebook.com tab.
+        (async () => {
+          try {
+            if (!isFacebook || window !== window.top) {
+              sendResponse({ ok: false, error: 'not_facebook_top_frame' });
+              return;
+            }
+            const mod = await import('./lib/overdrive');
+            const scrape = mod.scrapeFacebookProfile();
+            if (!scrape) {
+              sendResponse({ ok: false, error: 'no_logged_in_profile_detected' });
+              return;
+            }
+            sendResponse({ ok: true, scrape });
+          } catch (err: any) {
+            sendResponse({ ok: false, error: err?.message || 'scrape_failed' });
+          }
+        })();
+        return true;
+      }
+
       if (msg.type === 'GET_LEAD_CONTEXT') {
         (async () => {
           try {
