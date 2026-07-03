@@ -20,7 +20,7 @@ import { extractContactName as extractContactNameForPlatform, gatherAllText, has
 import { detectCustomerFromPage } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 
-type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
+type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'google-messages' | 'cargurus' | 'carsdotcom' | 'autotrader' | 'dealersocket' | 'elead' | 'unknown';
 
 export default defineContentScript({
   matches: [
@@ -37,7 +37,15 @@ export default defineContentScript({
     '*://*.instagram.com/*',
     '*://www.instagram.com/direct/*',
     '*://www.instagram.com/direct/t/*',
-    '*://web.whatsapp.com/*'
+    '*://web.whatsapp.com/*',
+    // Universal Capture — new surfaces (Google Messages + dealer inboxes)
+    '*://messages.google.com/*',
+    '*://*.cargurus.com/*',
+    '*://*.cars.com/*',
+    '*://*.autotrader.com/*',
+    '*://*.dealersocket.com/*',
+    '*://*.elead-crm.com/*',
+    '*://*.eleadcrm.com/*'
   ],
   allFrames: true,
   runAt: 'document_idle',
@@ -53,6 +61,12 @@ export default defineContentScript({
       : _url.includes('instagram.com/direct') ? 'instagram'
       : _url.includes('instagram.com') ? 'unknown'
       : _url.includes('web.whatsapp.com') ? 'whatsapp'
+      : _url.includes('messages.google.com') ? 'google-messages'
+      : _url.includes('cargurus.com') ? 'cargurus'
+      : _url.includes('cars.com') ? 'carsdotcom'
+      : _url.includes('autotrader.com') ? 'autotrader'
+      : _url.includes('dealersocket.com') ? 'dealersocket'
+      : _url.includes('elead-crm.com') || _url.includes('eleadcrm.com') ? 'elead'
       : 'unknown';
     dlog('[Brevmont] Content script loaded on', PLATFORM, _url);
     addBreadcrumb({ category: 'state', message: 'content_script_loaded', data: { platform: PLATFORM } }).catch(() => {});
@@ -1901,6 +1915,117 @@ export default defineContentScript({
       if (msg.type === 'GET_SIDEBAR_STATE') {
         sendResponse({ platform: PLATFORM, sidebarOpen: false, hasLead: !!(leadData?.customerName) });
         return false;
+      }
+
+      if (msg.type === 'SCAN_LEAD_V2') {
+        // Universal Capture path — routes through the platform adapter
+        // registry. The core owns: safeInjectText (double-inject fix),
+        // isChannelOrUiName gate, post-inject verify. Adapter owns:
+        // DOM knowledge specific to its surface.
+        //
+        // Falls back to the legacy SCAN_LEAD path if the current URL
+        // has no adapter yet (dealer inboxes prior to their spike).
+        (async () => {
+          try {
+            const platforms = await import('./lib/platforms');
+            const adapter = await platforms.resolveAdapter(window.location.href);
+            if (!adapter || !adapter.detect()) {
+              sendResponse({ ok: false, reason: 'no_adapter_for_url', platform: PLATFORM });
+              return;
+            }
+            const thread = adapter.scrapeThread();
+            const adapterCustomer = adapter.extractCustomer();
+            const context = adapter.extractContext();
+
+            // Merge adapter's candidate with the legacy heuristics for
+            // extra safety on flagship platforms.
+            const detected = await detectCustomerFromPage();
+            const clean = platforms.pickCleanName([
+              adapterCustomer,
+              detected ? { name: detected.name, confidence: detected.confidence ?? 0.5, raw_source: `legacy_${detected.method}` } : null,
+              extractFacebookConversationName ? { name: extractFacebookConversationName(), confidence: 0.55, raw_source: 'legacy_fb_conversation' } : null,
+              safeExtractContactName ? { name: safeExtractContactName(), confidence: 0.5, raw_source: 'legacy_platform_scan' } : null,
+            ]);
+
+            sendResponse({
+              ok: true,
+              platform: adapter.id,
+              adapter_id: adapter.id,
+              capabilities: adapter.capabilities,
+              thread,
+              customer: clean || { name: null },
+              context,
+              // Legacy compatibility fields — the sidepanel reads these
+              // by name until it's updated to the new shape.
+              name: clean?.name || null,
+              customerName: clean?.name || null,
+              customer_name: clean?.name || null,
+              phone: clean?.phone || detected?.phone || null,
+              email: clean?.email || detected?.email || null,
+              vehicle: context.vehicle || detected?.vehicle || null,
+              vehicle_interest: context.vehicle || null,
+              source: adapter.id,
+              raw_text: thread.raw_text,
+              source_raw_text: thread.raw_text,
+              detectionConfidence: clean?.confidence ?? 0,
+              detectionMethod: clean?.raw_source || 'adapter',
+            });
+          } catch (err: any) {
+            sendResponse({ ok: false, error: err?.message || 'adapter_scan_failed' });
+          }
+        })();
+        return true;
+      }
+
+      if (msg.type === 'INJECT_CONTENT_V2') {
+        // Universal Capture inject path. Adapter resolves the composer
+        // selector, core writes via safeInjectText, shared verify polls
+        // for text presence. Fires "check the composer" toast on
+        // unverified inject per Decision C.
+        (async () => {
+          try {
+            const platforms = await import('./lib/platforms');
+            const adapter = await platforms.resolveAdapter(window.location.href);
+            const text = String(msg.payload?.text || '');
+            const kind = (msg.payload?.kind || 'text') as 'text' | 'email' | 'crm_note';
+            if (!text) {
+              sendResponse({ ok: false, reason: 'empty_text' });
+              return;
+            }
+            if (!adapter) {
+              sendResponse({ ok: false, reason: 'no_adapter_for_url' });
+              return;
+            }
+            const plan = await adapter.inject(text, kind);
+            if (!plan.ok || !plan.composer_selector) {
+              sendResponse({ ok: false, reason: plan.reason || 'no_composer', method: plan.method });
+              return;
+            }
+            // Resolve the composer element the adapter identified and
+            // route through the SHARED write path.
+            const composer = document.querySelector(plan.composer_selector.split(' >>> ')[0]) as HTMLElement | null;
+            if (!composer) {
+              sendResponse({ ok: false, reason: 'composer_selector_resolved_null', selector: plan.composer_selector });
+              return;
+            }
+            if (isDuplicateInject(text)) {
+              sendResponse({ ok: true, deduped: true, adapter: adapter.id, method: plan.method });
+              return;
+            }
+            safeInjectText(composer, text);
+            const verify = await platforms.verifyInject(composer, text);
+            sendResponse({
+              ok: true,
+              adapter: adapter.id,
+              method: plan.method,
+              verified: verify.verified,
+              verify_elapsed_ms: verify.elapsed_ms,
+            });
+          } catch (err: any) {
+            sendResponse({ ok: false, error: err?.message || 'inject_v2_failed' });
+          }
+        })();
+        return true;
       }
 
       if (msg.type === 'SCAN_LEAD') {

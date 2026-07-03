@@ -3486,7 +3486,16 @@ function wireLeadCapture(root: HTMLElement): void {
       const emptyMsg = root.querySelector('#o8-scan-empty') as HTMLElement;
       if (emptyMsg) emptyMsg.style.display = 'none';
       try {
-        const ctx = await sendToContent({ type: 'SCAN_LEAD' });
+        // Universal Capture: try the adapter-routed scan first; fall back
+        // to the legacy path if no adapter matches the current URL (e.g.
+        // a page outside the manifest). Keeps flagship Messenger + Gmail
+        // + LinkedIn + VinSolutions on the well-worn path while every
+        // new surface (Instagram, WhatsApp, Google Messages, dealer
+        // inboxes) automatically gets the adapter pipeline.
+        let ctx = await sendToContent({ type: 'SCAN_LEAD_V2' });
+        if (!ctx || ctx.ok === false) {
+          ctx = await sendToContent({ type: 'SCAN_LEAD' });
+        }
         const detectedName = ctx?.customerName || ctx?.customer_name || ctx?.name || '';
         if (ctx && (detectedName || ctx.phone || ctx.email || ctx.raw_text || ctx.source_raw_text)) {
           await requireToken();
