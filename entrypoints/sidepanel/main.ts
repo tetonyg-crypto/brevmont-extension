@@ -386,7 +386,12 @@ async function hasStoredSession(): Promise<boolean> {
 const AUTH_APP_URL = 'https://app.brevmont.com/auth/extension';
 
 function openAuthExtensionTab(): void {
-  try { chrome.tabs.create({ url: AUTH_APP_URL, active: true }); } catch { /* fallback */ }
+  // ?force=1 → AuthExtension clears any leftover Supabase session
+  // BEFORE probing localStorage / auto-resolving. That's what makes
+  // the Google account picker appear cleanly when a rep signs out
+  // and back in from the same Chrome profile they were signed into
+  // as a different user (the 007yancy → founder@brevmont.com case).
+  try { chrome.tabs.create({ url: `${AUTH_APP_URL}?force=1`, active: true }); } catch { /* fallback */ }
 }
 
 function renderSignedOutScreen(): void {
