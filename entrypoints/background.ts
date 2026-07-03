@@ -509,7 +509,22 @@ export default defineBackground(() => {
     }
     if ((message as { type?: string })?.type === 'BREVMONT_REP_SESSION_READY') {
       try {
-        void tryCookieShareAutoConfig()
+        // 1.16.43 fix: purge the previous rep's identity keys BEFORE
+        // tryCookieShareAutoConfig writes the new ones. Otherwise the
+        // sidepanel briefly displays stale rep_email/rep_name/dealership
+        // that were cached from the prior session, and its
+        // wireSignOutMenu closure captures the stale email — never
+        // updating until a manual reload. See vault report for the
+        // full explore-agent trace.
+        const IDENTITY_KEYS = [
+          'rep_email', 'rep_name', 'dealership', 'dealership_id',
+          'rep_id', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
+          'brevmont_jwt_cache', 'brevmont_tier', 'dealership_tier',
+          'dealership_plan', 'brevmont_features', 'brevmont_usage',
+        ];
+        void browser.storage.local.remove(IDENTITY_KEYS)
+          .catch(() => {})
+          .then(() => tryCookieShareAutoConfig())
           .then((configured) => {
             if (configured) sendHeartbeat().catch(() => {});
             sendResponse({ ok: configured, version: chrome.runtime.getManifest().version });

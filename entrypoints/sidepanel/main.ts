@@ -1442,6 +1442,41 @@ async function renderPanel(): Promise<void> {
   renderMyLeads(root).catch(() => {});
   renderAccountChip().catch(() => {});
   renderRadarStatus(root).catch(() => {});
+  wireIdentityReactivity();
+}
+
+// ─── Reactive re-render on identity change (1.16.43) ────────────────
+// If the auth handoff lands after the sidepanel has already rendered
+// the account chip (which is common — the panel opens first, then the
+// rep completes OAuth in a separate tab, then bridgeRepTokenToExtension
+// fires BREVMONT_REP_SESSION_READY → background writes new identity to
+// storage), we need the chip to actually re-render with the new values.
+//
+// Explore-agent trace on the 1.16.42 stale-identity bug: renderAccountChip
+// reads rep_email from storage ONCE at panel init, wireSignOutMenu
+// captures that value in a closure, and no storage.onChanged listener
+// existed to trigger a re-render when the new email landed. That's why
+// the sidepanel kept showing the previous rep's 007yancygarcia address
+// even after the app finished OAuth as founder@brevmont.com.
+//
+// This listener triggers a fresh renderAccountChip whenever any of the
+// identity keys change — that repaints name / dealership / email +
+// reruns wireSignOutMenu with the current value.
+function wireIdentityReactivity(): void {
+  if ((window as any).__brevmontIdentityListenerWired) return;
+  (window as any).__brevmontIdentityListenerWired = true;
+  try {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local' && area !== 'sync') return;
+      const identityKeys = ['rep_email', 'rep_name', 'dealership', 'dealership_id', 'rep_id', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token'];
+      const touched = identityKeys.some((k) => Object.prototype.hasOwnProperty.call(changes, k));
+      if (!touched) return;
+      // Reset the retry counter so a stale attempts-cap doesn't lock us out.
+      const chip = document.getElementById('o8-account-chip') as HTMLElement | null;
+      if (chip) (chip as any).__brevmontIdentityAttempts = 0;
+      renderAccountChip().catch(() => {});
+    });
+  } catch { /* noop */ }
 }
 
 /**
@@ -1586,6 +1621,16 @@ async function renderAccountChip(): Promise<void> {
     const isOverridden = !!(access.source?.plan_overridden_by_rep);
     if (resp.rep_name) nameEl.textContent = resp.rep_name;
     if (resp.dealership) dealershipEl.textContent = resp.dealership;
+    // 1.16.43: also refresh the visible email from the resolved-access
+    // response so a stale cached rep_email doesn't survive when GET_
+    // RESOLVED_ACCESS returns the fresh identity. Also re-wire the
+    // sign-out popover with the new email so its closure isn't stale.
+    if (resp.rep_email && emailEl) emailEl.textContent = resp.rep_email;
+    if (resp.rep_email) {
+      try {
+        wireSignOutMenu({ repEmail: resp.rep_email });
+      } catch { /* noop */ }
+    }
     setPlanBadge(plan, status, isOverridden);
     if (upgradeBtn) {
       upgradeBtn.style.display = (plan === 'free' && status === 'active') ? 'inline-block' : 'none';
