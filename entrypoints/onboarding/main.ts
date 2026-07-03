@@ -370,6 +370,7 @@ async function tryAutoConfigFromInstallToken(token: string): Promise<boolean> {
       await chrome.storage.sync.set(storage.sanitizeSyncPayload({
         dealer_token: data.dealer_token || data.license_key,
         rep_auth_token: data.rep_auth_token || null,
+        rep_email: data.rep_email || '',
         rep_name: data.rep_name || data.rep_email || 'Rep',
         dealership: data.dealership_name || '',
         dealership_id: data.dealership_id || '',
@@ -450,6 +451,7 @@ async function tryAutoConfigFromCookie(): Promise<boolean> {
     await chrome.storage.sync.set(storage.sanitizeSyncPayload({
       dealer_token: dealerToken,
       rep_auth_token: repAuthToken,
+      rep_email: data.rep_email || '',
       rep_name: repName,
       dealership: dealershipName,
       dealership_id: data.dealership_id || '',
@@ -833,6 +835,7 @@ async function validateRepToken(token: string) {
       await chrome.storage.sync.set(storage.sanitizeSyncPayload({
         dealer_token: data.dealer_token || data.license_key || '',
         rep_auth_token: resolvedRepToken,
+        rep_email: data.rep_email || '',
         rep_name: data.rep_name || typedName || 'Rep',
         dealership: repSession.dealership_name || '',
         dealership_id: data.dealership_id || '',

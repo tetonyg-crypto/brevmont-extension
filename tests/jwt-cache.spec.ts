@@ -56,6 +56,32 @@ test('getJWT exchanges a local rep token and caches the bearer token', async () 
   expect(storage.brevmont_jwt_cache).toMatchObject({ token: jwt });
 });
 
+test('getJWT ignores cached bearer token after rep token switches', async () => {
+  const storage = installBrowserStorage({ rep_auth_token: 'BRVMT-REP-007' });
+  const firstJwt = makeJwt(Math.floor(Date.now() / 1000) + 3600);
+  const founderJwt = makeJwt(Math.floor(Date.now() / 1000) + 7200);
+  const seenTokens: string[] = [];
+  (globalThis as any).fetch = async (_url: string, init: RequestInit) => {
+    const repToken = (init.headers as Record<string, string>)['X-Rep-Token'];
+    seenTokens.push(repToken);
+    return new Response(JSON.stringify({
+      token: repToken === 'BRVMT-REP-FOUNDER' ? founderJwt : firstJwt,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  await expect(getJWT('https://api.brevmont.test')).resolves.toBe(firstJwt);
+  storage.rep_auth_token = 'BRVMT-REP-FOUNDER';
+  await expect(getJWT('https://api.brevmont.test')).resolves.toBe(founderJwt);
+  expect(seenTokens).toEqual(['BRVMT-REP-007', 'BRVMT-REP-FOUNDER']);
+  expect(storage.brevmont_jwt_cache).toMatchObject({
+    token: founderJwt,
+    rep_auth_token: 'BRVMT-REP-FOUNDER',
+  });
+});
+
 test('getJWT marks rep access ended when token mint rejects a revoked rep token', async () => {
   const storage = installBrowserStorage({ brevmont_rep_auth_token: 'BRVMT-REP-REVOKED' });
   (globalThis as any).fetch = async () =>

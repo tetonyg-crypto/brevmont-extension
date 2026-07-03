@@ -55,6 +55,7 @@ export interface BrevmontStorage {
 
   // Identity (set by validate-token or session bridge).
   rep_id: string | null;
+  rep_email: string | null;
   rep_name: string | null;
   dealership_id: string | null;
   dealership: string | null; // Display name.
@@ -91,6 +92,7 @@ const DEFAULTS: BrevmontStorage = {
   rep_auth_token: null,
   brevmont_rep_auth_token: null,
   rep_id: null,
+  rep_email: null,
   rep_name: null,
   dealership_id: null,
   dealership: null,
@@ -386,6 +388,7 @@ export async function setCredentialsFromInstallToken(payload: {
     dealership_id: payload.dealership_id || null,
     dealership: payload.dealership_name || null,
     rep_id: payload.rep_id ?? null,
+    rep_email: payload.rep_email ?? null,
     rep_name: payload.rep_name ?? null,
     rep_auth_token: payload.rep_auth_token ?? null,
     brevmont_rep_auth_token: payload.rep_auth_token ?? null,
@@ -408,6 +411,7 @@ export async function clearAuth() {
     'rep_auth_token',
     'brevmont_rep_auth_token',
     'rep_id',
+    'rep_email',
     'rep_name',
     'dealership_id',
     'dealership',

@@ -40,7 +40,7 @@ async function buildAuthHeaders(): Promise<Record<string, string>> {
       browser.storage.sync.get(['rep_email']),
       browser.storage.local.get(['rep_email']),
     ]);
-    const asserted = String((sync.rep_email as string | undefined) || (local.rep_email as string | undefined) || '').trim();
+    const asserted = String((local.rep_email as string | undefined) || (sync.rep_email as string | undefined) || '').trim();
     if (asserted) assertHeaders['X-Current-Rep-Email'] = asserted;
   } catch { /* noop */ }
 

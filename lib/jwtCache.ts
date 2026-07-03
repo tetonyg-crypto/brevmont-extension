@@ -19,10 +19,12 @@ const JWT_FETCH_TIMEOUT_MS = 8_000;
 interface JwtCacheEntry {
   token: string;
   exp: number; // unix seconds
+  rep_auth_token?: string;
 }
 
 let memoryCache: JwtCacheEntry | null = null;
 let inflight: Promise<string | null> | null = null;
+let inflightRepToken: string | null = null;
 
 async function markRepAccessEnded(errorCode: string, accessState: 'revoked' | 'trial_ended' = 'revoked'): Promise<void> {
   memoryCache = null;
@@ -78,9 +80,9 @@ async function loadFromStorage(): Promise<JwtCacheEntry | null> {
   }
 }
 
-async function persist(entry: JwtCacheEntry): Promise<void> {
+async function persist(entry: JwtCacheEntry, repToken: string): Promise<void> {
   try {
-    await browser.storage.local.set({ [STORAGE_KEY]: entry });
+    await browser.storage.local.set({ [STORAGE_KEY]: { ...entry, rep_auth_token: repToken } });
   } catch {
     // Non-blocking — memory cache is authoritative for the active SW.
   }
@@ -126,32 +128,43 @@ async function fetchFreshJwt(repToken: string, apiBase: string): Promise<JwtCach
 
 export async function getJWT(apiBase: string): Promise<string | null> {
   const now = Math.floor(Date.now() / 1000);
+  const repToken = await getRepToken();
+  if (!repToken) {
+    memoryCache = null;
+    return null;
+  }
 
-  if (memoryCache && memoryCache.exp - now > REFRESH_BUFFER_SECONDS) {
+  if (
+    memoryCache &&
+    memoryCache.rep_auth_token === repToken &&
+    memoryCache.exp - now > REFRESH_BUFFER_SECONDS
+  ) {
     return memoryCache.token;
   }
 
-  if (!memoryCache) {
-    const stored = await loadFromStorage();
-    if (stored && stored.exp - now > REFRESH_BUFFER_SECONDS) {
-      memoryCache = stored;
-      return stored.token;
-    }
+  const stored = await loadFromStorage();
+  if (
+    stored &&
+    stored.rep_auth_token === repToken &&
+    stored.exp - now > REFRESH_BUFFER_SECONDS
+  ) {
+    memoryCache = stored;
+    return stored.token;
   }
 
-  if (inflight) return inflight;
+  if (inflight && inflightRepToken === repToken) return inflight;
 
+  inflightRepToken = repToken;
   inflight = (async () => {
     try {
-      const repToken = await getRepToken();
-      if (!repToken) return null;
       const fresh = await fetchFreshJwt(repToken, apiBase);
       if (!fresh) return null;
-      memoryCache = fresh;
-      await persist(fresh);
-      return fresh.token;
+      memoryCache = { ...fresh, rep_auth_token: repToken };
+      await persist(fresh, repToken);
+      return memoryCache.token;
     } finally {
       inflight = null;
+      inflightRepToken = null;
     }
   })();
 
@@ -160,6 +173,7 @@ export async function getJWT(apiBase: string): Promise<string | null> {
 
 export async function clearJwtCache(): Promise<void> {
   memoryCache = null;
+  inflightRepToken = null;
   try {
     await browser.storage.local.remove(STORAGE_KEY);
   } catch {

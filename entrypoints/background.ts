@@ -478,8 +478,8 @@ export default defineBackground(() => {
       (async () => {
         try {
           const [sync, local] = await Promise.all([
-            browser.storage.sync.get(['dealer_token', 'rep_auth_token', 'rep_name', 'dealership']),
-            browser.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'rep_email', 'rep_name', 'dealership', 'license_revoked']),
+            browser.storage.sync.get(['dealer_token', 'rep_auth_token', 'rep_id', 'rep_name', 'rep_email', 'dealership']),
+            browser.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'rep_id', 'rep_email', 'rep_name', 'dealership', 'license_revoked']),
           ]);
           const signedIn = !!(
             !local.license_revoked &&
@@ -489,9 +489,10 @@ export default defineBackground(() => {
             ok: true, pong: true,
             version: chrome.runtime.getManifest().version,
             signed_in: signedIn,
-            rep_name: (sync.rep_name || local.rep_name || '') as string,
-            rep_email: (local.rep_email || '') as string,
-            dealership: (sync.dealership || local.dealership || '') as string,
+            rep_id: (local.rep_id || sync.rep_id || '') as string,
+            rep_name: (local.rep_name || sync.rep_name || '') as string,
+            rep_email: (local.rep_email || sync.rep_email || '') as string,
+            dealership: (local.dealership || sync.dealership || '') as string,
           });
         } catch {
           sendResponse({ ok: true, pong: true, version: chrome.runtime.getManifest().version, signed_in: false });
@@ -509,6 +510,13 @@ export default defineBackground(() => {
     }
     if ((message as { type?: string })?.type === 'BREVMONT_REP_SESSION_READY') {
       try {
+        const payload = message as {
+          type?: string;
+          rep_auth_token?: string;
+          expected_rep_email?: string;
+          expected_rep_id?: string;
+          expected_dealership_id?: string;
+        };
         // 1.16.44: purge from BOTH local AND sync — the 1.16.43 fix only
         // hit local, so sync.rep_name / sync.dealership from the prior
         // rep survived until tryCookieShareAutoConfig overwrote them.
@@ -532,13 +540,30 @@ export default defineBackground(() => {
           browser.storage.sync.remove(IDENTITY_SYNC_KEYS),
         ])
           .then(() => broadcastIdentityChanged('session_ready_purge'))
-          .then(() => tryCookieShareAutoConfig())
-          .then((configured) => {
+          .then(() => tryCookieShareAutoConfig(payload.rep_auth_token, {
+            rep_email: payload.expected_rep_email,
+            rep_id: payload.expected_rep_id,
+            dealership_id: payload.expected_dealership_id,
+          }))
+          .then(async (configured) => {
+            const identity = await browser.storage.local.get(['rep_email', 'rep_id', 'dealership_id', 'dealership']);
             if (configured) sendHeartbeat().catch(() => {});
             broadcastIdentityChanged(configured ? 'session_ready_configured' : 'session_ready_failed');
-            sendResponse({ ok: configured, version: chrome.runtime.getManifest().version });
+            sendResponse({
+              ok: configured,
+              version: chrome.runtime.getManifest().version,
+              rep_email: identity.rep_email || '',
+              rep_id: identity.rep_id || '',
+              dealership_id: identity.dealership_id || '',
+              dealership: identity.dealership || '',
+              error: configured ? undefined : 'session_not_configured',
+            });
           })
-          .catch(() => sendResponse({ ok: false, version: chrome.runtime.getManifest().version }));
+          .catch((err) => sendResponse({
+            ok: false,
+            version: chrome.runtime.getManifest().version,
+            error: err instanceof Error ? err.message : 'session_config_failed',
+          }));
         return true;
       } catch {
         sendResponse({ ok: false });
@@ -938,7 +963,7 @@ export default defineBackground(() => {
           const [resp, syncSettings, localSettings] = await Promise.all([
             signedGet(`${apiBase}/api/v1/access/resolved`),
             browser.storage.sync.get(['rep_name', 'dealership', 'rep_email']),
-            browser.storage.local.get(['rep_email']),
+            browser.storage.local.get(['rep_name', 'dealership', 'rep_email']),
           ]);
           if (!resp.ok) {
             sendResponse({ ok: false, status: resp.status });
@@ -948,9 +973,9 @@ export default defineBackground(() => {
           sendResponse({
             ok: true,
             access,
-            rep_name: syncSettings.rep_name || '',
-            dealership: syncSettings.dealership || '',
-            rep_email: syncSettings.rep_email || localSettings.rep_email || access.rep_email || '',
+            rep_name: localSettings.rep_name || syncSettings.rep_name || '',
+            dealership: localSettings.dealership || syncSettings.dealership || '',
+            rep_email: localSettings.rep_email || syncSettings.rep_email || access.rep_email || '',
           });
         } catch (err: any) {
           sendResponse({ ok: false, error: err?.message || 'fetch_failed' });
@@ -2096,21 +2121,26 @@ export default defineBackground(() => {
   // license + rep credentials silently. The legacy 4-step wizard at
   // entrypoints/onboarding/main.ts is still mounted as a fallback for the
   // path where the cookie isn't there or auto-config fails.
-  async function tryCookieShareAutoConfig(): Promise<boolean> {
+  async function tryCookieShareAutoConfig(
+    repAuthTokenOverride?: string,
+    expectedIdentity: { rep_email?: string; rep_id?: string; dealership_id?: string } = {},
+  ): Promise<boolean> {
     try {
       // Feature flag: founder can flip this off via storage if auto-config
       // misbehaves in production. Defaults to enabled.
       const flagState = await browser.storage.local.get(['BREVMONT_AUTO_CONFIG_ENABLED']);
       if (flagState.BREVMONT_AUTO_CONFIG_ENABLED === false) return false;
 
-      // Read the cookie set by /join/:id/complete OR /activate/:token on app.brevmont.com.
-      const cookie = await browser.cookies.get({
-        url: 'https://app.brevmont.com',
-        name: 'brevmont_rep_session',
-      });
-      if (!cookie?.value) return false;
-
-      const cookieValue = cookie.value;
+      let cookieValue = String(repAuthTokenOverride || '').trim();
+      if (!cookieValue) {
+        // Read the cookie set by /join/:id/complete OR /activate/:token on app.brevmont.com.
+        const cookie = await browser.cookies.get({
+          url: 'https://app.brevmont.com',
+          name: 'brevmont_rep_session',
+        });
+        if (!cookie?.value) return false;
+        cookieValue = cookie.value;
+      }
 
       // Two paths converge here:
       // 1. Install token (from /activate page): value starts with "inst_"
@@ -2157,6 +2187,25 @@ export default defineBackground(() => {
       }
 
       if (!data.license_key) return false;
+
+      const expectedEmail = String(expectedIdentity.rep_email || '').trim().toLowerCase();
+      const expectedRepId = String(expectedIdentity.rep_id || '').trim();
+      const expectedDealershipId = String(expectedIdentity.dealership_id || '').trim();
+      const actualEmail = String(data.rep_email || '').trim().toLowerCase();
+      const actualRepId = String(data.rep_id || '').trim();
+      const actualDealershipId = String(data.dealership_id || '').trim();
+      if (expectedEmail && actualEmail && expectedEmail !== actualEmail) {
+        console.warn('[Brevmont] auto-config identity email mismatch', { expectedEmail, actualEmail });
+        return false;
+      }
+      if (expectedRepId && actualRepId && expectedRepId !== actualRepId) {
+        console.warn('[Brevmont] auto-config rep_id mismatch', { expectedRepId, actualRepId });
+        return false;
+      }
+      if (expectedDealershipId && actualDealershipId && expectedDealershipId !== actualDealershipId) {
+        console.warn('[Brevmont] auto-config dealership_id mismatch', { expectedDealershipId, actualDealershipId });
+        return false;
+      }
 
       const dealerToken = data.dealer_token || data.license_key;
       const repAuthToken = data.rep_auth_token || cookieValue;

@@ -1559,14 +1559,13 @@ async function renderAccountChip(): Promise<void> {
   let dealership = '';
   let cachedTier = 'free';
   try {
-    const sync = await browser.storage.sync.get(['rep_name', 'dealership', 'rep_email']);
-    repName = String(sync.rep_name || '');
-    dealership = String(sync.dealership || '');
-    const local = await browser.storage.local.get(['brevmont_tier', 'rep_email']);
-    // 1.16.44: sync-first for rep_email now that background.ts mirrors it
-    // into sync. Falling back to local keeps the pre-1.16.44 install path
-    // working during upgrade (existing installs may only have local set).
-    repEmail = String(sync.rep_email || local.rep_email || '');
+    const [sync, local] = await Promise.all([
+      browser.storage.sync.get(['rep_name', 'dealership', 'rep_email']),
+      browser.storage.local.get(['brevmont_tier', 'rep_email', 'rep_name', 'dealership']),
+    ]);
+    repName = String(local.rep_name || sync.rep_name || '');
+    dealership = String(local.dealership || sync.dealership || '');
+    repEmail = String(local.rep_email || sync.rep_email || '');
     cachedTier = String(local.brevmont_tier || 'free').toLowerCase();
   } catch { /* storage may not be available in some test contexts */ }
 
@@ -1682,7 +1681,7 @@ function wireSignOutMenu(_args?: { repEmail?: string }): void {
         browser.storage.sync.get(['rep_email']),
         browser.storage.local.get(['rep_email']),
       ]);
-      return String(sync.rep_email || local.rep_email || '');
+      return String(local.rep_email || sync.rep_email || '');
     } catch { return ''; }
   };
   const paintPopoverEmail = (email: string): void => {
