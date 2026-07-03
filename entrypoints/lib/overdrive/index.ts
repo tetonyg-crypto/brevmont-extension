@@ -26,6 +26,24 @@ export {
 } from './stateMachine';
 export type { LocalThreadState, ShouldReplyInput, ShouldReplyResult } from './stateMachine';
 export {
+  sleep,
+  computePreSendJitterMs,
+  computeTypingMs,
+  buildSafetyDelay,
+  inActiveHours,
+  markRepInput,
+  repRecentlyTyped,
+  installRepInputWatcher,
+} from './safetyEnvelope';
+export type { SafetyDelay } from './safetyEnvelope';
+export { orchestrateReply, isHeroStage } from './orchestrator';
+export type {
+  ThreadScrape,
+  OrchestratorSettings,
+  OrchestratorDeps,
+  OrchestratorResult,
+} from './orchestrator';
+export {
   getOverdriveSettings,
   patchOverdriveSettings,
   postLinkFacebook,
