@@ -31,6 +31,15 @@ const CHANNEL_OR_UI_NAMES = new Set([
   'brevmont', 'save lead', 'scan this page',
   'profile', 'conversation', 'notifications', 'search',
   'you', 'me', 'other', 'group',
+  // 2026-07-03 regression: Facebook Marketplace threads for accounts
+  // without a friendly display name render the h1 as
+  // "Conversation titled Cardog" and the sidebar Action strip renders
+  // an aria-label of just "Actions". Both were slipping through as
+  // customer_name and producing "Hi Actions" / "Hi Conversation
+  // Titled Cardog" openings. Added below plus regex fallbacks.
+  'actions', 'action',
+  'options', 'menu',
+  'reply', 'send', 'settings',
 ]);
 
 export function isChannelOrUiName(value: unknown): boolean {
@@ -41,6 +50,13 @@ export function isChannelOrUiName(value: unknown): boolean {
   // "Marketplace Buyer" etc.
   if (/^(?:sold|active|available|listed|new)\b/i.test(raw)) return true;
   if (/^(?:facebook|messenger|marketplace|instagram)\s/i.test(raw)) return true;
+  // Facebook Marketplace fallback headers for accounts without a friendly
+  // display name. "Conversation titled X" is the raw h1; "Chat with X"
+  // is a common aria-label variant; "X started this chat" appears in
+  // the thread body as a system message.
+  if (/^conversation\s+titled\b/i.test(raw)) return true;
+  if (/^chat\s+with\b/i.test(raw)) return true;
+  if (/\bstarted\s+this\s+chat\b/i.test(raw)) return true;
   return false;
 }
 

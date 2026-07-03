@@ -106,32 +106,55 @@ function scrapeThread(): ThreadContext {
 
 function extractCustomer(): CustomerCandidate {
   // Priority order:
-  //   1. aria-label paths (Conversation with X, Message X, Profile picture of X)
+  //   1. aria-label paths (Conversation with X, Conversation titled X,
+  //      Chat with X, Message X, Profile picture of X)
   //   2. "<Buyer> · <listing>" Marketplace splitter
-  //   3. header spans
+  //   3. header spans (with "Conversation titled" prefix stripping so
+  //      Facebook accounts without a friendly display name still yield
+  //      the raw handle instead of the UI label)
   // All raw candidates are returned to the core, which runs
-  // pickCleanName across them.
+  // pickCleanName across them (isChannelOrUiName gate). Belt-and-
+  // suspenders: this function ALSO strips known UI prefixes so the
+  // core doesn't reject a real name that happens to be prefixed.
+  //
+  // 2026-07-03 regression: for Cardog (a real Marketplace buyer whose
+  // FB account has no friendly display name), the aria-label was
+  // "Conversation titled Cardog" — the original pattern only matched
+  // "Conversation with X" so it fell through to marketplace_header_split
+  // which returned the raw h1 "Conversation titled Cardog", and the
+  // core's channel/UI-name gate didn't recognize that pattern. Fixed
+  // by (a) adding "titled" to the strip regex, (b) adding regex catches
+  // in leadContextScan.ts for the raw string.
+  const stripUiPrefix = (label: string): string => label
+    .replace(/^(?:Message|Conversation\s+with|Conversation\s+titled|Chat\s+with|Profile\s+picture\s+of|Open\s+profile\s+for)\s+/i, '')
+    .replace(/\s+(?:profile|conversation)$/i, '')
+    .trim();
+
   try {
     const labelled = Array.from(document.querySelectorAll('[aria-label]'))
       .map((el) => el.getAttribute('aria-label') || '')
-      .find((label) => /^(?:Message|Conversation with|Profile picture of|Open profile for)\s+\S+/i.test(label));
+      .find((label) => /^(?:Message|Conversation\s+with|Conversation\s+titled|Chat\s+with|Profile\s+picture\s+of|Open\s+profile\s+for)\s+\S+/i.test(label));
     if (labelled) {
-      const cleaned = labelled
-        .replace(/^(?:Message|Conversation with|Profile picture of|Open profile for)\s+/i, '')
-        .replace(/\s+(?:profile|conversation)$/i, '')
-        .trim();
+      const cleaned = stripUiPrefix(labelled);
       if (cleaned && cleaned.length > 1 && cleaned.length < 60) {
         return { name: cleaned, raw_source: 'aria_label_conversation_with', confidence: 0.9 };
       }
     }
 
-    // Marketplace "<Buyer> · <Listing>" splitter
+    // Marketplace "<Buyer> · <Listing>" splitter — also strips the UI
+    // prefix in case the h1 itself is prefixed.
     const header = document.querySelector('[role="main"] h1, [role="main"] h2') as HTMLElement | null;
     if (header) {
       const raw = (header.innerText || header.textContent || '').trim();
       const firstSegment = raw.split(/\s*[·•\-]\s*/)[0]?.trim();
       if (firstSegment && firstSegment.length > 1 && firstSegment.length < 60) {
-        return { name: firstSegment, raw_source: 'marketplace_header_split', confidence: 0.75 };
+        const stripped = stripUiPrefix(firstSegment);
+        // If stripping produced a meaningful name, use it. If stripping
+        // produced nothing (the h1 was JUST "Conversation titled" with
+        // nothing after — shouldn't happen but defensive), return the
+        // raw firstSegment so the core's gate can reject it uniformly.
+        const chosen = stripped && stripped.length > 1 ? stripped : firstSegment;
+        return { name: chosen, raw_source: 'marketplace_header_split', confidence: 0.75 };
       }
     }
 
