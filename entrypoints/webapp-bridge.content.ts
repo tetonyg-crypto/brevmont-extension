@@ -23,6 +23,12 @@ export default defineContentScript({
       if (manifest?.version) {
         document.documentElement.setAttribute('data-brevmont-extension-version', manifest.version);
       }
+      // Stamp the runtime id so AuthExtension can probe/message THIS
+      // build even when it's unpacked (Chrome assigns a random id that
+      // isn't in the app's hardcoded BREVMONT_EXTENSION_IDS list).
+      if (browser.runtime.id) {
+        document.documentElement.setAttribute('data-brevmont-extension-id', browser.runtime.id);
+      }
     } catch {
       /* noop */
     }
