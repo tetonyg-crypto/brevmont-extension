@@ -34,7 +34,9 @@ const permissions = manifest.permissions || [];
 const hosts = manifest.host_permissions || [];
 const failures = [];
 if ('key' in manifest) failures.push('manifest.key is present');
-if (permissions.includes('notifications')) failures.push('notifications permission is present');
+// notifications: required for Overdrive escalation desktop alerts and
+// documented in the CWS submission kit's 02-permission-justifications.md.
+// Reviewer sees an explicit "why" string, no surprise.
 if (hosts.includes('<all_urls>')) failures.push('<all_urls> host permission is present');
 const BROAD_MATCHES = new Set(['http://*/*', 'https://*/*', '<all_urls>']);
 for (const cs of manifest.content_scripts || []) {

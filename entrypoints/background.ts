@@ -522,6 +522,46 @@ export default defineBackground(() => {
     // Health check — content script pings to verify service worker is alive
     if (msg.type === 'PING') { sendResponse({ pong: true }); return false; }
 
+    // Sign-out teardown (1.16.37) — sidepanel triggers this after it has
+    // cleared storage locally. Background side does a defensive second
+    // sweep of every auth key, drops any in-flight retry queue, and
+    // clears the pending_heartbeats queue. There is no cached rep
+    // identity in the background module (all reads hit storage on every
+    // call per Phase 0 discovery), so once storage is empty every future
+    // Overdrive reply / API call sees "no auth" and no-ops cleanly.
+    if (msg.type === 'SIGN_OUT_TEARDOWN') {
+      (async () => {
+        try {
+          await chrome.storage.local.remove([
+            'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
+            'license_key', 'license_secret', 'brevmont_license_secret',
+            'rep_id', 'rep_name', 'dealership_id', 'dealership', 'rep_email',
+            'profile', 'profile_onboarded',
+            'license_revoked', 'license_revoked_at', 'license_revoked_message', 'license_access_state',
+            'install_token', 'activated_at',
+            'brevmont_tier', 'brevmont_usage', 'brevmont_jwt_cache',
+            'dealership_tier', 'dealership_plan', 'brevmont_features',
+            'pending_heartbeats',
+          ]);
+        } catch (err) {
+          console.warn('[brevmont] SIGN_OUT_TEARDOWN local.remove failed', err);
+        }
+        try {
+          await chrome.storage.sync.remove([
+            'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
+            'license_key', 'license_secret', 'brevmont_license_secret',
+            'rep_id', 'rep_name', 'dealership_id', 'dealership',
+            'profile', 'profile_onboarded',
+            'install_token', 'brevmont_tier', 'dealership_tier', 'dealership_plan',
+          ]);
+        } catch (err) {
+          console.warn('[brevmont] SIGN_OUT_TEARDOWN sync.remove failed', err);
+        }
+        sendResponse({ ok: true });
+      })();
+      return true; // async
+    }
+
     // Universal Capture verification harness — screenshot the active tab.
     // Called from window.__brevmontVerify.captureBundle() / dealerKit().
     if (msg.type === 'CAPTURE_ACTIVE_TAB_PNG') {

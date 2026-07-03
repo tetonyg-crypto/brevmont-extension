@@ -1445,6 +1445,104 @@ async function renderAccountChip(): Promise<void> {
   } catch {
     /* keep fallback render */
   }
+
+  wireSignOutMenu({ repEmail });
+}
+
+// ─── Sign-out menu (1.16.37) ───────────────────────────────────────────
+// The rep block gains a compact popover menu. On confirm, we clear every
+// storage key that carries session state, tell the background worker to
+// tear down its cached rep, then route the sidepanel back to sign-in.
+// Content scripts on any open tabs are already coded to silently no-op
+// on missing auth (no error spam) — no change needed there.
+function wireSignOutMenu(args: { repEmail: string }): void {
+  const chip = document.getElementById('o8-account-chip') as HTMLElement | null;
+  const menuBtn = document.getElementById('o8-account-chip-menu') as HTMLButtonElement | null;
+  const popover = document.getElementById('o8-account-chip-popover') as HTMLElement | null;
+  const popoverEmail = document.getElementById('o8-account-chip-popover-email');
+  const signOutBtn = document.getElementById('o8-signout-action') as HTMLButtonElement | null;
+  const confirmBlock = document.getElementById('o8-account-chip-confirm') as HTMLElement | null;
+  const cancelBtn = document.getElementById('o8-signout-cancel') as HTMLButtonElement | null;
+  const confirmBtn = document.getElementById('o8-signout-confirm') as HTMLButtonElement | null;
+  if (!chip || !menuBtn || !popover || !signOutBtn || !confirmBlock || !cancelBtn || !confirmBtn) return;
+
+  if (popoverEmail) popoverEmail.textContent = args.repEmail || 'this account';
+
+  const closeMenu = () => {
+    popover.style.display = 'none';
+    confirmBlock.style.display = 'none';
+  };
+
+  menuBtn.onclick = (ev) => {
+    ev.stopPropagation();
+    const isOpen = popover.style.display !== 'none';
+    if (isOpen) closeMenu(); else { popover.style.display = 'block'; confirmBlock.style.display = 'none'; }
+  };
+  document.addEventListener('click', (ev) => {
+    if (!chip.contains(ev.target as Node)) closeMenu();
+  }, { once: false });
+
+  signOutBtn.onclick = (ev) => {
+    ev.stopPropagation();
+    popover.style.display = 'none';
+    confirmBlock.style.display = 'block';
+  };
+  cancelBtn.onclick = (ev) => {
+    ev.stopPropagation();
+    confirmBlock.style.display = 'none';
+  };
+  confirmBtn.onclick = async (ev) => {
+    ev.stopPropagation();
+    confirmBtn.disabled = true;
+    cancelBtn.disabled = true;
+    confirmBtn.textContent = 'Signing out';
+    try {
+      await performSignOut();
+    } catch (err) {
+      console.warn('[brevmont] sign-out failed', err);
+    }
+  };
+}
+
+async function performSignOut(): Promise<void> {
+  // Belt AND suspenders: clear every session storage key we know about,
+  // then defensively wildcard-clear the auth keys again below. Any
+  // failure inside these calls is logged but never blocks the teardown.
+  try {
+    await clearCredentialsForReconnect();
+  } catch (err) { console.warn('[brevmont] signout clearCredentials failed', err); }
+
+  // Defensive second sweep for keys Phase 0 flagged: pending_heartbeats,
+  // brevmont_features, license_access_state. clearCredentialsForReconnect
+  // already covers these but the guard prevents any drift if that helper
+  // is later trimmed.
+  try {
+    await chrome.storage.local.remove([
+      'pending_heartbeats',
+      'brevmont_features',
+      'license_access_state',
+      'activated_at',
+      'brevmont_usage',
+      'brevmont_jwt_cache',
+    ]);
+  } catch (err) { console.warn('[brevmont] signout local sweep failed', err); }
+
+  // Tell background to drop cached state + cancel any queued work.
+  try {
+    await chrome.runtime.sendMessage({ type: 'SIGN_OUT_TEARDOWN' });
+  } catch (err) { console.warn('[brevmont] signout teardown message failed', err); }
+
+  // Route back to sign-in. Open app.brevmont.com/auth/extension in a new
+  // tab (matches popup/install-screen behavior) and reload the sidepanel
+  // so it drops any in-memory state.
+  try {
+    chrome.tabs.create({ url: 'https://app.brevmont.com/auth/extension' });
+  } catch (err) { console.warn('[brevmont] signout open sign-in tab failed', err); }
+
+  // Reload sidepanel — clears all in-memory panel state and reruns the
+  // token check at the top of main.ts, which shows the "not activated"
+  // state until sign-in completes.
+  try { window.location.reload(); } catch { /* noop */ }
 }
 
 async function applyFirstUseGuide(root: HTMLElement): Promise<void> {

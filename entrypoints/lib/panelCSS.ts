@@ -386,6 +386,92 @@ ${domMode && isLinkedIn ? `
 }
 .account-chip-upgrade:hover { filter: brightness(1.12); }
 .account-chip.account-chip-focus { box-shadow: 0 -2px 0 #0D6E6E; }
+/* Sign-out menu (1.16.37) — inline popover above the chip. Kept dark
+   and compact so it never crowds the panel content. */
+.account-chip-menu {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid rgba(248, 246, 241, 0.14);
+  background: transparent;
+  color: rgba(248, 246, 241, 0.75);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.account-chip-menu:hover { background: rgba(248, 246, 241, 0.06); color: #F8F6F1; }
+.account-chip-popover {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  right: 8px;
+  background: #1F2A32;
+  border: 1px solid rgba(248, 246, 241, 0.10);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-width: 200px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+.account-chip-popover-hd {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(248, 246, 241, 0.55);
+  margin-bottom: 4px;
+}
+.account-chip-popover-email {
+  font-size: 11px;
+  color: #F8F6F1;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-chip-signout-btn {
+  width: 100%;
+  border: 1px solid rgba(248, 246, 241, 0.14);
+  background: transparent;
+  color: #F8F6F1;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.account-chip-signout-btn:hover { background: rgba(185, 28, 28, 0.14); border-color: rgba(185, 28, 28, 0.35); }
+.account-chip-confirm {
+  padding: 8px 10px 4px;
+  border-top: 1px solid rgba(248, 246, 241, 0.10);
+  margin-top: 6px;
+}
+.account-chip-confirm-msg {
+  font-size: 11px;
+  color: #F8F6F1;
+  margin-bottom: 6px;
+}
+.account-chip-confirm-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.account-chip-btn {
+  border: 1px solid rgba(248, 246, 241, 0.14);
+  background: transparent;
+  color: #F8F6F1;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.account-chip-btn-secondary:hover { background: rgba(248, 246, 241, 0.06); }
+.account-chip-btn-danger { background: #B91C1C; border-color: #B91C1C; color: #F8F6F1; }
+.account-chip-btn-danger:hover { filter: brightness(1.08); }
 /* Reserve space at the bottom of the scrollable area so the chip doesn't
    cover the last UI element. */
 body { padding-bottom: 88px; }

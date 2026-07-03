@@ -32,6 +32,8 @@ interface HarnessResult {
 }
 
 const TEST_INJECT_TEXT = '[brevmont verify — safe to delete]';
+const PAGE_REQUEST_SOURCE = 'brevmont:verify:page';
+const CONTENT_RESPONSE_SOURCE = 'brevmont:verify:content';
 
 async function getBackgroundStorage(): Promise<{
   rep_auth_token?: string;
@@ -245,7 +247,7 @@ async function overdriveSmoke(): Promise<HarnessResult> {
 
 export function installVerificationHarness(): void {
   if (typeof window === 'undefined') return;
-  (window as any).__brevmontVerify = {
+  const api = {
     runScan,
     runInject,
     captureBundle,
@@ -261,6 +263,32 @@ export function installVerificationHarness(): void {
   await __brevmontVerify.overdriveSmoke()       — Overdrive controller + inject cycle
 `,
   };
+  (window as any).__brevmontVerify = api;
+
+  if (!(window as any).__brevmontVerifyBridgeInstalled) {
+    (window as any).__brevmontVerifyBridgeInstalled = true;
+    window.addEventListener('message', async (event: MessageEvent) => {
+      if (event.source !== window) return;
+      const data = event.data || {};
+      if (data?.source !== PAGE_REQUEST_SOURCE) return;
+      const requestId = data.requestId;
+      const method = String(data.method || '');
+      const args = Array.isArray(data.args) ? data.args : [];
+      try {
+        const fn = (api as any)[method];
+        if (typeof fn !== 'function') throw new Error(`unknown_verify_method:${method}`);
+        const result = await fn(...args);
+        window.postMessage({ source: CONTENT_RESPONSE_SOURCE, requestId, ok: true, result }, '*');
+      } catch (err: any) {
+        window.postMessage({
+          source: CONTENT_RESPONSE_SOURCE,
+          requestId,
+          ok: false,
+          error: err?.message || String(err || 'verify_bridge_failed'),
+        }, '*');
+      }
+    });
+  }
   // eslint-disable-next-line no-console
   console.log('[brevmont] verification harness installed. Try __brevmontVerify.help()');
 }

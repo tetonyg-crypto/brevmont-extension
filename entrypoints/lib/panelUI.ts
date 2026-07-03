@@ -159,6 +159,21 @@ export function getPanelHTML(platform: Platform): string {
     </div>
     <span id="o8-account-chip-plan" class="account-chip-plan"></span>
     <button id="o8-account-chip-upgrade" class="account-chip-upgrade" type="button" style="display:none;">Upgrade</button>
+    <button id="o8-account-chip-menu" class="account-chip-menu" type="button" aria-label="Account menu" title="Account menu">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="18" r="1.4"/></svg>
+    </button>
+  </div>
+  <div id="o8-account-chip-popover" class="account-chip-popover" style="display:none;">
+    <div class="account-chip-popover-hd">Signed in as</div>
+    <div id="o8-account-chip-popover-email" class="account-chip-popover-email"></div>
+    <button id="o8-signout-action" class="account-chip-signout-btn" type="button">Sign out</button>
+  </div>
+  <div id="o8-account-chip-confirm" class="account-chip-confirm" style="display:none;">
+    <div class="account-chip-confirm-msg">Sign out of Brevmont?</div>
+    <div class="account-chip-confirm-actions">
+      <button id="o8-signout-cancel" class="account-chip-btn account-chip-btn-secondary" type="button">Cancel</button>
+      <button id="o8-signout-confirm" class="account-chip-btn account-chip-btn-danger" type="button">Sign out</button>
+    </div>
   </div>
 </div>
 `;
