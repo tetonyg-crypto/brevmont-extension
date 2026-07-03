@@ -1750,6 +1750,76 @@ export default defineContentScript({
         return false;
       }
 
+      if (msg.type === 'OVERDRIVE_INSTALL_DETECTOR') {
+        // Arm the three detection layers (mutation on chat list +
+        // active thread, title poll, alarm keepalive rearm). Idempotent.
+        (async () => {
+          try {
+            if (!isFacebook || window !== window.top) {
+              sendResponse({ ok: false, error: 'not_facebook_top_frame' });
+              return;
+            }
+            const mod = await import('./lib/overdrive/contentBridge');
+            const r = mod.armDetectorForwarding();
+            sendResponse(r);
+          } catch (err: any) {
+            sendResponse({ ok: false, error: err?.message || 'install_detector_failed' });
+          }
+        })();
+        return true;
+      }
+
+      if (msg.type === 'OVERDRIVE_SCRAPE_THREAD') {
+        (async () => {
+          try {
+            if (!isFacebook || window !== window.top) {
+              sendResponse({ ok: false, error: 'not_facebook_top_frame' });
+              return;
+            }
+            const mod = await import('./lib/overdrive/contentBridge');
+            const scrape = await mod.scrapeActiveThread();
+            sendResponse({ ok: true, scrape });
+          } catch (err: any) {
+            sendResponse({ ok: false, error: err?.message || 'scrape_failed' });
+          }
+        })();
+        return true;
+      }
+
+      if (msg.type === 'OVERDRIVE_INJECT_TEXT') {
+        (async () => {
+          try {
+            if (!isFacebook || window !== window.top) {
+              sendResponse({ ok: false, error: 'not_facebook_top_frame' });
+              return;
+            }
+            const text = String(msg.payload?.text || '');
+            if (!text) {
+              sendResponse({ ok: false, error: 'empty_text' });
+              return;
+            }
+            // Use the existing FB composer selector chain (same one
+            // safeInjectText targets). safeInjectText is defined higher
+            // up in this same content-script closure — reachable here.
+            const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement;
+            if (!box) {
+              sendResponse({ ok: false, error: 'composer_not_found' });
+              return;
+            }
+            // Guard against writing while a duplicate inject is in-flight.
+            if (isDuplicateInject(text)) {
+              sendResponse({ ok: true, deduped: true });
+              return;
+            }
+            safeInjectText(box, text);
+            sendResponse({ ok: true });
+          } catch (err: any) {
+            sendResponse({ ok: false, error: err?.message || 'inject_failed' });
+          }
+        })();
+        return true;
+      }
+
       if (msg.type === 'OVERDRIVE_SCRAPE_FB_PROFILE') {
         // Handled only on Facebook top frames. Sidepanel calls this
         // after the rep clicks "Link personal Facebook" and the

@@ -332,6 +332,15 @@ async function resolveCustomerForContext(payload: any): Promise<any | null> {
 initSentry();
 
 export default defineBackground(() => {
+  // ── Overdrive background controller ──
+  // Registers alarm keepalive, tab lifecycle listeners, detection
+  // signal handler, chrome.notifications for escalations. Idempotent.
+  // Loaded async so a bug in the controller can never break the
+  // extension's core boot path.
+  void import('./lib/overdrive/backgroundController')
+    .then((mod) => mod.installOverdriveController())
+    .catch((err) => console.warn('[overdrive] controller install failed:', err?.message));
+
   // ── Permission-gated Side Panel ──
   // First click opens the mic permission page if setup hasn't completed.
   // After setup_complete flag is set, clicks open the side panel directly.

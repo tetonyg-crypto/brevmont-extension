@@ -37,6 +37,16 @@ export {
 } from './safetyEnvelope';
 export type { SafetyDelay } from './safetyEnvelope';
 export { orchestrateReply, isHeroStage } from './orchestrator';
+export {
+  installOverdriveController,
+  refreshOverdriveSettings,
+  overdriveControllerStatus,
+} from './backgroundController';
+export {
+  scrapeActiveThread,
+  armDetectorForwarding,
+  markRepTyping,
+} from './contentBridge';
 export type {
   ThreadScrape,
   OrchestratorSettings,
