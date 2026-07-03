@@ -1713,6 +1713,38 @@ function wireHandlers(root: HTMLElement): void {
   if (settingsBack) {
     settingsBack.onclick = () => { settingsPanel!.style.display = 'none'; el('o8-quick')!.style.display = 'flex'; };
   }
+
+  // ─── Overdrive panel — mounted inside Settings ─────────────────────
+  // Renders the Link Facebook / Disclosure / Photo / Toggle flow.
+  // Lazy-loads to keep the initial sidepanel bundle small.
+  if (settingsPanel) {
+    let overdriveMount = settingsPanel.querySelector('#overdrive-panel-mount') as HTMLElement | null;
+    if (!overdriveMount) {
+      overdriveMount = document.createElement('div');
+      overdriveMount.id = 'overdrive-panel-mount';
+      // Insert near the top of Settings, after any existing header.
+      const firstChild = settingsPanel.firstElementChild;
+      if (firstChild && firstChild.nextSibling) {
+        settingsPanel.insertBefore(overdriveMount, firstChild.nextSibling);
+      } else {
+        settingsPanel.appendChild(overdriveMount);
+      }
+    }
+    // Render on first open of the Settings panel.
+    let overdriveRendered = false;
+    const originalOnSettingsOpen = (): void => {
+      if (overdriveRendered) return;
+      overdriveRendered = true;
+      void import('./overdrivePanel').then((mod) => mod.renderOverdrivePanel(overdriveMount!)).catch(() => { /* noop */ });
+    };
+    // Hook into any button that opens settings. Most reliable approach:
+    // observe the panel becoming visible.
+    const observer = new MutationObserver(() => {
+      if (settingsPanel.style.display !== 'none') originalOnSettingsOpen();
+    });
+    observer.observe(settingsPanel, { attributes: true, attributeFilter: ['style'] });
+  }
+
   const settingsBtnInline = el('o8-settings-btn-inline');
   if (settingsBtnInline) {
     settingsBtnInline.onclick = () => {

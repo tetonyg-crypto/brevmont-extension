@@ -368,18 +368,45 @@ export async function installOverdriveController(): Promise<void> {
     });
   } catch { /* noop */ }
 
-  // Detection signals from content script.
+  // Detection signals from content script + settings refresh from sidepanel.
   try {
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (!msg || typeof msg !== 'object') return false;
       const m = msg as { type: string; signal?: { type: string; conversation_hint?: string } };
-      if (m.type !== 'OVERDRIVE_DETECTION_SIGNAL') return false;
-      const tabId = sender.tab?.id;
-      if (!tabId) { sendResponse({ ok: false }); return false; }
-      // Fire-and-forget the orchestration; respond immediately so the
-      // sender doesn't hold open the message channel.
-      void handleDetectionSignal(tabId, m.signal || { type: 'unknown' });
-      sendResponse({ ok: true });
+
+      if (m.type === 'OVERDRIVE_DETECTION_SIGNAL') {
+        const tabId = sender.tab?.id;
+        if (!tabId) { sendResponse({ ok: false }); return false; }
+        void handleDetectionSignal(tabId, m.signal || { type: 'unknown' });
+        sendResponse({ ok: true });
+        return false;
+      }
+
+      if (m.type === 'OVERDRIVE_REFRESH_SETTINGS') {
+        // Sidepanel calls this after any toggle change so the
+        // controller re-reads settings on the next cycle without
+        // waiting for the 5-min TTL.
+        void loadSettingsFresh().then(async (cached) => {
+          if (overdriveGoLightIsGreen(cached)) {
+            await armDetectorOnAllFbTabs();
+          }
+        });
+        sendResponse({ ok: true });
+        return false;
+      }
+
+      if (m.type === 'OVERDRIVE_CONTROLLER_STATUS') {
+        sendResponse(overdriveControllerStatus());
+        return false;
+      }
+
+      if (m.type === 'OVERDRIVE_READ_LOG') {
+        chrome.storage.local.get([LOG_RING_KEY], (data) => {
+          sendResponse({ ok: true, log: data?.[LOG_RING_KEY] || [] });
+        });
+        return true;
+      }
+
       return false;
     });
   } catch { /* noop */ }
