@@ -1811,6 +1811,74 @@ export default defineContentScript({
         return true;
       }
 
+      if (msg.type === 'RADAR_SWEEP_LIST') {
+        // Catch-up sweep (Radar Phase C). Walk the visible Messenger
+        // chat list and return top-N recent Marketplace-origin threads.
+        // Read-only DOM scan. Background loops through the result and
+        // fires POST /api/v1/radar/capture per item with sweep_source=
+        // 'catchup_sweep'. Idempotency at the server prevents dupes.
+        (async () => {
+          try {
+            if (!isFacebook || window !== window.top) {
+              sendResponse({ ok: false, error: 'not_facebook_top_frame' });
+              return;
+            }
+            const items: Array<{
+              conversation_key: string;
+              header_text: string;
+              last_inbound_text: string;
+              last_inbound_hash: string;
+              url: string;
+            }> = [];
+            // Messenger's chat-list rows are role="row" inside role="grid"
+            // OR role="listitem" on older layouts. We accept either.
+            // We prefer rows with an "unread" indicator (aria-label
+            // matching /unread/i or a dot badge). If nothing looks
+            // unread we fall back to the most recent visible rows.
+            const rows = Array.from(document.querySelectorAll('[role="row"], [role="listitem"]'))
+              .filter((el) => el instanceof HTMLElement) as HTMLElement[];
+            const unread = rows.filter((r) => /unread/i.test(r.getAttribute('aria-label') || ''));
+            const pool = unread.length > 0 ? unread : rows.slice(0, 20);
+            for (const row of pool.slice(0, 20)) {
+              try {
+                const link = row.querySelector('a[href*="/marketplace/t/"], a[href*="/messages/t/"]') as HTMLAnchorElement | null;
+                if (!link) continue;
+                const href = link.href;
+                // conversation_key = 'mp:<thread_id>' for Marketplace,
+                // 'msg:<thread_id>' otherwise. Extract the id from the URL.
+                const m = href.match(/\/(?:marketplace|messages)\/t\/([^/?#]+)/);
+                if (!m) continue;
+                const threadId = m[1];
+                const isMarketplace = /marketplace/i.test(href);
+                const conversation_key = `${isMarketplace ? 'mp' : 'msg'}:${threadId}`;
+                const preview = (row.querySelector('[dir="auto"] span') as HTMLElement | null)?.innerText?.trim() || '';
+                const header_text = (row.querySelector('span[dir="auto"]') as HTMLElement | null)?.innerText?.trim() || row.innerText.trim().split('\n')[0].slice(0, 200);
+                // Hash the preview as a stand-in for last_inbound_hash;
+                // if we can't hash, use the raw slice as an idempotency key.
+                let last_inbound_hash = '';
+                try {
+                  const enc = new TextEncoder().encode(preview);
+                  const digest = await crypto.subtle.digest('SHA-256', enc);
+                  const bytes = new Uint8Array(digest);
+                  last_inbound_hash = Array.from(bytes.slice(0, 8)).map((b) => b.toString(16).padStart(2, '0')).join('');
+                } catch { last_inbound_hash = preview.slice(0, 32); }
+                items.push({
+                  conversation_key,
+                  header_text,
+                  last_inbound_text: preview,
+                  last_inbound_hash,
+                  url: href,
+                });
+              } catch { /* skip row */ }
+            }
+            sendResponse({ ok: true, items });
+          } catch (err: any) {
+            sendResponse({ ok: false, error: err?.message || 'sweep_failed' });
+          }
+        })();
+        return true;
+      }
+
       if (msg.type === 'OVERDRIVE_INJECT_TEXT') {
         (async () => {
           try {

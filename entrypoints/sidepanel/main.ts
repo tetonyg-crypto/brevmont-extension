@@ -1436,6 +1436,52 @@ async function renderPanel(): Promise<void> {
   startChallengePolling(root);
   renderMyLeads(root).catch(() => {});
   renderAccountChip().catch(() => {});
+  renderRadarStatus(root).catch(() => {});
+}
+
+/**
+ * Radar status line (Radar Phase D). Shows a quiet indicator with
+ * today's capture count when radar is active. Hides when disabled
+ * (rep opt-out or dealership flag off). Refreshes every 60s.
+ */
+async function renderRadarStatus(root: HTMLElement): Promise<void> {
+  const el = root.querySelector('#o8-radar-status') as HTMLElement | null;
+  const txt = root.querySelector('#o8-radar-status-text') as HTMLElement | null;
+  if (!el || !txt) return;
+  try {
+    const token = await getStoredToken();
+    if (!token) { el.style.display = 'none'; return; }
+    const base = (await chrome.storage.local.get(['api_base_url']))?.api_base_url || 'https://api.brevmont.com';
+    const resp = await fetch(`${base}/api/v1/radar/status`, {
+      headers: { 'X-Rep-Token': token, Authorization: `Bearer ${token}` },
+    }).catch(() => null);
+    if (!resp?.ok) { el.style.display = 'none'; return; }
+    const data = await resp.json().catch(() => ({}));
+    if (!data?.enabled) { el.style.display = 'none'; return; }
+    const count = Number(data.count_today) || 0;
+    txt.textContent = count > 0
+      ? `Lead radar active — ${count} captured today`
+      : 'Lead radar active';
+    el.style.display = 'block';
+  } catch {
+    el.style.display = 'none';
+  }
+  // Re-check every 60s while the panel is open.
+  if (!(root as any).__radarStatusTimer) {
+    (root as any).__radarStatusTimer = window.setInterval(() => {
+      renderRadarStatus(root).catch(() => {});
+    }, 60 * 1000);
+  }
+}
+
+async function getStoredToken(): Promise<string | null> {
+  try {
+    const [sync, local] = await Promise.all([
+      chrome.storage.sync.get(['dealer_token', 'rep_auth_token']),
+      chrome.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token']),
+    ]);
+    return (sync.dealer_token || local.dealer_token || sync.rep_auth_token || local.rep_auth_token || local.brevmont_rep_auth_token || null) as string | null;
+  } catch { return null; }
 }
 
 const PLAN_DISPLAY: Record<string, string> = {

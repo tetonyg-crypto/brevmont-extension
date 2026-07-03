@@ -59,6 +59,12 @@ export function getPanelHTML(platform: Platform): string {
   <button id="o8-lead-btn" class="lead-btn">+ Lead</button>
   <span id="o8-close" class="close">&times;</span>
 </div>
+<div id="o8-radar-status" class="radar-status" style="display:none;padding:6px 12px;font-size:11px;color:rgba(0,0,0,0.55);background:rgba(13,110,110,0.06);border-bottom:1px solid rgba(0,0,0,0.05);">
+  <span style="display:inline-flex;align-items:center;gap:6px;">
+    <span style="width:6px;height:6px;border-radius:50%;background:#0D6E6E;box-shadow:0 0 0 3px rgba(13,110,110,0.15);"></span>
+    <span id="o8-radar-status-text">Lead radar active</span>
+  </span>
+</div>
 <div id="o8-challenge-banner" class="challenge-banner" style="display:none"></div>
 <div id="o8-customer-stamp" class="customer-stamp" style="display:none"></div>
 <div id="o8-customer-picker" class="customer-picker" style="display:none"></div>

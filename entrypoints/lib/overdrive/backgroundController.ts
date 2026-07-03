@@ -18,10 +18,11 @@
 
 import type { OrchestratorSettings, OrchestratorDeps, ThreadScrape } from './orchestrator';
 import { orchestrateReply, isHeroStage } from './orchestrator';
-import { radarCapture } from './radarClient';
+import { radarCapture, radarSweepDone } from './radarClient';
 import { getOverdriveSettings } from './apiClient';
 
 const KEEPALIVE_ALARM = 'overdrive-keepalive';
+const RADAR_SWEEP_ALARM = 'radar-catchup-sweep';
 const NOTIFICATION_ID_PREFIX = 'overdrive-escalation-';
 const SETTINGS_CACHE_KEY = 'overdrive_settings_cache';
 const REP_REPLIES_TODAY_KEY = 'overdrive_rep_replies_today';
@@ -201,6 +202,70 @@ async function ensureFacebookTabIfEnabled(cached: CachedSettings | null): Promis
   } catch (err: any) {
     await overdriveLog({ event: 'keepalive_open_fb_tab_failed', error: err?.message });
   }
+}
+
+/**
+ * Radar catch-up sweep — walk every open Facebook tab, ask the
+ * content script for its visible chat-list snapshot, and fire
+ * POST /api/v1/radar/capture for each item with sweep_source=
+ * 'catchup_sweep'. Rate-limited to 1 capture/second per rep to look
+ * human-plausible in the DOM read cadence. Server idempotency
+ * prevents dupes across sweeps.
+ */
+async function runRadarCatchupSweep(): Promise<void> {
+  await overdriveLog({ event: 'radar_sweep_start' });
+  const tabs = await findFacebookTabs();
+  if (tabs.length === 0) {
+    await overdriveLog({ event: 'radar_sweep_no_tabs' });
+    return;
+  }
+  const counts = { total: 0, created: 0, updated: 0, noop: 0, error: 0 };
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    const list = await sendToTab<{ ok: boolean; items?: Array<{
+      conversation_key: string;
+      header_text: string;
+      last_inbound_text: string;
+      last_inbound_hash: string;
+      url: string;
+    }> }>(tab.id, { type: 'RADAR_SWEEP_LIST' });
+    if (!list?.ok || !list.items) continue;
+    for (const item of list.items) {
+      try {
+        counts.total += 1;
+        // Split "<Buyer> · <Listing>" header if present.
+        let customer_name: string | null = null;
+        let listing_title: string | null = null;
+        const parts = item.header_text.split(/\s*[·•]\s*/);
+        if (parts.length >= 2) {
+          customer_name = parts[0].trim() || null;
+          listing_title = parts.slice(1).join(' · ').trim() || null;
+        } else if (item.header_text) {
+          customer_name = item.header_text;
+        }
+        const result = await radarCapture({
+          conversation_key: item.conversation_key,
+          last_inbound_hash: item.last_inbound_hash,
+          last_inbound_text: item.last_inbound_text,
+          customer_name,
+          listing: { title: listing_title, url: item.url },
+          source_platform: /marketplace/i.test(item.url) ? 'facebook_marketplace' : 'facebook_messenger',
+          sweep_source: 'catchup_sweep',
+        });
+        if (result.mode === 'created') counts.created += 1;
+        else if (result.mode === 'updated') counts.updated += 1;
+        else if (result.mode === 'noop') counts.noop += 1;
+        else if (!result.ok) counts.error += 1;
+        // Human-plausible pacing: 1 capture / second per sweep.
+        await new Promise((r) => setTimeout(r, 1000));
+      } catch (e: any) {
+        counts.error += 1;
+        await overdriveLog({ event: 'radar_sweep_item_error', error: e?.message });
+      }
+    }
+  }
+  await radarSweepDone(counts);
+  await overdriveLog({ event: 'radar_sweep_done', counts });
 }
 
 /**
@@ -393,12 +458,30 @@ export async function installOverdriveController(): Promise<void> {
   // Register the keepalive alarm (1 min).
   try {
     chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 1 });
+    // Radar catch-up sweep — every 30min while radar is eligible.
+    // Walks the Marketplace chat list and captures anything the
+    // observer missed while Chrome was closed. Rate-limited server-side
+    // by the idempotency index (migration 304).
+    chrome.alarms.create(RADAR_SWEEP_ALARM, { periodInMinutes: 30, delayInMinutes: 2 });
     chrome.alarms.onAlarm.addListener(async (alarm) => {
-      if (alarm.name !== KEEPALIVE_ALARM) return;
-      const cached = await activeSettings();
-      await ensureFacebookTabIfEnabled(cached);
-      if (!overdriveGoLightIsGreen(cached)) return;
-      await armDetectorOnAllFbTabs();
+      if (alarm.name === KEEPALIVE_ALARM) {
+        const cached = await activeSettings();
+        await ensureFacebookTabIfEnabled(cached);
+        // Install detector when EITHER radar or overdrive is eligible;
+        // radar-only paths still need the observer to fire signals.
+        const radarEligible = !!(cached?.linked && cached?.disclosure_acked);
+        if (overdriveGoLightIsGreen(cached) || radarEligible) {
+          await armDetectorOnAllFbTabs();
+        }
+        return;
+      }
+      if (alarm.name === RADAR_SWEEP_ALARM) {
+        const cached = await activeSettings();
+        const radarEligible = !!(cached?.linked && cached?.disclosure_acked);
+        if (!radarEligible) return;
+        await runRadarCatchupSweep();
+        return;
+      }
     });
   } catch { /* noop */ }
 
@@ -412,7 +495,10 @@ export async function installOverdriveController(): Promise<void> {
         if (!FACEBOOK_HOSTS.test(host)) return;
       } catch { return; }
       const cached = await activeSettings();
-      if (!overdriveGoLightIsGreen(cached)) return;
+      // Radar-only paths still need the observer installed. Install
+      // when EITHER radar or overdrive is eligible.
+      const radarEligible = !!(cached?.linked && cached?.disclosure_acked);
+      if (!overdriveGoLightIsGreen(cached) && !radarEligible) return;
       const r = await sendToTab<{ ok: boolean }>(tabId, { type: 'OVERDRIVE_INSTALL_DETECTOR' });
       if (r?.ok) state.perTabDetectorInstalled.add(tabId);
     });
