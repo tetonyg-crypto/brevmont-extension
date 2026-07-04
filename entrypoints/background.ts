@@ -3025,6 +3025,13 @@ async function handleGenerate(payload: {
       apiBase
     );
     const sections = parseGenerationSections(result.text, payload.type);
+    const latestInbound =
+      payload.metadata?.last_inbound_text ||
+      payload.threadContext?.last_inbound_text ||
+      null;
+    if (isVehicleConditionQuestionText(latestInbound) && sections?.text && looksLikeGenericAvailabilityFollowup(sections.text)) {
+      sections.text = vehicleConditionFallbackReply();
+    }
     return { text: result.text, sections, guard_metrics: result.guard_metrics || null };
   } catch (err: any) {
     const m = String(err?.message || err);
@@ -3695,6 +3702,36 @@ function threadMessagesForPrompt(messages: unknown): string {
     .slice(0, 5000);
 }
 
+function isVehicleConditionQuestionText(value: unknown): boolean {
+  const text = String(value || '').toLowerCase();
+  if (!text) return false;
+  return /\b(?:condition|shape|damage|accident|accidents|clean title|title clean|rust|scratches|dents?|mechanical|engine|transmission|runs?|drive[sn]?|reliable|history)\b/.test(text) &&
+    /\b(?:how|what|is|was|does|any|tell|condition|shape)\b/.test(text);
+}
+
+function directVehicleConditionInstruction(lastInbound: string): string {
+  if (!isVehicleConditionQuestionText(lastInbound)) return '';
+  return [
+    'DIRECT CUSTOMER QUESTION OVERRIDE:',
+    'The latest customer message asks about vehicle condition. Answer that question first.',
+    'Do not write a generic availability follow-up. Do not ask if it is still on their list.',
+    'If exact condition, accident history, title status, mileage, or inspection details are not in the scanned thread or CRM context, do not invent them. Say you do not want to overstate condition over text, then invite them to see it in person.',
+    '',
+  ].join('\n');
+}
+
+function looksLikeGenericAvailabilityFollowup(value: unknown): boolean {
+  const text = String(value || '').toLowerCase();
+  if (!text) return false;
+  const generic = /\b(?:follow up|still on your list|still interested|availability and next steps|considering at|clear next step|talk through availability)\b/.test(text);
+  const conditionAnswered = /\b(?:condition|shape|clean|damage|accident|title|rust|dents?|scratches|inspect|see it in person|overstate)\b/.test(text);
+  return generic && !conditionAnswered;
+}
+
+function vehicleConditionFallbackReply(): string {
+  return "It looks clean from what I can see, but I don't want to overstate condition over text. Best move is to see it in person so I can walk you around it. Can you come by today or tomorrow?";
+}
+
 function buildUserMessage(payload: any, repName: string, dealership: string, repContext: string = ''): string {
   const lc = payload.leadContext || {};
   const thread = payload.threadContext || payload.thread_context || null;
@@ -3742,6 +3779,7 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
     const history = threadMessages || rawThread;
     if (history) msg += `Visible history:\n${history}\n`;
     msg += 'Use the scanned thread as the primary source of truth. Answer the latest customer message directly, keep the customer name clean, and do not invent vehicle specs, prices, availability, or financing terms not present in the vehicle/dealership context.\n\n';
+    msg += directVehicleConditionInstruction(lastInbound);
   }
 
   if (noVehicleDetected) {

@@ -303,18 +303,10 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
     return;
   }
 
-  // Debounce: 3s per-tab minimum between orchestration cycles so a
-  // burst of layer-1 + layer-2 + layer-3 signals from the same
-  // inbound doesn't fire 3x.
-  const debounceKey = `tab:${tabId}`;
-  const lastFire = state.perThreadDebounce.get(debounceKey) || 0;
-  if (Date.now() - lastFire < 3000) {
-    await overdriveLog({ event: 'skip_debounce', tab_id: tabId, signal });
-    return;
-  }
-  state.perThreadDebounce.set(debounceKey, Date.now());
-
   // Scrape the thread via content script.
+  // Let Messenger finish painting the latest bubble before we decide
+  // which inbound hash this signal belongs to.
+  await new Promise((resolve) => setTimeout(resolve, 250));
   const scrape = await sendToTab<{ ok: boolean; scrape?: ThreadScrape }>(tabId, {
     type: 'OVERDRIVE_SCRAPE_THREAD',
   });
@@ -322,6 +314,24 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
     await overdriveLog({ event: 'scrape_failed', tab_id: tabId });
     return;
   }
+
+  // Debounce by actual conversation + inbound hash, not tab. Messenger
+  // can fire a system-card mutation and the real customer bubble in the
+  // same tab within a few seconds; a tab-level debounce drops the second
+  // signal and leaves Overdrive silent on the line that matters.
+  const debounceKey = `${scrape.scrape.conversation_key}:${scrape.scrape.last_inbound_hash || 'empty'}`;
+  const lastFire = state.perThreadDebounce.get(debounceKey) || 0;
+  if (Date.now() - lastFire < 3000) {
+    await overdriveLog({
+      event: 'skip_debounce',
+      tab_id: tabId,
+      conversation_key: scrape.scrape.conversation_key,
+      inbound_hash: scrape.scrape.last_inbound_hash || null,
+      signal,
+    });
+    return;
+  }
+  state.perThreadDebounce.set(debounceKey, Date.now());
 
   // ── Hop 1 receipts (migration 310) ──────────────────────────
   // Report every detection signal to the server BEFORE

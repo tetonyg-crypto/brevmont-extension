@@ -115,6 +115,16 @@ function cleanMessageText(value: string): string {
     .trim();
 }
 
+function isMessengerSystemCardText(value: string): boolean {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return true;
+  if (/^you can now rate each other\b/i.test(text)) return true;
+  if (/\bpeople may rate one another based on their interactions or transactions\b/i.test(text)) return true;
+  if (/\brate\s+[^.]{1,80}$/i.test(text) && /\bpeople may rate one another\b/i.test(text)) return true;
+  if (/^(?:marketplace|sold\s*[-–]|see details|more options)$/i.test(text)) return true;
+  return false;
+}
+
 function readRecentMessages(): { history: string[]; lastInbound: string } {
   const history: string[] = [];
   let lastInbound = '';
@@ -128,6 +138,7 @@ function readRecentMessages(): { history: string[]; lastInbound: string } {
     for (const c of candidates) {
       const text = cleanMessageText((c as HTMLElement).innerText || '');
       if (!text || text.length < 2) continue;
+      if (isMessengerSystemCardText(text)) continue;
       const direction = determineMessageDirection(c, main);
       if (direction === 'unknown') continue;
       const labelled = `${direction === 'outbound' ? 'Rep' : 'Customer'}: ${text.slice(0, 460)}`;

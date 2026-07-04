@@ -19,7 +19,11 @@ test('manual Generate reads output chips after forced scan applies surface defau
   const source = read('entrypoints/sidepanel/main.ts');
   const start = source.indexOf('async function doGenerate');
   const body = source.slice(start, source.indexOf('// ─── Add output card', start));
+  expect(body).toContain('let scan: AutoThreadScan | null = null');
   expect(body.indexOf('scan = await scanThreadForGenerate(root, true)')).toBeGreaterThan(-1);
+  expect(body.indexOf('scan = await scanThreadForGenerate(root, true)')).toBeLessThan(
+    body.indexOf('if (!scan) scan = getUsableAutoThreadScan()'),
+  );
   expect(body.indexOf("root.querySelectorAll('.chip.on')")).toBeGreaterThan(
     body.indexOf('scan = await scanThreadForGenerate(root, true)'),
   );
@@ -31,6 +35,16 @@ test('manual Generate reads output chips after forced scan applies surface defau
   expect(body).toContain('setActiveOutputTab(root, selectedReady || firstReady!)');
   expect(body).toContain('/v1/generate records one generation.created event for the one paid request');
   expect(body).not.toContain("selected.includes('text')");
+});
+
+test('manual Generate protects direct vehicle-condition questions from generic follow-up drift', () => {
+  const background = read('entrypoints/background.ts');
+  expect(background).toContain('function isVehicleConditionQuestionText');
+  expect(background).toContain('DIRECT CUSTOMER QUESTION OVERRIDE');
+  expect(background).toContain('The latest customer message asks about vehicle condition');
+  expect(background).toContain('Do not write a generic availability follow-up');
+  expect(background).toContain('looksLikeGenericAvailabilityFollowup(sections.text)');
+  expect(background).toContain('sections.text = vehicleConditionFallbackReply()');
 });
 
 test('output chips are exclusive mode selectors before generation', () => {
@@ -246,6 +260,18 @@ test('Overdrive blocks unsafe meta replies before injection and clears failed dr
   expect(bridge).toContain("if (direction === 'unknown') continue;");
   expect(sender).toContain('[aria-label*="Press Enter" i]');
   expect(sender).toContain("k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$')");
+});
+
+test('Overdrive ignores Messenger system cards and debounces by inbound hash, not tab', () => {
+  const bridge = read('entrypoints/lib/overdrive/contentBridge.ts');
+  const background = read('entrypoints/lib/overdrive/backgroundController.ts');
+  expect(bridge).toContain('function isMessengerSystemCardText');
+  expect(bridge).toContain('you can now rate each other');
+  expect(bridge).toContain('people may rate one another based on their interactions or transactions');
+  expect(bridge).toContain('if (isMessengerSystemCardText(text)) continue;');
+  expect(background).toContain('Let Messenger finish painting the latest bubble');
+  expect(background).toContain('`${scrape.scrape.conversation_key}:${scrape.scrape.last_inbound_hash ||');
+  expect(background).not.toContain('const debounceKey = `tab:${tabId}`');
 });
 
 test('Overdrive header dot paints from the same state as the pill', () => {

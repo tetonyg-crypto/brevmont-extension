@@ -3438,10 +3438,11 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   isGenerating = true;
 
   const input = (root.querySelector('#o8-input') as HTMLTextAreaElement)?.value.trim() || '';
-  let scan = getUsableAutoThreadScan();
-  if (!scan && currentPlatform.platform !== 'unknown') {
+  let scan: AutoThreadScan | null = null;
+  if (currentPlatform.platform !== 'unknown') {
     scan = await scanThreadForGenerate(root, true);
   }
+  if (!scan) scan = getUsableAutoThreadScan();
   if (!scan && !input) {
     scan = await scanVisibleTextFallback(root);
   }
