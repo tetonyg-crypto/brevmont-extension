@@ -165,7 +165,6 @@ export function getPanelHTML(platform: Platform): string {
     </div>
     <div class="input-wrap">
       <textarea id="o8-input" class="main-input" placeholder="${esc(placeholder)}" rows="3"></textarea>
-      <button id="o8-customer-open" class="customer-picker-trigger" title="Stamp to a customer" type="button">Customer</button>
       <button id="o8-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button>
     </div>
     <div class="input-hint">Optional steer. Text, email, CRM note.</div>

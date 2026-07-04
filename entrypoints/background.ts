@@ -281,6 +281,34 @@ async function logToolEvent(
   }
 }
 
+async function upsertLocalReminder(
+  task: string,
+  alertTime: number,
+  metadata: Record<string, any> = {},
+): Promise<void> {
+  const safeTime = Number(alertTime);
+  if (!task || !Number.isFinite(safeTime)) return;
+  const data = await browser.storage.local.get('brevmont_alerts');
+  const alerts = Array.isArray(data.brevmont_alerts) ? data.brevmont_alerts : [];
+  const id = String(metadata.id || Date.now());
+  const next = alerts
+    .filter((alert: any) => String(alert?.id || '') !== id)
+    .concat({
+      id,
+      task,
+      alertTime: safeTime,
+      dismissed: false,
+      fired: false,
+      source: metadata.source || 'manual',
+      leadId: metadata.lead_id || null,
+    });
+  await browser.storage.local.set({ brevmont_alerts: next });
+  await logToolEvent('reminder_set', task, '', {
+    reminder_time: new Date(safeTime).toISOString(),
+    ...metadata,
+  });
+}
+
 function customerQuery(params: Record<string, any>): string {
   const qs = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -1325,12 +1353,9 @@ export default defineBackground(() => {
     if (msg.type === 'SET_ALERT') {
       (async () => {
         try {
-          const data = await browser.storage.local.get('brevmont_alerts');
-          const alerts = data.brevmont_alerts || [];
-          alerts.push({ id: Date.now().toString(), task: msg.payload.task, alertTime: msg.payload.alertTime, dismissed: false });
-          await browser.storage.local.set({ brevmont_alerts: alerts });
-          await logToolEvent('reminder_set', msg.payload.task || '', '', {
-            reminder_time: msg.payload.alertTime ? new Date(msg.payload.alertTime).toISOString() : null,
+          await upsertLocalReminder(String(msg.payload.task || ''), Number(msg.payload.alertTime), {
+            id: msg.payload.id || undefined,
+            source: 'manual',
             platform: msg.payload.platform || 'unknown',
             ...toolLeadMetadata(msg.payload, msg.payload.platform || 'unknown'),
           });
@@ -1676,6 +1701,27 @@ export default defineBackground(() => {
 
           const data = await resp.json();
           const lead = data.lead || data;
+
+          if (stage === 'appointment_set' && appointment_at) {
+            const appointmentMs = new Date(appointment_at).getTime();
+            if (Number.isFinite(appointmentMs)) {
+              const reminderMs = appointmentMs - Date.now() > 30 * 60000
+                ? appointmentMs - 30 * 60000
+                : appointmentMs;
+              const customer = cleanLeadMetaValue(lead.customer_name || lead.customerName || lead.name) || 'Customer';
+              const vehicle = cleanLeadMetaValue(lead.vehicle_interest || lead.vehicle || '');
+              await upsertLocalReminder(
+                `Appointment: ${customer}${vehicle ? ` - ${vehicle}` : ''}`,
+                reminderMs,
+                {
+                  id: `appointment:${leadId}:${appointmentMs}`,
+                  source: 'appointment_set',
+                  lead_id: leadId,
+                  appointment_at,
+                },
+              );
+            }
+          }
 
           // Update local DB if lead exists there
           try {
@@ -2084,6 +2130,17 @@ export default defineBackground(() => {
       if (now >= alert.alertTime) {
         alert.fired = true;
         changed = true;
+        try {
+          if (chrome.notifications?.create) {
+            chrome.notifications.create(`brevmont-alert-${alert.id}`, {
+              type: 'basic',
+              iconUrl: browser.runtime.getURL('icons/icon-128.png'),
+              title: 'Brevmont reminder',
+              message: String(alert.task || 'Follow up'),
+              priority: 1,
+            });
+          }
+        } catch { /* notification permission/browser support can vary */ }
         const tabs = await browser.tabs.query({ active: true });
         for (const tab of tabs) {
           if (tab.id) {
@@ -3332,7 +3389,7 @@ async function handleCommand(payload: { command: string; currentUrl?: string; ve
   const vehicleCtx = (payload.vehicleContext || leadMeta.vehicle) ? `\nVehicle context: ${payload.vehicleContext || leadMeta.vehicle}` : '';
   const customerCtx = leadMeta.customer_name ? `\nCustomer: ${leadMeta.customer_name}` : '';
 
-  const cmdMessage = `[COMMAND MODE — Answer this question or execute this request for an automotive sales rep.]
+  const cmdMessage = `[ASK ANYTHING MODE - INTERNAL SALES ANSWER ONLY. Do NOT generate customer-facing copy or follow-up content.]
 
 Rep: ${repName}
 Dealership: ${dealership}
@@ -3340,7 +3397,7 @@ ${contextBlock}${customerCtx}${vehicleCtx}
 
 Question/Request: "${payload.command}"
 
-Provide a direct, actionable answer. Keep it concise (2-4 sentences). If the question is about a specific process, give step-by-step instructions. If it's a knowledge question, answer factually.`;
+Answer the rep's exact question fast. Never output TEXT, EMAIL, CRM NOTE, subject lines, signatures, or sendable messages. Do not ask "do you mean" or clarifying questions; if a detail is missing, state a reasonable assumption and answer with that assumption. Keep it concise (2-4 sentences). If it is a payment/math question, show the rough calculation and the assumption.`;
 
   const apiBase = await getResolvedApiUrl();
   const result = await generateViaProxy(

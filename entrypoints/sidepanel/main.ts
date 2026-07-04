@@ -506,7 +506,7 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
   const loading = document.getElementById('sp-loading');
   if (!root) return;
   if (loading) loading.style.display = 'none';
-  root.style.display = 'block';
+  root.style.display = 'flex';
 
   // Clear any prior poll from a previous mount so we don't double-poll.
   const priorPoll = (window as any).__brevmontSignInPollId;
@@ -1897,12 +1897,32 @@ function hidePrimaryPanels(root: HTMLElement): void {
   });
 }
 
-function showQuickView(root: HTMLElement, resetScroll = false): void {
+function resetPanelScroll(root: HTMLElement, panel?: HTMLElement | null): void {
+  const targets: Array<HTMLElement | Element | null | undefined> = [
+    document.scrollingElement,
+    document.documentElement,
+    document.body,
+    root,
+    root.querySelector('#o8-quick'),
+    panel,
+  ];
+  panel?.querySelectorAll<HTMLElement>('.settings-scroll, #o8-my-leads-scroll, #o8-stats-content, #o8-lead-result, .tool-content')
+    .forEach((node) => targets.push(node));
+  for (const target of targets) {
+    if (!target) continue;
+    try {
+      (target as HTMLElement).scrollTop = 0;
+      (target as HTMLElement).scrollLeft = 0;
+    } catch { /* noop */ }
+  }
+}
+
+function showQuickView(root: HTMLElement, resetScroll = true): void {
   hidePrimaryPanels(root);
   const quick = root.querySelector('#o8-quick') as HTMLElement | null;
   if (quick) {
     quick.style.display = 'flex';
-    if (resetScroll) quick.scrollTop = 0;
+    if (resetScroll) resetPanelScroll(root, quick);
   }
 }
 
@@ -1914,9 +1934,7 @@ function showPrimaryPanel(root: HTMLElement, selector: string, resetScroll = tru
   if (!panel) return null;
   panel.style.display = 'flex';
   if (resetScroll) {
-    panel.scrollTop = 0;
-    const scrollBody = panel.querySelector('.settings-scroll, #o8-my-leads-scroll, #o8-stats-content') as HTMLElement | null;
-    if (scrollBody) scrollBody.scrollTop = 0;
+    resetPanelScroll(root, panel);
   }
   return panel;
 }
@@ -2042,7 +2060,7 @@ async function renderPanel(): Promise<void> {
 
   // Hide loading, show panel
   if (loading) loading.style.display = 'none';
-  root.style.display = 'block';
+  root.style.display = 'flex';
 
   // Wire event handlers
   wireHandlers(root);
@@ -2069,6 +2087,7 @@ async function renderPanel(): Promise<void> {
   renderRadarStatus(root).catch(() => {});
   renderOverdriveStatusPill(root).catch(() => {});
   wireIdentityReactivity();
+  requestAnimationFrame(() => resetPanelScroll(root));
 }
 
 // ─── Overdrive discoverability pill (2026-07-03) ──────────────────
@@ -2877,7 +2896,6 @@ async function showSettingsSupport(root: HTMLElement, mode: SettingsSupportMode,
   if (email) email.textContent = SUPPORT_EMAIL;
   card.style.display = '';
   const scrollBody = root.querySelector('#o8-settings-scroll') as HTMLElement | null;
-  card.scrollIntoView({ block: 'nearest' });
   if (scrollBody) {
     const maxScroll = Math.max(0, scrollBody.scrollHeight - scrollBody.clientHeight);
     scrollBody.scrollTop = Math.min(maxScroll, card.offsetTop - 12);
@@ -2963,8 +2981,6 @@ function wireHandlers(root: HTMLElement): void {
       showPrimaryPanel(root, '#o8-settings-panel');
     };
   }
-  const customerBtn = el('o8-customer-open');
-  if (customerBtn) customerBtn.onclick = () => openCustomerPicker(root);
   const exampleBtn = el('o8-first-use-example') as HTMLButtonElement | null;
   if (exampleBtn) {
     exampleBtn.onclick = () => {
@@ -3797,7 +3813,6 @@ function addOutput(root: HTMLElement, label: string, content: string, outputType
 
   outputs.appendChild(card);
   fitOutputTextarea(card, outputType);
-  card.scrollIntoView({ block: 'nearest' });
 }
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
@@ -3860,6 +3875,53 @@ function localCoachFallback(input: string): string {
 function coachDisplayText(input: string, modelText: string): string {
   const cleaned = displayText(modelText, '').trim();
   if (!cleaned || looksLikeFollowUpGeneration(cleaned)) return localCoachFallback(input);
+  return cleaned;
+}
+
+function looksLikeClarifyingQuestion(text: string): boolean {
+  return /^\s*(do you mean|did you mean|can you clarify|could you clarify|please clarify|what do you mean|i need more|i would need|i'd need|need more info)\b/i.test(text || '');
+}
+
+function parseMoneyAmount(raw: string, hasK: boolean): number {
+  const value = Number(String(raw || '').replace(/,/g, ''));
+  if (!Number.isFinite(value)) return 0;
+  if (hasK || value < 1000) return Math.round(value * 1000);
+  return Math.round(value);
+}
+
+function localCommandFallback(input: string): string {
+  const text = String(input || '').toLowerCase();
+  const monthsMatch = text.match(/\b(\d{2,3})\s*(?:months?|mos?|mo)\b/);
+  const amountMatches = [...text.matchAll(/\$?\b(\d+(?:\.\d+)?)\s*(k)?\b/g)]
+    .map((match) => {
+      const after = text.slice((match.index || 0) + match[0].length, (match.index || 0) + match[0].length + 18);
+      return {
+        value: parseMoneyAmount(match[1], !!match[2]),
+        isDown: /\b(down|dn|cash down)\b/.test(after),
+        isMonths: monthsMatch ? match[1] === monthsMatch[1] : false,
+      };
+    })
+    .filter((item) => item.value > 0 && !item.isMonths);
+
+  const price = amountMatches.find((item) => !item.isDown && item.value >= 10000)?.value || 0;
+  const down = amountMatches.find((item) => item.isDown)?.value || 0;
+  const months = monthsMatch ? Number(monthsMatch[1]) : 0;
+  if (price && months) {
+    const principal = Math.max(0, price - down);
+    const apr = 0.099;
+    const monthlyRate = apr / 12;
+    const payment = monthlyRate > 0
+      ? principal * (monthlyRate / (1 - Math.pow(1 + monthlyRate, -months)))
+      : principal / months;
+    return `Rough payment: about $${Math.round(payment).toLocaleString()}/mo before tax and fees, assuming $${price.toLocaleString()} price, $${down.toLocaleString()} down, ${months} months, and 9.9% APR. Amount financed before tax/fees is about $${principal.toLocaleString()}. A lower approved rate drops it; rolled-in tax, warranty, or gap raises it.`;
+  }
+
+  return 'Best quick answer with what we have: make a reasonable assumption, state it, answer directly, and give the rep one next step. Do not turn this into a customer follow-up.';
+}
+
+function commandDisplayText(input: string, modelText: string): string {
+  const cleaned = displayText(modelText, '').trim();
+  if (!cleaned || looksLikeFollowUpGeneration(cleaned) || looksLikeClarifyingQuestion(cleaned)) return localCommandFallback(input);
   return cleaned;
 }
 
@@ -3966,12 +4028,13 @@ async function doCommand(root: HTMLElement): Promise<void> {
     const resp = await safeSend({ type: 'EXECUTE_COMMAND', payload: { command: input, platform: currentPlatform.platform, currentUrl: currentPlatform.url, leadContext } });
     // API returns { parsed: { action, content, ... }, usage }.
     // Display the content field from the parsed command JSON.
-    const text = resp?.parsed?.content || resp?.result || resp?.text || '';
+    const rawText = resp?.parsed?.content || resp?.result || resp?.text || '';
+    const text = commandDisplayText(input, rawText);
     if (!text) {
       status.innerHTML = '<div class="tool-result" style="color:#ef4444">Empty response. Try again.</div>';
       return;
     }
-    status.innerHTML = `<div class="tool-result">${esc(displayText(text, 'No answer returned.'))}</div>`;
+    status.innerHTML = `<div class="tool-result">${esc(text)}</div>`;
   } catch (e: any) {
     status.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
   }
@@ -5234,13 +5297,6 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (!root || root.style.display === 'none') return false;
   const target = String(msg.target || 'generation');
   if (target === 'coach' || target === 'command') {
-    const result = root.querySelector(`[data-stream-target="${target}"]`) as HTMLElement | null;
-    if (!result) return false;
-    if (msg.event === 'delta') {
-      const existing = /^(Thinking|Executing)\.\.\.$/.test(result.textContent || '') ? '' : (result.textContent || '');
-      result.textContent = existing + String(msg.text || '');
-      result.style.color = '#0f172a';
-    }
     return false;
   }
   const card = root.querySelector(`#o8-streaming-output[data-generation-id="${CSS.escape(String(msg.generation_id || ''))}"]`) as HTMLElement | null;

@@ -40,6 +40,16 @@ test('output chips are exclusive mode selectors before generation', () => {
   expect(ui).toContain('<button class="chip" data-type="crm">CRM Note</button>');
 });
 
+test('manual customer control appears only on the customer stamp, not inside the steer box', () => {
+  const ui = read('entrypoints/lib/panelUI.ts');
+  const css = read('entrypoints/lib/panelCSS.ts');
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(ui).not.toContain('id="o8-customer-open"');
+  expect(ui).not.toContain('customer-picker-trigger');
+  expect(css).not.toContain('.customer-picker-trigger');
+  expect(source).not.toContain("el('o8-customer-open')");
+});
+
 test('output chips keep next-generate selection after output cards exist', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   const start = source.indexOf('// Output chips');
@@ -73,7 +83,7 @@ test('Settings owns a scroll body with Overdrive mounted inside it', () => {
   expect(css).toContain('-webkit-overflow-scrolling:touch');
   expect(source).toContain("settingsPanel.querySelector('#overdrive-panel-mount')");
   expect(source).toContain("showPrimaryPanel(root, '#o8-settings-panel')");
-  expect(source).toContain('scrollBody.scrollTop = 0');
+  expect(source).toContain('resetPanelScroll(root, panel)');
 });
 
 test('Settings support actions stay inside the sidepanel instead of opening mailto tabs', () => {
@@ -100,7 +110,7 @@ test('sidepanel main and lead capture views scroll without clipping behind the a
   expect(css).toContain('--panel-safe-bottom');
   expect(css).toContain('.quick-mode { display:flex; flex-direction:column; flex:1 1 auto; height:100%; max-height:100%; min-height:0; overflow-y:auto;');
   expect(css).toContain('.outputs:not(:empty) { padding:8px 14px var(--panel-safe-bottom); flex:0 0 auto; min-height:auto; }');
-  expect(css).toContain('.out-actions { position:sticky; bottom:calc(var(--account-chip-space) + 8px);');
+  expect(css).toContain('.out-actions { position:relative; display:flex;');
   expect(css).toContain('#o8-lead-panel { overflow-y:auto;');
   expect(css).toContain('#o8-lead-panel > .tool-content { flex:0 0 auto !important; min-height:auto !important; overflow:visible !important;');
   expect(css).toContain('#o8-lead-result { height:auto; max-height:none; padding:8px 14px var(--panel-safe-bottom) !important; }');
@@ -108,8 +118,12 @@ test('sidepanel main and lead capture views scroll without clipping behind the a
   expect(css).toContain('.my-leads-scroll { padding:12px 14px var(--panel-safe-bottom); }');
   expect(css).toContain('#o8-my-leads-content { flex:0 0 auto; min-height:auto; height:auto; max-height:none; overflow:visible; padding:0; }');
   expect(source).toContain('function fitOutputTextarea');
+  expect(source).toContain('function resetPanelScroll');
+  expect(source).toContain("root.style.display = 'flex'");
+  expect(source).not.toContain("root.style.display = 'block'");
+  expect(source).not.toContain("card.scrollIntoView({ block: 'nearest' })");
   expect(source).toContain('tool-content-active');
-  expect(source).toContain("panel.querySelector('.settings-scroll, #o8-my-leads-scroll, #o8-stats-content')");
+  expect(source).toContain("panel?.querySelectorAll<HTMLElement>('.settings-scroll, #o8-my-leads-scroll, #o8-stats-content, #o8-lead-result, .tool-content')");
 });
 
 test('Coach uses coach mode and rejects follow-up-shaped responses', () => {
@@ -120,6 +134,20 @@ test('Coach uses coach mode and rejects follow-up-shaped responses', () => {
   expect(source).toContain('function localCoachFallback');
   expect(source).toContain('coachDisplayText(input, rawText)');
   expect(source).toContain('TEXT|EMAIL|CRM');
+  expect(source).toContain("if (target === 'coach' || target === 'command')");
+  expect(source).not.toContain('result.textContent = existing + String(msg.text || \'\')');
+});
+
+test('Ask Anything is guarded as internal rep advice, never follow-up copy', () => {
+  const background = read('entrypoints/background.ts');
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(background).toContain('ASK ANYTHING MODE - INTERNAL SALES ANSWER ONLY');
+  expect(background).toContain('Never output TEXT, EMAIL, CRM NOTE');
+  expect(background).toContain('Do not ask "do you mean" or clarifying questions');
+  expect(source).toContain('function commandDisplayText');
+  expect(source).toContain('function localCommandFallback');
+  expect(source).toContain('looksLikeClarifyingQuestion');
+  expect(source).toContain('9.9% APR');
 });
 
 test('primary panel navigation has one Back path to the Generate view', () => {
@@ -169,6 +197,17 @@ test('My Leads merges server rows with local radar cache', () => {
   expect(source).toContain("safeSend({ type: 'GET_LOCAL_LEADS' })");
   expect(source).toContain('mergeLeadInboxRows(remoteLeads, localLeads, leadFilter)');
   expect(source).toContain('local_only');
+});
+
+test('appointment saves create rep reminders through the same alarm path', () => {
+  const background = read('entrypoints/background.ts');
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(source).toContain("stage: 'appointment_set', appointment_at");
+  expect(background).toContain('async function upsertLocalReminder');
+  expect(background).toContain("source: 'appointment_set'");
+  expect(background).toContain('chrome.notifications.create');
+  expect(background).toContain('SHOW_ALERT_BANNER');
+  expect(background).toContain('brevmont-check-alerts');
 });
 
 test('Overdrive header dot paints from the same state as the pill', () => {

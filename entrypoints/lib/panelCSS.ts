@@ -169,8 +169,6 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .customer-picker-meta { font-size:10px; color:#64748B; margin-top:1px; }
 .customer-picker-actions { display:flex; gap:6px; margin-top:8px; }
 .customer-picker-actions button { flex:1; border:1px solid #D9E7E7; background:#fff; border-radius:8px; padding:7px; font-size:11px; font-weight:800; font-family:inherit; color:#0D6E6E; cursor:pointer; }
-.customer-picker-trigger { position:absolute; right:42px; bottom:8px; border:1px solid #D9E7E7; background:#fff; color:#0D6E6E; border-radius:999px; padding:3px 7px; font-family:inherit; font-size:10px; font-weight:800; cursor:pointer; }
-.customer-picker-trigger:hover { border-color:#0D6E6E; background:#E6F4F1; }
 .nav-count { display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; margin-left:4px; border-radius:999px; background:#DC2626; color:#fff; font-size:10px; font-weight:800; padding:0 4px; }
 .my-lead-card { border:1px solid #E5E7EB; border-radius:10px; padding:10px; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.04); }
 .my-lead-card + .my-lead-card { margin-top:8px; }
@@ -227,7 +225,7 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .out-textarea { width:100%; min-height:120px; max-height:min(52vh, 520px); height:auto; padding:10px; border:1px solid #E5E7EB; border-radius:8px; font-size:12px; line-height:1.6; font-family:inherit; color:#1a202c; background:#fff; resize:vertical; outline:none; overflow-y:auto; } .out-textarea:focus { border-color:#0D6E6E; }
 .out-card[data-output-type="email"] .out-textarea { min-height:min(44vh, 340px); }
 .out-card[data-output-type="crm"] .out-textarea { min-height:min(34vh, 220px); }
-.out-actions { position:sticky; bottom:calc(var(--account-chip-space) + 8px); z-index:2; display:flex; gap:6px; margin-top:8px; padding-top:8px; padding-bottom:2px; background:#fff; }
+.out-actions { position:relative; display:flex; gap:6px; margin-top:8px; padding-top:8px; padding-bottom:2px; background:#fff; }
 .out-status { font-size:10px; margin-top:4px; min-height:14px; }
 .out-action { padding:6px 14px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; transition:all .15s; }
 .out-primary { background:#0D6E6E; border:1px solid #6B63C7; color:#fff; } .out-primary:hover { background:#0A5555; }
