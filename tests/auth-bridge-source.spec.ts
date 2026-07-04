@@ -8,10 +8,13 @@ test('background session-ready bridge emits receiver and result traces', () => {
   expect(source).toContain("'session_ready_purge_complete'");
   expect(source).toContain("'session_ready_config_result'");
   expect(source).toContain("'session_ready_config_error'");
+  expect(source).toContain("'session_ready_signed_out_blocked'");
+  expect(source).toContain('auth_intent: authIntent ||');
   expect(source).toContain("step: 'try_cookie_share_identity_compare'");
   expect(source).toContain("step: 'try_cookie_share_identity_mismatch'");
   expect(source).toContain('expected_dealership_id: payload.expected_dealership_id');
   expect(source).toContain("dealership_id: (local.dealership_id || sync.dealership_id || '') as string");
+  expect(source).toContain('signed_out: !!local[SIGNED_OUT_SENTINEL_KEY]');
 });
 
 test('identity guard rejects missing or mismatched selected-store identity', () => {

@@ -12,6 +12,7 @@
 const PROXY_URL = 'https://api.brevmont.com';
 const GENERATION_POLL_TIMEOUT_MS = 60_000;
 const SIGNED_OUT_SENTINEL_KEY = 'brevmont_signed_out_at';
+const FRESH_SIGN_IN_INTENTS = new Set(['google_resolved', 'manual_sign_in', 'store_picker']);
 const BLANK_CONTEXT_IMAGE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 
@@ -505,7 +506,7 @@ export default defineBackground(() => {
         try {
           const [sync, local] = await Promise.all([
             browser.storage.sync.get(['dealer_token', 'rep_auth_token', 'rep_id', 'rep_name', 'rep_email', 'dealership_id', 'dealership']),
-            browser.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'rep_id', 'rep_email', 'rep_name', 'dealership_id', 'dealership', 'license_revoked']),
+            browser.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'rep_id', 'rep_email', 'rep_name', 'dealership_id', 'dealership', 'license_revoked', SIGNED_OUT_SENTINEL_KEY]),
           ]);
           const signedIn = !!(
             !local.license_revoked &&
@@ -520,6 +521,8 @@ export default defineBackground(() => {
             rep_email: (local.rep_email || sync.rep_email || '') as string,
             dealership_id: (local.dealership_id || sync.dealership_id || '') as string,
             dealership: (local.dealership || sync.dealership || '') as string,
+            signed_out: !!local[SIGNED_OUT_SENTINEL_KEY],
+            signed_out_at: (local[SIGNED_OUT_SENTINEL_KEY] || '') as string | number,
           });
         } catch {
           sendResponse({ ok: true, pong: true, version: chrome.runtime.getManifest().version, signed_in: false });
@@ -536,102 +539,111 @@ export default defineBackground(() => {
       return false;
     }
     if ((message as { type?: string })?.type === 'BREVMONT_REP_SESSION_READY') {
-      try {
-        const payload = message as {
-          type?: string;
-          rep_auth_token?: string;
-          expected_rep_email?: string;
-          expected_rep_id?: string;
-          expected_dealership_id?: string;
-        };
-        void traceBackgroundAuthBridge('session_ready_received', 'auto_bridge', {
-          token_present: !!payload.rep_auth_token,
-          expected_email: payload.expected_rep_email || '',
-          expected_rep_id: payload.expected_rep_id || '',
-          expected_dealership_id: payload.expected_dealership_id || '',
-          sender_origin: _sender?.origin || '',
-          sender_id: _sender?.id || '',
-          sender_url_present: !!_sender?.url,
-        }, 'BREVMONT_REP_SESSION_READY received by background worker', true);
-        // 1.16.44: purge from BOTH local AND sync — the 1.16.43 fix only
-        // hit local, so sync.rep_name / sync.dealership from the prior
-        // rep survived until tryCookieShareAutoConfig overwrote them.
-        // Any sync key the new rep lacks (rep_id, dealership_id edges)
-        // stayed stale forever. Mirror the SIGN_OUT purge lists so
-        // sign-in and account-switch clear the same surface.
-        const IDENTITY_LOCAL_KEYS = [
-          'rep_email', 'rep_name', 'dealership', 'dealership_id',
-          'rep_id', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
-          'brevmont_jwt_cache', 'brevmont_tier', 'dealership_tier',
-          'dealership_plan', 'brevmont_features', 'brevmont_usage',
-        ];
-        const IDENTITY_SYNC_KEYS = [
-          'rep_email', 'rep_name', 'dealership', 'dealership_id',
-          'rep_id', 'dealer_token', 'rep_auth_token',
-          'brevmont_tier', 'dealership_tier', 'dealership_plan',
-          'profile_onboarded', 'profile',
-        ];
-        void Promise.allSettled([
-          browser.storage.local.remove(IDENTITY_LOCAL_KEYS),
-          browser.storage.sync.remove(IDENTITY_SYNC_KEYS),
-        ])
-          .then(async () => {
-            await traceBackgroundAuthBridge('session_ready_purge_complete', 'wipe', {
+      void (async () => {
+        try {
+          const payload = message as {
+            type?: string;
+            rep_auth_token?: string;
+            expected_rep_email?: string;
+            expected_rep_id?: string;
+            expected_dealership_id?: string;
+            auth_intent?: string;
+          };
+          const authIntent = String(payload.auth_intent || '').trim();
+          await traceBackgroundAuthBridge('session_ready_received', 'auto_bridge', {
+            token_present: !!payload.rep_auth_token,
+            expected_email: payload.expected_rep_email || '',
+            expected_rep_id: payload.expected_rep_id || '',
+            expected_dealership_id: payload.expected_dealership_id || '',
+            auth_intent: authIntent || 'unspecified',
+            sender_origin: _sender?.origin || '',
+            sender_id: _sender?.id || '',
+            sender_url_present: !!_sender?.url,
+          }, 'BREVMONT_REP_SESSION_READY received by background worker', true);
+          const signedOutState = await browser.storage.local.get([SIGNED_OUT_SENTINEL_KEY]);
+          if (signedOutState[SIGNED_OUT_SENTINEL_KEY] && !FRESH_SIGN_IN_INTENTS.has(authIntent)) {
+            await traceBackgroundAuthBridge('session_ready_signed_out_blocked', 'decision', {
               expected_email: payload.expected_rep_email || '',
               expected_rep_id: payload.expected_rep_id || '',
               expected_dealership_id: payload.expected_dealership_id || '',
-            }, 'old extension identity cleared before session-ready adoption', true);
-            broadcastIdentityChanged('session_ready_purge');
-          })
-          .then(() => tryCookieShareAutoConfig(payload.rep_auth_token, {
-            rep_email: payload.expected_rep_email,
-            rep_id: payload.expected_rep_id,
-            dealership_id: payload.expected_dealership_id,
-          }, 'session_ready_message'))
-          .then(async (configured) => {
-            const identity = await browser.storage.local.get(['rep_email', 'rep_id', 'dealership_id', 'dealership']);
-            await traceBackgroundAuthBridge('session_ready_config_result', configured ? 'auto_bridge' : 'error', {
-              configured,
-              expected_email: payload.expected_rep_email || '',
-              actual_email: identity.rep_email || '',
-              expected_rep_id: payload.expected_rep_id || '',
-              actual_rep_id: identity.rep_id || '',
-              expected_dealership_id: payload.expected_dealership_id || '',
-              actual_dealership_id: identity.dealership_id || '',
-              actual_dealership: identity.dealership || '',
-            }, configured ? 'session-ready handoff accepted by extension' : 'session-ready handoff rejected by extension', true);
-            if (configured) sendHeartbeat().catch(() => {});
-            broadcastIdentityChanged(configured ? 'session_ready_configured' : 'session_ready_failed');
-            sendResponse({
-              ok: configured,
-              version: chrome.runtime.getManifest().version,
-              rep_email: identity.rep_email || '',
-              rep_id: identity.rep_id || '',
-              dealership_id: identity.dealership_id || '',
-              dealership: identity.dealership || '',
-              error: configured ? undefined : 'session_not_configured',
-            });
-          })
-          .catch(async (err) => {
-            const message = err instanceof Error ? err.message : 'session_config_failed';
-            await traceBackgroundAuthBridge('session_ready_config_error', 'error', {
-              expected_email: payload.expected_rep_email || '',
-              expected_rep_id: payload.expected_rep_id || '',
-              expected_dealership_id: payload.expected_dealership_id || '',
-              error: message,
-            }, 'session-ready handler failed before responding', true);
+              auth_intent: authIntent || 'unspecified',
+              signed_out_at: signedOutState[SIGNED_OUT_SENTINEL_KEY],
+            }, 'explicit sign-out sentinel present; rejecting saved-session bridge until fresh Google sign-in', true);
             sendResponse({
               ok: false,
               version: chrome.runtime.getManifest().version,
-              error: message,
+              error: 'signed_out_requires_fresh_google_sign_in',
             });
+            return;
+          }
+          // 1.16.44: purge from BOTH local AND sync — the 1.16.43 fix only
+          // hit local, so sync.rep_name / sync.dealership from the prior
+          // rep survived until tryCookieShareAutoConfig overwrote them.
+          // Any sync key the new rep lacks (rep_id, dealership_id edges)
+          // stayed stale forever. Mirror the SIGN_OUT purge lists so
+          // sign-in and account-switch clear the same surface.
+          const IDENTITY_LOCAL_KEYS = [
+            'rep_email', 'rep_name', 'dealership', 'dealership_id',
+            'rep_id', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
+            'brevmont_jwt_cache', 'brevmont_tier', 'dealership_tier',
+            'dealership_plan', 'brevmont_features', 'brevmont_usage',
+          ];
+          const IDENTITY_SYNC_KEYS = [
+            'rep_email', 'rep_name', 'dealership', 'dealership_id',
+            'rep_id', 'dealer_token', 'rep_auth_token',
+            'brevmont_tier', 'dealership_tier', 'dealership_plan',
+            'profile_onboarded', 'profile',
+          ];
+          await Promise.allSettled([
+            browser.storage.local.remove(IDENTITY_LOCAL_KEYS),
+            browser.storage.sync.remove(IDENTITY_SYNC_KEYS),
+          ]);
+          await traceBackgroundAuthBridge('session_ready_purge_complete', 'wipe', {
+            expected_email: payload.expected_rep_email || '',
+            expected_rep_id: payload.expected_rep_id || '',
+            expected_dealership_id: payload.expected_dealership_id || '',
+          }, 'old extension identity cleared before session-ready adoption', true);
+          broadcastIdentityChanged('session_ready_purge');
+          const configured = await tryCookieShareAutoConfig(payload.rep_auth_token, {
+            rep_email: payload.expected_rep_email,
+            rep_id: payload.expected_rep_id,
+            dealership_id: payload.expected_dealership_id,
+          }, 'session_ready_message');
+          const identity = await browser.storage.local.get(['rep_email', 'rep_id', 'dealership_id', 'dealership']);
+          await traceBackgroundAuthBridge('session_ready_config_result', configured ? 'auto_bridge' : 'error', {
+            configured,
+            expected_email: payload.expected_rep_email || '',
+            actual_email: identity.rep_email || '',
+            expected_rep_id: payload.expected_rep_id || '',
+            actual_rep_id: identity.rep_id || '',
+            expected_dealership_id: payload.expected_dealership_id || '',
+            actual_dealership_id: identity.dealership_id || '',
+            actual_dealership: identity.dealership || '',
+          }, configured ? 'session-ready handoff accepted by extension' : 'session-ready handoff rejected by extension', true);
+          if (configured) sendHeartbeat().catch(() => {});
+          broadcastIdentityChanged(configured ? 'session_ready_configured' : 'session_ready_failed');
+          sendResponse({
+            ok: configured,
+            version: chrome.runtime.getManifest().version,
+            rep_email: identity.rep_email || '',
+            rep_id: identity.rep_id || '',
+            dealership_id: identity.dealership_id || '',
+            dealership: identity.dealership || '',
+            error: configured ? undefined : 'session_not_configured',
           });
-        return true;
-      } catch {
-        void traceBackgroundAuthBridge('session_ready_handler_threw', 'error', {}, 'session-ready handler threw before async chain');
-        sendResponse({ ok: false, version: chrome.runtime.getManifest().version });
-        return false;
-      }
+        } catch (err) {
+          const messageText = err instanceof Error ? err.message : 'session_config_failed';
+          await traceBackgroundAuthBridge('session_ready_config_error', 'error', {
+            error: messageText,
+          }, 'session-ready handler failed before responding', true);
+          sendResponse({
+            ok: false,
+            version: chrome.runtime.getManifest().version,
+            error: messageText,
+          });
+        }
+      })();
+      return true;
     }
     if ((message as { type?: string })?.type === 'BREVMONT_REP_SIGN_OUT') {
       // 1.16.42 skeptic follow-up: when the web app's "Sign in as a

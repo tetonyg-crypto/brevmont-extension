@@ -2537,11 +2537,11 @@ async function performSignOut(): Promise<void> {
     await chrome.storage.local.set({ [SIGNED_OUT_SENTINEL_KEY]: Date.now() });
   } catch (err) { console.warn('[brevmont] signout sentinel refresh failed', err); }
 
-  // Route back to sign-in. Open app.brevmont.com/auth/extension in a new
-  // tab (matches popup/install-screen behavior) and reload the sidepanel
-  // so it drops any in-memory state.
+  // Route back to sign-in through the force-picker path. Plain
+  // /auth/extension is allowed to reuse the web app's saved rep session;
+  // after explicit extension sign-out we need the account chooser instead.
   try {
-    chrome.tabs.create({ url: 'https://app.brevmont.com/auth/extension' });
+    openAuthExtensionTab();
   } catch (err) { console.warn('[brevmont] signout open sign-in tab failed', err); }
 
   // Reload sidepanel — clears all in-memory panel state and reruns the

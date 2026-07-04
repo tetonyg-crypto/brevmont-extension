@@ -63,10 +63,14 @@ test('sign-out blocks cookie-only re-adoption until app bridge handoff', () => {
   const background = read('entrypoints/background.ts');
   const sidepanel = read('entrypoints/sidepanel/main.ts');
   expect(background).toContain("SIGNED_OUT_SENTINEL_KEY = 'brevmont_signed_out_at'");
+  expect(background).toContain('FRESH_SIGN_IN_INTENTS');
   expect(background).toContain('try_cookie_share_signed_out_blocked');
+  expect(background).toContain('session_ready_signed_out_blocked');
   expect(background).toContain('explicit sign-out sentinel present');
   expect(background).toContain('browser.storage.local.remove(SIGNED_OUT_SENTINEL_KEY)');
   expect(sidepanel).toContain("SIGNED_OUT_SENTINEL_KEY = 'brevmont_signed_out_at'");
+  expect(sidepanel).toContain('openAuthExtensionTab();');
+  expect(sidepanel).toContain("`${AUTH_APP_URL}?force=1`");
 });
 
 test('My Leads merges server rows with local radar cache', () => {
