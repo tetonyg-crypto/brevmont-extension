@@ -76,7 +76,7 @@ export function getPanelHTML(platform: Platform): string {
   <span class="version-badge" id="o8-version-badge"></span>
   <span style="flex:1"></span>
   ${badge.label ? `<span id="o8-platform-badge" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;color:${badge.color};background:${badge.bg}">${esc(badge.label)}</span>` : '<span id="o8-platform-badge" style="display:none"></span>'}
-  <button id="o8-account-btn" class="account-btn" type="button" title="Account" aria-label="Account">•</button>
+  <button id="o8-account-btn" class="account-btn overdrive-dot-off" type="button" title="Overdrive off" aria-label="Overdrive status">•</button>
   <button id="o8-lead-btn" class="lead-btn">+ Lead</button>
   <span id="o8-close" class="close">&times;</span>
 </div>
@@ -124,8 +124,8 @@ export function getPanelHTML(platform: Platform): string {
     </div>
     <div class="chips">
       <button class="chip on" data-type="text">Message</button>
-      <button class="chip on" data-type="email">Email</button>
-      <button class="chip on" data-type="crm">CRM Note</button>
+      <button class="chip" data-type="email">Email</button>
+      <button class="chip" data-type="crm">CRM Note</button>
     </div>
     <div class="input-wrap">
       <textarea id="o8-input" class="main-input" placeholder="${esc(placeholder)}" rows="3"></textarea>
@@ -159,12 +159,10 @@ export function getPanelHTML(platform: Platform): string {
   <div class="tool-tabs">
     <button class="tool-tab-btn" data-tool="coach">Coach</button>
     <button class="tool-tab-btn" data-tool="alerts">Reminders</button>
-    <button class="tool-tab-btn" data-tool="context">Screenshot Reply</button>
     <button class="tool-tab-btn" data-tool="command">Ask Anything</button>
   </div>
   <div id="tool-coach" class="tool-content" style="display:none"><div class="tool-section"><div class="input-wrap"><textarea id="o8-coach-input" class="main-input" placeholder="What did the customer just say?" rows="2"></textarea><button id="o8-coach-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button></div><div class="coach-chips"><button class="coach-chip">Need to think about it</button><button class="coach-chip">Price too high</button><button class="coach-chip">Bad credit</button><button class="coach-chip">Spouse not here</button><button class="coach-chip">Just looking</button><button class="coach-chip">Trading in my car</button><button class="coach-chip">Found it cheaper</button><button class="coach-chip">Need to check with my bank</button></div><button id="o8-coach-btn" class="gen-btn">Coach Me</button></div><div id="o8-coach-output" class="tool-output"></div></div>
   <div id="tool-alerts" class="tool-content" style="display:none"><div class="tool-section"><div class="input-wrap"><input id="o8-alert-input" class="main-input" placeholder="e.g., Call Sally back at 2pm about the Tahoe" /><button id="o8-alert-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button></div><button id="o8-alert-btn" class="gen-btn" style="background:#0D6E6E">Set Reminder</button></div><div id="o8-alert-list" class="tool-output"></div></div>
-  <div id="tool-context" class="tool-content" style="display:none"><div class="tool-section"><div id="o8-ctx-dropzone" class="ctx-dropzone" tabindex="0"><span>Paste a screenshot of the conversation (Ctrl+V)</span></div><button id="o8-ctx-capture" class="gen-btn" style="margin-top:8px;background:#1E3A5F">Capture Current Tab</button><div id="o8-ctx-preview" class="ctx-preview" style="display:none"><img id="o8-ctx-img" class="ctx-img" /><button id="o8-ctx-remove" class="ctx-remove">&times;</button></div><div class="input-wrap"><textarea id="o8-ctx-direction" class="main-input" placeholder="e.g., Politely follow up on the test drive" rows="2"></textarea><button id="o8-ctx-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button></div><button id="o8-ctx-generate" class="gen-btn" disabled>Generate Reply</button></div><div id="o8-ctx-output" class="tool-output"></div></div>
   <div id="tool-command" class="tool-content" style="display:none"><div class="tool-section"><div class="input-wrap"><textarea id="o8-cmd-input" class="main-input" placeholder="e.g., Calculate payment on $35,000 at 6.9% for 72mo" rows="2"></textarea><button id="o8-cmd-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button></div><button id="o8-cmd-execute" class="gen-btn">Ask</button></div><div id="o8-cmd-status" class="tool-output"></div></div>
 </div>
 <div id="o8-stats-panel" class="tools-panel" style="display:none">
@@ -182,7 +180,10 @@ export function getPanelHTML(platform: Platform): string {
 </div>
 <div id="o8-settings-panel" class="tools-panel" style="display:none">
   <div class="tools-header"><button id="o8-settings-back" class="back-btn">&larr; Back</button><span class="tools-title">Settings</span></div>
-  ${getSettingsHTML()}
+  <div id="o8-settings-scroll" class="settings-scroll">
+    <div id="overdrive-panel-mount"></div>
+    ${getSettingsHTML()}
+  </div>
 </div>
 <div id="o8-lead-panel" class="tools-panel" style="display:none">
   <div class="tools-header"><button id="o8-lead-back" class="back-btn">&larr; Back</button><span class="tools-title">Save Lead</span></div>

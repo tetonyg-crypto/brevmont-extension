@@ -11,6 +11,7 @@
 
 const PROXY_URL = 'https://api.brevmont.com';
 const GENERATION_POLL_TIMEOUT_MS = 60_000;
+const SIGNED_OUT_SENTINEL_KEY = 'brevmont_signed_out_at';
 const BLANK_CONTEXT_IMAGE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 
@@ -68,6 +69,7 @@ async function fetchWithRetry(url: string, opts: RequestInit, attempts = 3): Pro
 import { signedFetch, signedPatch, signedGet } from '../lib/authSigning';
 import { resolveFreeTierBadgeState } from '../lib/badgeState';
 import { enqueue, processQueue, getQueueCount as getDexieQueueCount } from '../lib/retryQueue';
+import { parseGenerationSections, sanitizeCustomerFacingOutput } from './lib/outputContract';
 import { telemetry } from './lib/telemetry';
 import { dlog } from './lib/dev';
 import { initSentry, setSentryContext, captureError, addBreadcrumb } from '../lib/sentry';
@@ -669,6 +671,7 @@ export default defineBackground(() => {
             browser.storage.sync.remove(SYNC_KEYS),
             browser.storage.local.remove(LOCAL_KEYS),
           ]);
+          await browser.storage.local.set({ [SIGNED_OUT_SENTINEL_KEY]: Date.now() });
           const after = await snapshotExtensionStorage();
           trace({
             surface: 'background',
@@ -762,6 +765,7 @@ export default defineBackground(() => {
             'dealership_tier', 'dealership_plan', 'brevmont_features',
             'pending_heartbeats',
           ]);
+          await chrome.storage.local.set({ [SIGNED_OUT_SENTINEL_KEY]: Date.now() });
         } catch (err) {
           console.warn('[brevmont] SIGN_OUT_TEARDOWN local.remove failed', err);
         }
@@ -2245,6 +2249,21 @@ export default defineBackground(() => {
 
       let cookieValue = String(repAuthTokenOverride || '').trim();
       if (!cookieValue) {
+        const signedOutState = await browser.storage.local.get([SIGNED_OUT_SENTINEL_KEY]);
+        if (signedOutState[SIGNED_OUT_SENTINEL_KEY]) {
+          trace({
+            surface: 'background',
+            step: 'try_cookie_share_signed_out_blocked',
+            event_type: 'decision',
+            payload: {
+              signed_out_at: signedOutState[SIGNED_OUT_SENTINEL_KEY],
+              call_site: callSite,
+            },
+            reason: 'explicit sign-out sentinel present; refusing cookie-only adoption until app bridge sends a fresh session',
+            call_stack_tag: 'background.ts:tryCookieShareAutoConfig:signed_out_blocked',
+          });
+          return false;
+        }
         // Read the cookie set by /join/:id/complete OR /activate/:token on app.brevmont.com.
         const cookie = await browser.cookies.get({
           url: 'https://app.brevmont.com',
@@ -2393,6 +2412,7 @@ export default defineBackground(() => {
       });
       await browser.storage.local.remove(SETUP_KEY);
       await browser.storage.local.remove(['license_revoked_at', 'license_revoked_message', 'license_access_state']);
+      await browser.storage.local.remove(SIGNED_OUT_SENTINEL_KEY);
 
       await browser.storage.sync.set(storage.sanitizeSyncPayload({
         dealer_token: dealerToken,
@@ -2883,7 +2903,7 @@ async function handleGenerate(payload: {
       idemKey,
       apiBase
     );
-    const sections = parseSections(result.text);
+    const sections = parseGenerationSections(result.text, payload.type);
     return { text: result.text, sections, guard_metrics: result.guard_metrics || null };
   } catch (err: any) {
     const m = String(err?.message || err);
@@ -3382,8 +3402,9 @@ Write one concise, natural customer reply. If dollar amounts, payment terms, veh
       undefined,
       apiBase
     );
-    await logToolEvent('screenshot_reply', payload.direction || '', result.text, leadMeta);
-    return { reply: result.text, fallback: true };
+    const cleanText = sanitizeCustomerFacingOutput(result.text, 'text');
+    await logToolEvent('screenshot_reply', payload.direction || '', cleanText, leadMeta);
+    return { reply: cleanText, fallback: true };
   }
 
   let resp: Response;
@@ -3431,8 +3452,9 @@ Write one concise, natural customer reply. If dollar amounts, payment terms, veh
     || data.content?.[0]?.text
     || '';
   if (!text) throw new Error('Empty response. Try again.');
-  await logToolEvent('screenshot_reply', payload.direction || '', text, toolLeadMetadata(payload, payload.platform));
-  return { reply: text };
+  const cleanText = sanitizeCustomerFacingOutput(text, 'text');
+  await logToolEvent('screenshot_reply', payload.direction || '', cleanText, toolLeadMetadata(payload, payload.platform));
+  return { reply: cleanText };
 }
 
 // ===== VOICE REPLY (transcription → generate) =====
@@ -3476,7 +3498,7 @@ async function handleVoiceReply(payload: { transcription: string }) {
     undefined,
     voiceBase
   );
-  const sections = parseSections(result.text);
+  const sections = parseGenerationSections(result.text, 'text');
   return { text: result.text, sections };
 }
 
@@ -3633,17 +3655,4 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
   }
 
   return msg;
-}
-
-function parseSections(text: string) {
-  const textMatch = text.match(/(?:^|\n)TEXT(?:\s*MESSAGE)?[:\s\-]*\n([\s\S]*?)(?=\n(?:EMAIL|CRM)|$)/i);
-  const emailMatch = text.match(/(?:^|\n)EMAIL(?:\s*REPLY)?[:\s\-]*\n([\s\S]*?)(?=\n(?:TEXT|CRM)|$)/i);
-  const crmMatch = text.match(/(?:^|\n)CRM(?: NOTE)?[:\s\-]*\n([\s\S]*)$/i);
-
-  return {
-    text: textMatch?.[1]?.trim() || '',
-    email: emailMatch?.[1]?.trim() || '',
-    crm: crmMatch?.[1]?.trim() || '',
-    raw: text,
-  };
 }

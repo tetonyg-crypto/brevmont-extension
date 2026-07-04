@@ -30,6 +30,7 @@ import {
   accessEndedBody,
   accessEndedTitle,
 } from '../../lib/accessState';
+import { sanitizeCustomerFacingOutput } from '../lib/outputContract';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Platform =
@@ -134,6 +135,7 @@ const CONTEXT_SCREENSHOT_MAX_DIMS = [1800, 1600, 1400, 1200, 1000, 850];
 const CONTEXT_SCREENSHOT_QUALITIES = [0.82, 0.74, 0.66, 0.58, 0.5];
 const CONTEXT_PAGE_TEXT_MAX = 5000;
 const GENERATION_FAILURE_MESSAGE = 'Generation failed. Try again or contact founder@brevmont.com';
+const SIGNED_OUT_SENTINEL_KEY = 'brevmont_signed_out_at';
 
 const AUTH_SYNC_KEYS = [
   'license_key',
@@ -294,8 +296,10 @@ function stripMarkdownPreserveLines(value: unknown): string {
 }
 
 function displayOutputContent(content: string, outputType?: string): string {
-  if (outputType === 'email') return stripMarkdownPreserveLines(content) || content;
-  return stripMarkdownText(content) || content;
+  const kind = outputType === 'email' ? 'email' : outputType === 'crm' ? 'crm' : 'text';
+  const sanitized = sanitizeCustomerFacingOutput(content, kind);
+  if (outputType === 'email') return stripMarkdownPreserveLines(sanitized) || sanitized;
+  return stripMarkdownText(sanitized) || sanitized;
 }
 
 function getDisplayLabel(value: unknown): string {
@@ -786,6 +790,38 @@ async function collectContextReplyPageText(): Promise<string> {
   return cleanContextText(parts.join('\n'), CONTEXT_PAGE_TEXT_MAX);
 }
 
+async function scanVisibleTextFallback(root: HTMLElement): Promise<AutoThreadScan | null> {
+  const pageText = await collectContextReplyPageText();
+  const lastInbound = lastReadableThreadLine(pageText);
+  if (!pageText && !lastInbound) return null;
+  const scan: AutoThreadScan = {
+    source: 'legacy',
+    platform: currentPlatform.platform,
+    adapter_id: 'visible-text-fallback',
+    surface_kind: 'visible_text_fallback',
+    capabilities: { default_output: 'text', fallback: true },
+    defaultOutput: 'text',
+    detectionConfidence: 0.4,
+    detectionMethod: 'visible_text_fallback',
+    contextFingerprint: null,
+    threadFingerprint: null,
+    threadContext: {
+      conversation_key: currentPlatform.url || null,
+      raw_text: pageText,
+      messages: [],
+      last_inbound_text: lastInbound || pageText,
+      header_text: null,
+      url: currentPlatform.url || null,
+    },
+  };
+  autoThreadScan = scan;
+  autoThreadScanStatus = 'ready';
+  autoThreadScanUrl = currentPlatform.url || '';
+  applyDefaultOutputFromScan(root, scan);
+  renderAutoThreadScan(root);
+  return scan;
+}
+
 async function collectCurrentLeadContext(): Promise<any> {
   try {
     const lead = await sendToContent({ type: 'GET_LEAD_CONTEXT' });
@@ -1094,11 +1130,16 @@ function vehiclesConflict(a: unknown, b: unknown): boolean {
   return Boolean(left && right && left !== right);
 }
 
+function isManualCustomerOverride(customer: PinnedCustomer | null): boolean {
+  return String(customer?.detectionMethod || '').toLowerCase() === 'manual';
+}
+
 function pinMatchesContext(customer: PinnedCustomer | null, ctx: any): boolean {
   if (!customer) return false;
   const ctxFingerprint = getContextFingerprint(ctx);
   const pinFingerprint = customer.contextFingerprint || customer.threadFingerprint || '';
   if (ctxFingerprint && pinFingerprint && ctxFingerprint !== pinFingerprint) return false;
+  if (isManualCustomerOverride(customer)) return true;
   const ctxName = getCustomerNameFromContext(ctx);
   if (ctxName && normalizeComparable(customer.name) !== normalizeComparable(ctxName)) return false;
   const ctxVehicle = getCustomerVehicleFromContext(ctx);
@@ -1111,6 +1152,7 @@ function pinMismatchReason(customer: PinnedCustomer | null, ctx: any): string | 
   const ctxFingerprint = getContextFingerprint(ctx);
   const pinFingerprint = customer.contextFingerprint || customer.threadFingerprint || '';
   if (ctxFingerprint && pinFingerprint && ctxFingerprint !== pinFingerprint) return 'thread_changed';
+  if (isManualCustomerOverride(customer)) return null;
   const ctxName = getCustomerNameFromContext(ctx);
   if (ctxName && normalizeComparable(customer.name) !== normalizeComparable(ctxName)) return 'customer_changed';
   const ctxVehicle = getCustomerVehicleFromContext(ctx);
@@ -1793,7 +1835,6 @@ function toolLabel(tool: string | null): string {
   switch (tool) {
     case 'coach': return 'Coach';
     case 'alerts': return 'Reminders';
-    case 'context': return 'Screenshot Reply';
     case 'command': return 'Ask Anything';
     default: return 'Tools';
   }
@@ -1831,8 +1872,8 @@ function applyFeatureGates(root: HTMLElement): void {
     setDisplay(root, '.inline-links', access.addLead || access.coachMe || access.stats || access.settings);
     setDisplay(root, '#o8-my-leads-btn-inline', access.addLead);
     if (!access.addLead) setDisplay(root, '#o8-my-leads-panel', false);
-    setDisplay(root, '#o8-tools-btn-inline', access.coachMe);
-    if (!(access.coachMe || access.notifications || access.screenshotCapture || access.commandMode)) setDisplay(root, '#o8-tools-panel', false);
+    setDisplay(root, '#o8-tools-btn-inline', access.coachMe || access.notifications || access.commandMode);
+    if (!(access.coachMe || access.notifications || access.commandMode)) setDisplay(root, '#o8-tools-panel', false);
     setDisplay(root, '#o8-stats-btn-inline', access.stats);
     if (!access.stats) setDisplay(root, '#o8-stats-panel', false);
     setDisplay(root, '#o8-settings-btn-inline', access.settings);
@@ -1841,7 +1882,6 @@ function applyFeatureGates(root: HTMLElement): void {
     const gates = [
       { tab: '[data-tool="coach"]', content: '#tool-coach', allowed: access.coachMe },
       { tab: '[data-tool="alerts"]', content: '#tool-alerts', allowed: access.notifications },
-      { tab: '[data-tool="context"]', content: '#tool-context', allowed: access.screenshotCapture },
       { tab: '[data-tool="command"]', content: '#tool-command', allowed: access.commandMode },
     ];
 
@@ -1850,7 +1890,7 @@ function applyFeatureGates(root: HTMLElement): void {
       if (!gate.allowed) setDisplay(root, gate.content, false);
     }
 
-    if (!access.coachMe && !access.notifications && !access.screenshotCapture && !access.commandMode) {
+    if (!access.coachMe && !access.notifications && !access.commandMode) {
       const toolsPanel = root.querySelector('#o8-tools-panel') as HTMLElement | null;
       if (toolsPanel) toolsPanel.style.display = 'none';
     }
@@ -1869,11 +1909,9 @@ function applyFeatureGates(root: HTMLElement): void {
       '#o8-my-leads-panel',
       '[data-tool="coach"]',
       '[data-tool="alerts"]',
-      '[data-tool="context"]',
       '[data-tool="command"]',
       '#tool-coach',
       '#tool-alerts',
-      '#tool-context',
       '#tool-command',
     ]) {
       setDisplay(root, selector, false);
@@ -1956,6 +1994,7 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
   const sub = root.querySelector('#o8-overdrive-pill-sub') as HTMLElement | null;
   const btn = root.querySelector('#o8-overdrive-pill-toggle') as HTMLButtonElement | null;
   const soloToggle = root.querySelector('#o8-overdrive-solo-toggle') as HTMLInputElement | null;
+  const headerDot = root.querySelector('#o8-account-btn') as HTMLButtonElement | null;
   if (!el || !dot || !title || !sub || !btn) return;
 
   // Solo test mode — persist to chrome.storage.local and broadcast so
@@ -1993,6 +2032,18 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
     hasFired?: boolean;
     solo_test_mode?: boolean;
   }): void => {
+    const paintHeaderDot = (mode: 'on' | 'solo' | 'off' | 'setup', label: string) => {
+      if (!headerDot) return;
+      headerDot.classList.remove('overdrive-dot-on', 'overdrive-dot-solo', 'overdrive-dot-off', 'overdrive-dot-setup');
+      headerDot.classList.add(
+        mode === 'on' ? 'overdrive-dot-on'
+          : mode === 'solo' ? 'overdrive-dot-solo'
+            : mode === 'setup' ? 'overdrive-dot-setup'
+              : 'overdrive-dot-off'
+      );
+      headerDot.title = label;
+      headerDot.setAttribute('aria-label', label);
+    };
     el.style.display = 'block';
     // 1.16.53: Solo test mode gets an amber-tinted pill so it's obvious
     // this is a demo-only state, not the normal live-floor pill. Amber
@@ -2011,6 +2062,7 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       btn.textContent = 'Open Settings';
       btn.style.background = '#F3F4F6';
       btn.style.color = '#0F1419';
+      paintHeaderDot('setup', 'Overdrive setup needed');
       return;
     }
     if (!state.dealer_enabled) {
@@ -2018,6 +2070,7 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       title.textContent = 'Overdrive: off (dealership)';
       sub.textContent = 'Your GM has Overdrive disabled at the store';
       btn.style.display = 'none';
+      paintHeaderDot('off', 'Overdrive off at dealership');
       return;
     }
     btn.style.display = 'inline-block';
@@ -2036,6 +2089,7 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       btn.textContent = 'Turn off';
       btn.style.background = '#F3F4F6';
       btn.style.color = '#0F1419';
+      paintHeaderDot(state.solo_test_mode ? 'solo' : 'on', state.solo_test_mode ? 'Overdrive solo test mode on' : 'Overdrive on and armed');
     } else {
       dot.style.background = '#94a3b8';
       title.textContent = 'Overdrive: off';
@@ -2043,6 +2097,7 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       btn.textContent = 'Turn on';
       btn.style.background = '#0D6E6E';
       btn.style.color = '#fff';
+      paintHeaderDot('off', 'Overdrive off');
     }
   };
 
@@ -2079,11 +2134,15 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
   btn.onclick = async () => {
     try {
       // If prerequisites missing, deep-link to the Overdrive setup panel
-      // by clicking the account chip's Settings entry programmatically.
-      // Simpler: switch tab to Settings if that's the button.
       if (btn.textContent === 'Open Settings') {
-        const settingsBtn = root.querySelector('[data-tab="settings"]') as HTMLElement | null;
-        settingsBtn?.click();
+        const settingsPanel = root.querySelector('#o8-settings-panel') as HTMLElement | null;
+        hidePrimaryPanels(root);
+        const quick = root.querySelector('#o8-quick') as HTMLElement | null;
+        if (quick) quick.style.display = 'none';
+        if (settingsPanel) {
+          settingsPanel.style.display = 'flex';
+          settingsPanel.querySelector('#overdrive-panel-mount')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        }
         return;
       }
       const isOn = btn.textContent === 'Turn off';
@@ -2450,6 +2509,10 @@ async function performSignOut(): Promise<void> {
     await clearCredentialsForReconnect();
   } catch (err) { console.warn('[brevmont] signout clearCredentials failed', err); }
 
+  try {
+    await chrome.storage.local.set({ [SIGNED_OUT_SENTINEL_KEY]: Date.now() });
+  } catch (err) { console.warn('[brevmont] signout sentinel set failed', err); }
+
   // Defensive second sweep for keys Phase 0 flagged: pending_heartbeats,
   // brevmont_features, license_access_state. clearCredentialsForReconnect
   // already covers these but the guard prevents any drift if that helper
@@ -2469,6 +2532,10 @@ async function performSignOut(): Promise<void> {
   try {
     await chrome.runtime.sendMessage({ type: 'SIGN_OUT_TEARDOWN' });
   } catch (err) { console.warn('[brevmont] signout teardown message failed', err); }
+
+  try {
+    await chrome.storage.local.set({ [SIGNED_OUT_SENTINEL_KEY]: Date.now() });
+  } catch (err) { console.warn('[brevmont] signout sentinel refresh failed', err); }
 
   // Route back to sign-in. Open app.brevmont.com/auth/extension in a new
   // tab (matches popup/install-screen behavior) and reload the sidepanel
@@ -2694,11 +2761,12 @@ function wireHandlers(root: HTMLElement): void {
   root.querySelectorAll('.chip').forEach(c => {
     c.addEventListener('click', () => {
       outputSelectionTouched = true;
+      const clickedChip = c as HTMLElement;
       const hasCards = root.querySelectorAll('.out-card').length > 0;
       if (hasCards) {
-        setActiveOutputTab(root, c.getAttribute('data-type') || '');
+        setActiveOutputTab(root, clickedChip.getAttribute('data-type') || '');
       } else {
-        c.classList.toggle('on');
+        root.querySelectorAll('.chip').forEach((chip) => chip.classList.toggle('on', chip === clickedChip));
       }
     });
   });
@@ -2709,12 +2777,19 @@ function wireHandlers(root: HTMLElement): void {
   const accountBtn = el('o8-account-btn') as HTMLButtonElement | null;
   if (accountBtn) {
     accountBtn.onclick = () => {
-      const chip = document.getElementById('o8-account-chip') as HTMLElement | null;
-      if (!chip) return;
-      chip.style.display = 'block';
-      chip.scrollIntoView({ block: 'end', behavior: 'smooth' });
-      chip.classList.add('account-chip-focus');
-      window.setTimeout(() => chip.classList.remove('account-chip-focus'), 900);
+      el('o8-quick')!.style.display = 'none';
+      const tp = el('o8-tools-panel'); if (tp) tp.style.display = 'none';
+      const stats = el('o8-stats-panel'); if (stats) stats.style.display = 'none';
+      const lead = el('o8-lead-panel'); if (lead) lead.style.display = 'none';
+      const myLeads = el('o8-my-leads-panel'); if (myLeads) myLeads.style.display = 'none';
+      const settingsPanelForDot = el('o8-settings-panel');
+      if (settingsPanelForDot) {
+        settingsPanelForDot.style.display = 'flex';
+        window.setTimeout(() => {
+          const mount = settingsPanelForDot.querySelector('#overdrive-panel-mount') as HTMLElement | null;
+          mount?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        }, 80);
+      }
     };
   }
   const customerBtn = el('o8-customer-open');
@@ -2757,13 +2832,10 @@ function wireHandlers(root: HTMLElement): void {
     if (!overdriveMount) {
       overdriveMount = document.createElement('div');
       overdriveMount.id = 'overdrive-panel-mount';
-      // Insert near the top of Settings, after any existing header.
-      const firstChild = settingsPanel.firstElementChild;
-      if (firstChild && firstChild.nextSibling) {
-        settingsPanel.insertBefore(overdriveMount, firstChild.nextSibling);
-      } else {
-        settingsPanel.appendChild(overdriveMount);
-      }
+      const scrollBody = settingsPanel.querySelector('#o8-settings-scroll') as HTMLElement | null;
+      const firstSettingsSection = scrollBody?.querySelector('.settings-section') as HTMLElement | null;
+      if (scrollBody && firstSettingsSection) scrollBody.insertBefore(overdriveMount, firstSettingsSection);
+      else (scrollBody || settingsPanel).appendChild(overdriveMount);
     }
     // Render on first open of the Settings panel.
     let overdriveRendered = false;
@@ -3193,6 +3265,9 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   let scan = getUsableAutoThreadScan();
   if (!scan && currentPlatform.platform !== 'unknown') {
     scan = await scanThreadForGenerate(root, true);
+  }
+  if (!scan && !input) {
+    scan = await scanVisibleTextFallback(root);
   }
   if (!scan && !input) {
     isGenerating = false;
@@ -3808,6 +3883,62 @@ function renderMyLeadsFilterControls(filter: 'active' | 'lost'): string {
   `;
 }
 
+function dateLikeMs(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (!value) return 0;
+  const parsed = new Date(String(value)).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeLocalLeadForInbox(lead: any): any {
+  if (!lead || typeof lead !== 'object') return null;
+  const capturedAtMs = dateLikeMs(lead.captured_at);
+  const updatedAtMs = dateLikeMs(lead.updated_at);
+  return {
+    ...lead,
+    id: String(lead.id || ''),
+    customer_name: lead.customer_name || lead.name || 'Unknown lead',
+    vehicle_interest: lead.vehicle_interest || lead.vehicle || null,
+    source_platform: lead.source_platform || lead.source || 'extension',
+    pipeline_stage: lead.pipeline_stage || (lead.status === 'logged_to_crm' ? 'contacted' : 'captured'),
+    captured_at: capturedAtMs ? new Date(capturedAtMs).toISOString() : lead.captured_at,
+    last_activity_at: updatedAtMs ? new Date(updatedAtMs).toISOString() : lead.last_activity_at,
+    local_only: lead.sync_status !== 'synced',
+  };
+}
+
+function mergeLeadInboxRows(remoteLeads: any[], localLeads: any[], filter: 'active' | 'lost'): any[] {
+  const byId = new Map<string, any>();
+  const includeForFilter = (lead: any): boolean => {
+    const stage = String(lead?.pipeline_stage || lead?.status || '').toLowerCase();
+    return filter === 'lost' ? stage === 'lost' : stage !== 'lost';
+  };
+  for (const lead of remoteLeads) {
+    if (!lead || !includeForFilter(lead)) continue;
+    const id = String(lead.id || crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`);
+    byId.set(id, { ...lead, id });
+  }
+  for (const rawLead of localLeads) {
+    const lead = normalizeLocalLeadForInbox(rawLead);
+    if (!lead?.id || !includeForFilter(lead)) continue;
+    if (!byId.has(lead.id)) byId.set(lead.id, lead);
+  }
+  const leads = Array.from(byId.values());
+  leads.sort((a: any, b: any) => {
+    if (filter === 'lost') {
+      const aLost = dateLikeMs(a.lost_at || a.last_activity_at || a.captured_at);
+      const bLost = dateLikeMs(b.lost_at || b.last_activity_at || b.captured_at);
+      return bLost - aLost;
+    }
+    const heat = Number(b.heat_score || 0) - Number(a.heat_score || 0);
+    if (heat !== 0) return heat;
+    const aTime = dateLikeMs(a.last_contacted_at || a.last_activity_at || a.captured_at);
+    const bTime = dateLikeMs(b.last_contacted_at || b.last_activity_at || b.captured_at);
+    return aTime - bTime;
+  });
+  return leads;
+}
+
 function openLostReasonModal(
   root: HTMLElement,
   lead: any,
@@ -3903,7 +4034,7 @@ function stageBadgeStyle(stage: string): string {
 }
 
 function timeAgo(value: unknown): string {
-  const date = value ? new Date(String(value)) : null;
+  const date = typeof value === 'number' ? new Date(value) : value ? new Date(String(value)) : null;
   if (!date || Number.isNaN(date.getTime())) return 'no recent contact';
   const diff = Date.now() - date.getTime();
   if (diff < 60 * 60 * 1000) return 'today';
@@ -4048,20 +4179,15 @@ async function renderMyLeads(root: HTMLElement): Promise<void> {
 
   try {
     const leadFilter: 'active' | 'lost' = (root as any).__myLeadsStageFilter === 'lost' ? 'lost' : 'active';
-    const resp = await safeSend({ type: 'GET_MY_LEADS', payload: { stage: leadFilter } });
-    const leads = Array.isArray(resp?.leads) ? resp.leads : [];
-    leads.sort((a: any, b: any) => {
-      if (leadFilter === 'lost') {
-        const aLost = new Date(a.lost_at || a.last_activity_at || a.captured_at || 0).getTime();
-        const bLost = new Date(b.lost_at || b.last_activity_at || b.captured_at || 0).getTime();
-        return bLost - aLost;
-      }
-      const heat = Number(b.heat_score || 0) - Number(a.heat_score || 0);
-      if (heat !== 0) return heat;
-      const aTime = new Date(a.last_contacted_at || a.last_activity_at || a.captured_at || 0).getTime();
-      const bTime = new Date(b.last_contacted_at || b.last_activity_at || b.captured_at || 0).getTime();
-      return aTime - bTime;
-    });
+    const [remoteResult, localResult] = await Promise.allSettled([
+      safeSend({ type: 'GET_MY_LEADS', payload: { stage: leadFilter } }),
+      safeSend({ type: 'GET_LOCAL_LEADS' }),
+    ]);
+    const remoteResp = remoteResult.status === 'fulfilled' ? remoteResult.value : null;
+    const localResp = localResult.status === 'fulfilled' ? localResult.value : null;
+    const remoteLeads = Array.isArray(remoteResp?.leads) ? remoteResp.leads : [];
+    const localLeads = Array.isArray(localResp?.leads) ? localResp.leads : [];
+    const leads = mergeLeadInboxRows(remoteLeads, localLeads, leadFilter);
     (root as any).__myLeads = leads;
 
     const goingDark = leadFilter === 'active' ? leads.filter((lead: any) => lead.going_dark) : [];
@@ -4262,6 +4388,13 @@ function showLeadResult(root: HTMLElement, lead: any): void {
   const contextCopy = optionalDisplayText(lead.notes)
     || (rawText ? rawText.substring(0, 160) : '')
     || `${name} was captured from ${sourceLabel}${vehicle ? ` with interest in ${vehicle}` : ''}.`;
+  const captureDetails = [
+    sourceLabel ? `Source: ${sourceLabel}` : '',
+    heatScore !== null ? `Heat: ${heatScore}` : '',
+    lead.lead_stage_at_capture ? `Captured as: ${stageLabelMap(String(lead.lead_stage_at_capture))}` : '',
+    lead.sync_status ? `Sync: ${getDisplayLabel(String(lead.sync_status))}` : '',
+    lead.captured_at ? `Captured: ${timeAgo(lead.captured_at)}` : '',
+  ].filter(Boolean).join(' · ');
   if (name && name !== 'Unknown lead') {
     if (lead.customer_id) {
       pinCustomer(root, {
@@ -4344,6 +4477,10 @@ function showLeadResult(root: HTMLElement, lead: any): void {
       <div class="lead-capture-context-label">Buyer context</div>
       <div class="lead-capture-context-copy">${esc(contextCopy)}</div>
     </div>
+    ${captureDetails ? `<div class="lead-capture-context capture-detail">
+      <div class="lead-capture-context-label">Capture details</div>
+      <div class="lead-capture-context-copy">${esc(captureDetails)}</div>
+    </div>` : ''}
     <div class="lead-capture-actions">
       <button class="out-action out-primary" id="o8-lead-copy">Copy</button>
       <button class="out-action" id="o8-lead-followup" style="background:#0D6E6E;color:#fff">Generate Reply</button>

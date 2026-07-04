@@ -28,6 +28,66 @@ test('manual Generate reads output chips after forced scan applies surface defau
   );
 });
 
+test('output chips are exclusive mode selectors before generation', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  const ui = read('entrypoints/lib/panelUI.ts');
+  expect(source).not.toContain("c.classList.toggle('on')");
+  expect(source).toContain("chip.classList.toggle('on', chip === clickedChip)");
+  expect(ui).toContain('<button class="chip on" data-type="text">Message</button>');
+  expect(ui).toContain('<button class="chip" data-type="email">Email</button>');
+  expect(ui).toContain('<button class="chip" data-type="crm">CRM Note</button>');
+});
+
+test('Screenshot Reply is folded out of the visible tools UI', () => {
+  const ui = read('entrypoints/lib/panelUI.ts');
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(ui).not.toContain('data-tool="context"');
+  expect(ui).not.toContain('id="tool-context"');
+  expect(ui).not.toContain('Screenshot Reply');
+  expect(source).toContain('scanVisibleTextFallback(root)');
+  expect(source).toContain("adapter_id: 'visible-text-fallback'");
+});
+
+test('Settings owns a scroll body with Overdrive mounted inside it', () => {
+  const ui = read('entrypoints/lib/panelUI.ts');
+  const css = read('entrypoints/lib/panelCSS.ts');
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(ui).toContain('id="o8-settings-scroll"');
+  expect(ui).toContain('id="overdrive-panel-mount"');
+  expect(css).toContain('.settings-scroll');
+  expect(source).toContain("settingsPanel.querySelector('#overdrive-panel-mount')");
+  expect(source).toContain("settingsPanelForDot.style.display = 'flex'");
+});
+
+test('sign-out blocks cookie-only re-adoption until app bridge handoff', () => {
+  const background = read('entrypoints/background.ts');
+  const sidepanel = read('entrypoints/sidepanel/main.ts');
+  expect(background).toContain("SIGNED_OUT_SENTINEL_KEY = 'brevmont_signed_out_at'");
+  expect(background).toContain('try_cookie_share_signed_out_blocked');
+  expect(background).toContain('explicit sign-out sentinel present');
+  expect(background).toContain('browser.storage.local.remove(SIGNED_OUT_SENTINEL_KEY)');
+  expect(sidepanel).toContain("SIGNED_OUT_SENTINEL_KEY = 'brevmont_signed_out_at'");
+});
+
+test('My Leads merges server rows with local radar cache', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(source).toContain("safeSend({ type: 'GET_MY_LEADS'");
+  expect(source).toContain("safeSend({ type: 'GET_LOCAL_LEADS' })");
+  expect(source).toContain('mergeLeadInboxRows(remoteLeads, localLeads, leadFilter)');
+  expect(source).toContain('local_only');
+});
+
+test('Overdrive header dot paints from the same state as the pill', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  const css = read('entrypoints/lib/panelCSS.ts');
+  expect(source).toContain("root.querySelector('#o8-account-btn')");
+  expect(source).toContain('paintHeaderDot');
+  expect(source).toContain('Overdrive solo test mode on');
+  expect(source).toContain('Overdrive on and armed');
+  expect(css).toContain('.account-btn.overdrive-dot-on');
+  expect(css).toContain('.account-btn.overdrive-dot-solo');
+});
+
 test('honest event platform names stay aligned with adapter surfaces', () => {
   const sidepanel = read('entrypoints/sidepanel/main.ts');
   const honest = read('entrypoints/lib/honestEvents.ts');
