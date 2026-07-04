@@ -68,7 +68,8 @@ test('Settings owns a scroll body with Overdrive mounted inside it', () => {
   expect(ui.indexOf('id="sp-rep-first-name"')).toBeLessThan(ui.indexOf('id="overdrive-panel-mount"'));
   expect(ui).toContain('id="sp-settings-sign-out"');
   expect(css).toContain('.settings-scroll');
-  expect(css).toContain('padding-bottom:140px');
+  expect(css).toContain('--panel-safe-bottom');
+  expect(css).toContain('.settings-section { padding:16px 14px var(--panel-safe-bottom); }');
   expect(css).toContain('-webkit-overflow-scrolling:touch');
   expect(source).toContain("settingsPanel.querySelector('#overdrive-panel-mount')");
   expect(source).toContain("showPrimaryPanel(root, '#o8-settings-panel')");
@@ -95,15 +96,30 @@ test('sidepanel main and lead capture views scroll without clipping behind the a
   const css = read('entrypoints/lib/panelCSS.ts');
   const ui = read('entrypoints/lib/panelUI.ts');
   const source = read('entrypoints/sidepanel/main.ts');
-  expect(css).toContain('.quick-mode { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; overflow-y:auto;');
-  expect(css).toContain('.outputs:not(:empty) { padding:8px 14px 0; flex:0 0 auto; min-height:auto; }');
+  expect(css).toContain('--account-chip-space:76px');
+  expect(css).toContain('--panel-safe-bottom');
+  expect(css).toContain('.quick-mode { display:flex; flex-direction:column; flex:1 1 auto; height:100%; max-height:100%; min-height:0; overflow-y:auto;');
+  expect(css).toContain('.outputs:not(:empty) { padding:8px 14px var(--panel-safe-bottom); flex:0 0 auto; min-height:auto; }');
+  expect(css).toContain('.out-actions { position:sticky; bottom:calc(var(--account-chip-space) + 8px);');
   expect(css).toContain('#o8-lead-panel { overflow-y:auto;');
-  expect(css).toContain('#o8-lead-panel .tool-content { flex:0 0 auto; min-height:auto; overflow:visible; }');
-  expect(css).toContain('#o8-lead-result { height:auto; max-height:none; padding-top:0; }');
+  expect(css).toContain('#o8-lead-panel > .tool-content { flex:0 0 auto !important; min-height:auto !important; overflow:visible !important;');
+  expect(css).toContain('#o8-lead-result { height:auto; max-height:none; padding:8px 14px var(--panel-safe-bottom) !important; }');
   expect(ui).toContain('id="o8-my-leads-scroll"');
-  expect(css).toContain('.my-leads-scroll { padding:12px 14px 140px; height:auto; max-height:none; }');
+  expect(css).toContain('.my-leads-scroll { padding:12px 14px var(--panel-safe-bottom); }');
   expect(css).toContain('#o8-my-leads-content { flex:0 0 auto; min-height:auto; height:auto; max-height:none; overflow:visible; padding:0; }');
+  expect(source).toContain('function fitOutputTextarea');
+  expect(source).toContain('tool-content-active');
   expect(source).toContain("panel.querySelector('.settings-scroll, #o8-my-leads-scroll, #o8-stats-content')");
+});
+
+test('Coach uses coach mode and rejects follow-up-shaped responses', () => {
+  const background = read('entrypoints/background.ts');
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(background).toContain("workflow_type: 'coach_me'");
+  expect(source).toContain('function looksLikeFollowUpGeneration');
+  expect(source).toContain('function localCoachFallback');
+  expect(source).toContain('coachDisplayText(input, rawText)');
+  expect(source).toContain('TEXT|EMAIL|CRM');
 });
 
 test('primary panel navigation has one Back path to the Generate view', () => {

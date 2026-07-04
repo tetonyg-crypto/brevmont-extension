@@ -3298,7 +3298,7 @@ Keep it to 3-5 short sentences.`;
     dealerToken,
     coachMessage,
     'coach',
-    { ...leadMeta, rep_name: repName, workflow_type: 'coach', stream_target: 'coach' },
+    { ...leadMeta, rep_name: repName, workflow_type: 'coach_me', stream_target: 'coach' },
     repAuthToken,
     undefined,
     apiBase

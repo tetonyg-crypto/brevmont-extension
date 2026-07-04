@@ -1940,7 +1940,9 @@ function setActiveToolSection(root: HTMLElement, activeTool: string | null): voi
   });
 
   toolsPanel.querySelectorAll<HTMLElement>('.tool-content').forEach((content) => {
-    content.style.display = activeTool && content.id === `tool-${activeTool}` ? 'block' : 'none';
+    const isActive = !!activeTool && content.id === `tool-${activeTool}`;
+    content.style.display = isActive ? 'flex' : 'none';
+    content.classList.toggle('tool-content-active', isActive);
   });
 
   const title = toolsPanel.querySelector('.tools-title') as HTMLElement | null;
@@ -3683,6 +3685,18 @@ function showGenerationError(root: HTMLElement, message = GENERATION_FAILURE_MES
   if (retry) retry.onclick = () => doGenerate(root);
 }
 
+function fitOutputTextarea(card: HTMLElement, outputType?: string): void {
+  const ta = card.querySelector('.out-textarea') as HTMLTextAreaElement | null;
+  if (!ta) return;
+  requestAnimationFrame(() => {
+    const min = outputType === 'email' ? 260 : outputType === 'crm' ? 180 : 120;
+    const ceiling = outputType === 'email' ? 520 : outputType === 'crm' ? 380 : 300;
+    const max = Math.max(min, Math.min(window.innerHeight * 0.52, ceiling));
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(Math.max(ta.scrollHeight + 6, min), max)}px`;
+  });
+}
+
 function addOutput(root: HTMLElement, label: string, content: string, outputType?: string, generationId?: string): void {
   const outputs = root.querySelector('#o8-outputs')!;
   const card = document.createElement('div');
@@ -3782,6 +3796,8 @@ function addOutput(root: HTMLElement, label: string, content: string, outputType
   if (regenBtn) regenBtn.addEventListener('click', () => doGenerate(root));
 
   outputs.appendChild(card);
+  fitOutputTextarea(card, outputType);
+  card.scrollIntoView({ block: 'nearest' });
 }
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
@@ -3801,6 +3817,52 @@ function showToast(root: HTMLElement, msg: string): void {
 }
 
 // ─── Coach ────────────────────────────────────────────────────────────────────
+function looksLikeFollowUpGeneration(text: string): boolean {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  return /\bTEXT\b[\s\S]*\bEMAIL\b/i.test(t)
+    || /\bEMAIL\b[\s\S]*\bCRM\s*NOTE\b/i.test(t)
+    || /^\s*(TEXT|EMAIL|CRM\s*NOTE)\b/im.test(t)
+    || /\bSubject:\s*/i.test(t)
+    || /\bSales Consultant\b/i.test(t)
+    || /\bI wanted to follow up\b/i.test(t);
+}
+
+function localCoachFallback(input: string): string {
+  const text = String(input || '').toLowerCase();
+  if (/think|decide|sleep on|later/.test(text)) {
+    return 'Don\'t chase "think about it." Slow it down, agree, then isolate the real concern. Say: "Totally fair. Is it the vehicle, the numbers, or just making the decision today?" Once they name it, solve that one thing and ask for the next step.';
+  }
+  if (/price|payment|too high|expensive|cost|deal/.test(text)) {
+    return 'Don\'t defend the price first. Anchor value, then ask what number they had in mind and whether they\'re comparing the same vehicle, miles, equipment, and condition. Say: "If I can make the value make sense, are you ready to move forward?"';
+  }
+  if (/credit|score|approval|approved|finance/.test(text)) {
+    return 'Keep it calm and private. Don\'t promise approval. Say: "No judgment; my job is to find the strongest path with the lenders we have. Let\'s look at down payment, trade, and terms so we can structure it the right way."';
+  }
+  if (/spouse|wife|husband|partner|dad|mom|family/.test(text)) {
+    return 'Don\'t fight the second-decision-maker objection. Make it easy to bring them in. Say: "Totally get it. What\'s the one thing they\'ll want to know before they\'re comfortable?" Then set the call or second visit.';
+  }
+  if (/just looking|looking around|browse|shopping/.test(text)) {
+    return 'Respect it, then earn one useful question. Say: "Perfect, I\'ll keep it easy. What are you hoping this next vehicle does better than your current one?" Use their answer to guide the next step.';
+  }
+  if (/trade|trade-in|trade in/.test(text)) {
+    return 'Separate the trade from the decision without dismissing it. Say: "Let\'s get you a real number on the trade so we\'re not guessing. If the trade value lands where it needs to, is this the vehicle you want?"';
+  }
+  if (/cheaper|lower|better deal|beat/.test(text)) {
+    return 'Don\'t match a mystery offer. Clarify the comparison first. Say: "I\'m happy to compare it apples-to-apples. Is that the same trim, miles, condition, fees, and availability?" Then bring it back to whether they want this vehicle.';
+  }
+  if (/bank|credit union|pre.?approved|rate/.test(text)) {
+    return 'Treat their bank as a partner, not a threat. Say: "That\'s good. Bring the approval and I\'ll see if we can match or beat it, but either way we can still structure the deal around the vehicle you want."';
+  }
+  return 'Coach the rep, don\'t write the follow-up. Clarify the real objection, answer only that concern, then ask for one concrete next step. Say: "What\'s the main thing stopping you from moving forward right now?"';
+}
+
+function coachDisplayText(input: string, modelText: string): string {
+  const cleaned = displayText(modelText, '').trim();
+  if (!cleaned || looksLikeFollowUpGeneration(cleaned)) return localCoachFallback(input);
+  return cleaned;
+}
+
 async function doCoach(root: HTMLElement): Promise<void> {
   if (!(await ensureGenerationAllowed(root))) return;
   const input = (root.querySelector('#o8-coach-input') as HTMLTextAreaElement)?.value.trim();
@@ -3819,12 +3881,9 @@ async function doCoach(root: HTMLElement): Promise<void> {
     await requireToken();
     const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
     const resp = await safeSend({ type: 'COACH_ME', payload: { situation: input, platform: currentPlatform.platform, leadContext } });
-    const text = resp?.coaching || resp?.text || '';
-    if (!text) {
-      output.innerHTML = '<div class="tool-result" style="color:#ef4444">Empty response from Coach. Try again.</div>';
-      return;
-    }
-    output.innerHTML = `<div class="tool-result">${esc(displayText(text, 'No coaching response returned.'))}</div>`;
+    const rawText = resp?.coaching || resp?.text || '';
+    const text = coachDisplayText(input, rawText);
+    output.innerHTML = `<div class="tool-result">${esc(text)}</div>`;
   } catch (e: any) {
     output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
   } finally {
