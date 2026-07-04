@@ -2177,17 +2177,28 @@ export default defineContentScript({
               return;
             }
             if (isDuplicateInject(text)) {
-              sendResponse({ ok: true, deduped: true, adapter: adapter.id, method: plan.method });
-              return;
+              const duplicateVerify = await platforms.verifyInject(composer, text, { timeoutMs: 250, pollMs: 50 });
+              if (duplicateVerify.verified) {
+                sendResponse({
+                  ok: true,
+                  deduped: true,
+                  adapter: adapter.id,
+                  method: plan.method,
+                  verified: true,
+                  verify_elapsed_ms: duplicateVerify.elapsed_ms,
+                });
+                return;
+              }
             }
             safeInjectText(composer, text);
             const verify = await platforms.verifyInject(composer, text);
             sendResponse({
-              ok: true,
+              ok: verify.verified,
               adapter: adapter.id,
               method: plan.method,
               verified: verify.verified,
               verify_elapsed_ms: verify.elapsed_ms,
+              found_length: verify.found_length,
             });
           } catch (err: any) {
             sendResponse({ ok: false, error: err?.message || 'inject_v2_failed' });

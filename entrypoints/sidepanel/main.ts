@@ -362,6 +362,10 @@ function normalizeOutputType(outputType?: string): 'text' | 'email' | 'crm_note'
   return 'text';
 }
 
+function injectKindForOutputType(outputType?: string): 'text' | 'email' | 'crm_note' {
+  return normalizeOutputType(outputType);
+}
+
 function hasVehicleOrBuyingSignal(rawText: unknown): boolean {
   const raw = String(rawText || '');
   return /\b(?:19|20)\d{2}\s*(?:Chevrolet|Chevy|Subaru|Toyota|Ford|Ram|Dodge|Jeep|GMC|Honda|Nissan|Hyundai|Kia|BMW|Mercedes|Buick|Cadillac|Lexus|Acura|Audi|Volvo|Mazda|Chrysler|Lincoln|Infiniti|Volkswagen|VW|Porsche|Tesla|Rivian|Tacoma|Silverado|Tahoe|Suburban|F-?150|Camry|Corolla|Accord|Civic|Telluride|Sorento|Sportage)\b/i.test(raw)
@@ -3561,10 +3565,13 @@ function addOutput(root: HTMLElement, label: string, content: string, outputType
       const status = card.querySelector('.out-status') as HTMLElement;
       try {
         const resp = await sendToContent({
-          type: 'INJECT_CONTENT',
-          payload: { content: ta.value, outputType: outputType || 'text', platform: currentPlatform.platform },
+          type: 'INJECT_CONTENT_V2',
+          payload: { text: ta.value, kind: injectKindForOutputType(outputType), platform: currentPlatform.platform },
         });
-        if (resp && resp.ok === false) throw new Error('No compose or CRM field found. Open the field and try Inject again.');
+        if (resp && resp.ok === false) {
+          throw new Error(resp.reason || resp.error || 'No compose or CRM field found. Open the field and try Inject again.');
+        }
+        if (resp && resp.verified === false) throw new Error('Inject was not verified. Check the composer and try again.');
         const generation_id = card.dataset.generationId || null;
         if (generation_id) {
           safeSend({

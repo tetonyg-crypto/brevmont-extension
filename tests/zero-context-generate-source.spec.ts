@@ -124,6 +124,19 @@ test('Ask Anything input handles Enter locally without falling into Generate', (
   expect(commandWire).not.toContain('doGenerate(root)');
 });
 
+test('manual Inject button uses the verified content-script bridge', () => {
+  const sidepanel = read('entrypoints/sidepanel/main.ts');
+  const content = read('entrypoints/content.ts');
+  const start = sidepanel.indexOf('// Inject — send to content script');
+  const injectWire = sidepanel.slice(start, sidepanel.indexOf('// Regen', start));
+  expect(injectWire).toContain("type: 'INJECT_CONTENT_V2'");
+  expect(injectWire).toContain('payload: { text: ta.value, kind: injectKindForOutputType(outputType)');
+  expect(injectWire).toContain('resp.verified === false');
+  expect(injectWire).not.toContain("type: 'INJECT_CONTENT',");
+  expect(content).toContain('const duplicateVerify = await platforms.verifyInject(composer, text');
+  expect(content).toContain('ok: verify.verified');
+});
+
 test('honest event platform names stay aligned with adapter surfaces', () => {
   const sidepanel = read('entrypoints/sidepanel/main.ts');
   const honest = read('entrypoints/lib/honestEvents.ts');
