@@ -2805,6 +2805,83 @@ function loadAccountInfo(root: HTMLElement): void {
     });
 }
 
+type SettingsSupportMode = 'help' | 'report';
+
+const SUPPORT_EMAIL = 'founder@brevmont.com';
+
+async function getActiveTabHost(): Promise<string | null> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const url = tab?.url || currentPlatform.url || '';
+    if (!url) return null;
+    return new URL(url).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+async function buildSupportDetails(reportStatus?: string): Promise<string> {
+  const manifest = chrome.runtime.getManifest();
+  const [local, sync, tabHost] = await Promise.all([
+    chrome.storage.local.get(['rep_name', 'dealership', 'rep_email', 'brevmont_rep_email']),
+    chrome.storage.sync.get(['rep_name', 'dealership', 'rep_email']),
+    getActiveTabHost(),
+  ]);
+  const repName = String(local.rep_name || sync.rep_name || 'unknown');
+  const repEmail = String(local.rep_email || local.brevmont_rep_email || sync.rep_email || 'unknown');
+  const dealership = String(local.dealership || sync.dealership || 'unknown');
+  const customer = pinnedCustomer?.name || 'none';
+  const vehicle = pinnedCustomer?.vehicle || 'none';
+  return [
+    'Brevmont support details',
+    `Version: ${manifest.version || 'unknown'}`,
+    `Rep: ${repName}`,
+    `Email: ${repEmail}`,
+    `Dealership: ${dealership}`,
+    `Platform: ${currentPlatform.platform || 'unknown'}`,
+    `Active host: ${tabHost || 'unknown'}`,
+    `Customer: ${customer}`,
+    `Vehicle: ${vehicle}`,
+    `Support report: ${reportStatus || 'not sent'}`,
+  ].join('\n');
+}
+
+async function copyPanelText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function showSettingsSupport(root: HTMLElement, mode: SettingsSupportMode, reportStatus?: string): Promise<void> {
+  const card = root.querySelector('#sp-support-card') as HTMLElement | null;
+  const title = root.querySelector('#sp-support-title') as HTMLElement | null;
+  const copy = root.querySelector('#sp-support-copy') as HTMLElement | null;
+  const email = root.querySelector('#sp-support-email') as HTMLElement | null;
+  if (!card) return;
+  const details = await buildSupportDetails(reportStatus);
+  card.dataset.supportDetails = details;
+  card.dataset.supportMode = mode;
+  if (title) title.textContent = mode === 'report' ? 'Issue report' : 'Support';
+  if (copy) {
+    copy.textContent = mode === 'report'
+      ? reportStatus === 'sent'
+        ? 'Issue report sent. Copy the details if you want to add context.'
+        : 'Issue report could not send automatically. Copy the details and send them to support.'
+      : 'Copy the email or details here. This keeps your current tab and sidepanel exactly where they are.';
+  }
+  if (email) email.textContent = SUPPORT_EMAIL;
+  card.style.display = '';
+  const scrollBody = root.querySelector('#o8-settings-scroll') as HTMLElement | null;
+  card.scrollIntoView({ block: 'nearest' });
+  if (scrollBody) {
+    const maxScroll = Math.max(0, scrollBody.scrollHeight - scrollBody.clientHeight);
+    scrollBody.scrollTop = Math.min(maxScroll, card.offsetTop - 12);
+  }
+}
+
 // ─── Wire up all interactive elements ────────────────────────────────────────
 function loadRepPreferences(root: HTMLElement): void {
   chrome.storage.local.get(['rep_name', 'profile']).then(local => {
@@ -2983,22 +3060,59 @@ function wireHandlers(root: HTMLElement): void {
   if (settingsSignOutBtn) {
     settingsSignOutBtn.onclick = () => { void performSignOut(); };
   }
-  const reportBtn = root.querySelector('#sp-link-report') as HTMLButtonElement;
+  const reportBtn = root.querySelector('#sp-link-report') as HTMLButtonElement | null;
   if (reportBtn) {
     reportBtn.onclick = async () => {
-      reportBtn.disabled = true; reportBtn.textContent = 'Sending...';
+      reportBtn.disabled = true;
+      reportBtn.textContent = 'Sending...';
+      let status = 'failed';
       try {
-        let tabDomain: string | null = null;
-        try { const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }); if (tab?.url) tabDomain = new URL(tab.url).hostname; } catch { /* noop */ }
+        const tabDomain = await getActiveTabHost();
         await chrome.runtime.sendMessage({ type: 'SUPPORT_REPORT', payload: { note: '', tab_domain: tabDomain } });
-        reportBtn.textContent = 'Sent!';
-      } catch { reportBtn.textContent = 'Failed'; }
-      setTimeout(() => { reportBtn.disabled = false; reportBtn.textContent = 'Report issue'; }, 3000);
+        status = 'sent';
+        showToast(root, 'Issue report sent');
+      } catch {
+        showToast(root, 'Could not send. Copy details instead.');
+      } finally {
+        await showSettingsSupport(root, 'report', status);
+        reportBtn.disabled = false;
+        reportBtn.textContent = 'Report issue';
+      }
     };
   }
-  const helpBtn = root.querySelector('#sp-link-help') as HTMLButtonElement;
+  const helpBtn = root.querySelector('#sp-link-help') as HTMLButtonElement | null;
   if (helpBtn) {
-    helpBtn.onclick = () => { chrome.tabs.create({ url: 'mailto:founder@brevmont.com' }); };
+    helpBtn.onclick = (event) => {
+      event.preventDefault();
+      void showSettingsSupport(root, 'help');
+    };
+  }
+  const copySupportEmailBtn = root.querySelector('#sp-copy-support-email') as HTMLButtonElement | null;
+  if (copySupportEmailBtn) {
+    copySupportEmailBtn.onclick = async () => {
+      const ok = await copyPanelText(SUPPORT_EMAIL);
+      showToast(root, ok ? 'Support email copied' : 'Could not copy email');
+    };
+  }
+  const copySupportDetailsBtn = root.querySelector('#sp-copy-support-details') as HTMLButtonElement | null;
+  if (copySupportDetailsBtn) {
+    copySupportDetailsBtn.onclick = async () => {
+      const card = root.querySelector('#sp-support-card') as HTMLElement | null;
+      const details = card?.dataset.supportDetails || await buildSupportDetails(card?.dataset.supportMode === 'report' ? 'not sent' : undefined);
+      const ok = await copyPanelText(details);
+      showToast(root, ok ? 'Support details copied' : 'Could not copy details');
+    };
+  }
+  const closeSupportCardBtn = root.querySelector('#sp-close-support-card') as HTMLButtonElement | null;
+  if (closeSupportCardBtn) {
+    closeSupportCardBtn.onclick = () => {
+      const card = root.querySelector('#sp-support-card') as HTMLElement | null;
+      if (card) card.style.display = 'none';
+    };
+  }
+  const settingsBottomBack = root.querySelector('#sp-settings-bottom-back') as HTMLButtonElement | null;
+  if (settingsBottomBack) {
+    settingsBottomBack.onclick = () => showQuickView(root);
   }
 
   // Tools panel

@@ -78,10 +78,21 @@ function getSettingsHTML(): string {
     <div class="settings-divider"></div>
     <div class="settings-kicker">Overdrive</div>
     <div id="overdrive-panel-mount"></div>
-    <div style="border-top:1px solid #E5E7EB;margin-top:14px;padding-top:10px;display:flex;flex-direction:column;gap:6px">
-      <a id="sp-link-changelog" href="https://app.brevmont.com/changelog" target="_blank" rel="noopener" style="font-size:11px;color:#6B7280;text-decoration:none">Changelog</a>
-      <button id="sp-link-help" style="background:none;border:none;padding:0;font-size:11px;color:#0D6E6E;cursor:pointer;text-align:left;font-weight:500;font-family:inherit">Get help</button>
-      <button id="sp-link-report" style="background:none;border:none;padding:0;font-size:11px;color:#0D6E6E;cursor:pointer;text-align:left;font-weight:500;font-family:inherit">Report issue</button>
+    <div id="sp-support-card" class="settings-card settings-support-card" style="display:none">
+      <div class="settings-note-title" id="sp-support-title">Support</div>
+      <div class="settings-note-copy" id="sp-support-copy">Tell us what happened and include the copied details.</div>
+      <div class="settings-support-email" id="sp-support-email">founder@brevmont.com</div>
+      <div class="settings-support-actions">
+        <button id="sp-copy-support-email" class="settings-support-action primary" type="button">Copy email</button>
+        <button id="sp-copy-support-details" class="settings-support-action" type="button">Copy details</button>
+        <button id="sp-close-support-card" class="settings-support-action" type="button">Close</button>
+      </div>
+    </div>
+    <div class="settings-footer-links">
+      <a id="sp-link-changelog" href="https://app.brevmont.com/changelog" target="_blank" rel="noopener">Changelog</a>
+      <button id="sp-link-help" type="button">Get help</button>
+      <button id="sp-link-report" type="button">Report issue</button>
+      <button id="sp-settings-bottom-back" class="settings-secondary settings-back-bottom" type="button">Back to Generate</button>
     </div>
   </div>`;
 }

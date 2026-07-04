@@ -318,6 +318,18 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .settings-note-copy { color:#64748B; font-size:11px; line-height:1.4; }
 .settings-secondary { width:100%; margin-top:10px; border:1px solid #E5E7EB; border-radius:7px; background:#fff; color:#334155; font-family:inherit; font-size:12px; font-weight:800; padding:9px 12px; cursor:pointer; }
 .settings-secondary:hover { border-color:#B91C1C; color:#B91C1C; background:#FEF2F2; }
+.settings-back-bottom:hover { border-color:#0D6E6E; color:#0D6E6E; background:#F0FAFA; }
+.settings-footer-links { border-top:1px solid #E5E7EB; margin-top:14px; padding-top:10px; display:flex; flex-direction:column; gap:7px; }
+.settings-footer-links a, .settings-footer-links button:not(.settings-secondary) { width:max-content; background:none; border:none; padding:0; font-size:11px; line-height:1.4; color:#0D6E6E; cursor:pointer; text-align:left; font-weight:650; font-family:inherit; text-decoration:none; }
+.settings-footer-links a { color:#6B7280; font-weight:500; }
+.settings-footer-links a:hover, .settings-footer-links button:not(.settings-secondary):hover { text-decoration:underline; }
+.settings-support-card { background:#F0FAFA; border-color:#CFE2E2; }
+.settings-support-email { margin-top:8px; border:1px solid #D6E4E4; border-radius:7px; background:#fff; color:#0F1419; padding:8px 9px; font-size:12px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.settings-support-actions { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:8px; }
+.settings-support-action { border:1px solid #D9E7E7; border-radius:7px; background:#fff; color:#0D6E6E; font-family:inherit; font-size:10.5px; font-weight:850; line-height:1.15; padding:8px 6px; cursor:pointer; }
+.settings-support-action.primary { background:#0D6E6E; border-color:#0D6E6E; color:#fff; }
+.settings-support-action:hover { border-color:#0D6E6E; background:#E6F4F1; }
+.settings-support-action.primary:hover { background:#0A5555; }
 .settings-divider { height:1px; background:#E5E7EB; margin:16px 0 14px; }
 .settings-options { display:flex; flex-direction:column; gap:6px; position:relative; } .settings-options label { font-size:12px; color:#1a202c; display:flex; align-items:center; gap:6px; } .settings-options input[type="radio"] { accent-color:#0D6E6E; }
 .settings-input { width:100%; padding:9px 10px; border:1px solid #E5E7EB; border-radius:6px; font-size:13px; color:#1a202c; outline:none; font-family:inherit; } .settings-input:focus { border-color:#0D6E6E; box-shadow:0 0 0 3px rgba(13,110,110,.08); }

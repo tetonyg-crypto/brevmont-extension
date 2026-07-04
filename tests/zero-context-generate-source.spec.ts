@@ -75,6 +75,22 @@ test('Settings owns a scroll body with Overdrive mounted inside it', () => {
   expect(source).toContain('scrollBody.scrollTop = 0');
 });
 
+test('Settings support actions stay inside the sidepanel instead of opening mailto tabs', () => {
+  const ui = read('entrypoints/lib/panelUI.ts');
+  const css = read('entrypoints/lib/panelCSS.ts');
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(ui).toContain('id="sp-support-card"');
+  expect(ui).toContain('id="sp-copy-support-email"');
+  expect(ui).toContain('id="sp-copy-support-details"');
+  expect(ui).toContain('id="sp-settings-bottom-back"');
+  expect(css).toContain('.settings-support-card');
+  expect(css).toContain('.settings-footer-links');
+  expect(source).toContain('async function showSettingsSupport');
+  expect(source).toContain("helpBtn.onclick = (event) =>");
+  expect(source).toContain("settingsBottomBack.onclick = () => showQuickView(root)");
+  expect(source).not.toContain("chrome.tabs.create({ url: 'mailto:founder@brevmont.com' })");
+});
+
 test('sidepanel main and lead capture views scroll without clipping behind the account chip', () => {
   const css = read('entrypoints/lib/panelCSS.ts');
   const ui = read('entrypoints/lib/panelUI.ts');
