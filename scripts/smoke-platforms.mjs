@@ -98,10 +98,11 @@ function platformHtml(kind) {
   if (kind === 'gmail') {
     return shell('Gmail - Louise payment options', `
       <div class="layout">
-        <aside class="rail"><h1>Gmail</h1><div class="card">Louise M. · Tahoe payment options</div></aside>
+        <aside class="rail"><h1>Gmail</h1><a aria-label="Google Account: Tyler Rep (tyler.rep@ridgeline.example)" href="#account">Account</a><div class="card">Louise M. · Tahoe payment options</div></aside>
         <main role="main" class="thread">
-          <div class="h7" role="list">
+          <div class="adn h7" role="listitem">
             <h1>Louise M. - Tahoe payment options</h1>
+            <span class="gD" name="Louise M." email="louise@example.com">Louise M.</span>
             <div class="a3s">
               Hi Tyler, I liked the Tahoe but my husband is worried about the rate.
               We have $2,000 down and my credit is around 710. Can you send lease,

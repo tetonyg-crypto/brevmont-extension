@@ -23,12 +23,140 @@ const CAPS: AdapterCapabilities = {
   default_output: 'email',
 };
 
+type GmailDirection = ThreadContext['messages'][number]['direction'];
+
 function hostMatches(url: string): boolean {
   return String(url || '').toLowerCase().includes('mail.google.com');
 }
 
 function detect(): boolean {
   return hostMatches(window.location.href);
+}
+
+function normalizeEmail(value: unknown): string {
+  const raw = String(value || '').trim().toLowerCase();
+  const match = raw.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+  return match ? match[0].toLowerCase() : '';
+}
+
+function collectLoggedInEmails(): Set<string> {
+  const emails = new Set<string>();
+  try {
+    const selectors = [
+      'a[aria-label*="Google Account" i]',
+      'a[aria-label*="Google account" i]',
+      'img[alt*="Google Account" i]',
+      'img[alt*="Google account" i]',
+    ];
+    for (const el of Array.from(document.querySelectorAll(selectors.join(',')))) {
+      const element = el as HTMLElement;
+      for (const value of [
+        element.getAttribute('aria-label'),
+        element.getAttribute('alt'),
+        element.getAttribute('data-email'),
+        element.getAttribute('email'),
+        element.textContent,
+      ]) {
+        const email = normalizeEmail(value);
+        if (email) emails.add(email);
+      }
+    }
+  } catch {
+    /* noop */
+  }
+  return emails;
+}
+
+function cleanMessageText(root: Element): string {
+  const clone = root.cloneNode(true) as HTMLElement;
+  const removeSelectors = [
+    '.gmail_quote',
+    'blockquote',
+    '.yj6qo',
+    '.adL',
+    '.im',
+    '.ii.gt + .yj6qo',
+    '[aria-label*="Show trimmed content" i]',
+    '[aria-label*="Hide expanded content" i]',
+  ];
+  for (const el of Array.from(clone.querySelectorAll(removeSelectors.join(',')))) {
+    el.remove();
+  }
+  return (clone.innerText || clone.textContent || '')
+    .replace(/\bOn .+ wrote:\s*$/i, '')
+    .replace(/[-_]{2,}\s*Forwarded message\s*[-_]{2,}[\s\S]*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function uniqueElements(elements: Element[]): Element[] {
+  const seen = new Set<Element>();
+  const out: Element[] = [];
+  for (const el of elements) {
+    if (seen.has(el)) continue;
+    seen.add(el);
+    out.push(el);
+  }
+  return out;
+}
+
+function messageRoots(): Element[] {
+  const roots = Array.from(document.querySelectorAll('.adn, .h7')).filter((el) => {
+    const body = el.querySelector('.a3s, [role="textbox"], [dir="ltr"], [dir="auto"]');
+    const sender = el.querySelector('.gD[email], .gD[name], .go[email], [email]');
+    return Boolean(body && sender);
+  });
+  if (roots.length) {
+    const seenBodies = new Set<Element>();
+    return uniqueElements(roots).filter((root) => {
+      const body = root.querySelector('.a3s, [role="textbox"], [dir="ltr"], [dir="auto"]') || root;
+      if (seenBodies.has(body)) return false;
+      seenBodies.add(body);
+      return true;
+    });
+  }
+
+  return uniqueElements(
+    Array.from(document.querySelectorAll('.a3s')).map((body) => {
+      const root = body.closest('.adn, .h7, [role="listitem"], [role="article"]');
+      return root || body;
+    }),
+  );
+}
+
+function senderForMessage(root: Element): { email: string; name: string; isMeMarker: boolean } {
+  const sender =
+    root.querySelector('.gD[email], .gD[name], .go[email], .gD, .go, [email]') as HTMLElement | null;
+  const email = normalizeEmail(
+    sender?.getAttribute('email') ||
+    sender?.getAttribute('data-hovercard-id') ||
+    sender?.getAttribute('aria-label') ||
+    sender?.textContent ||
+    '',
+  );
+  const name = String(sender?.getAttribute('name') || sender?.textContent || '').trim();
+  const marker = name.toLowerCase().replace(/\s+/g, ' ');
+  return { email, name, isMeMarker: marker === 'me' || marker === 'you' };
+}
+
+function directionForMessage(
+  root: Element,
+  loggedInEmails: Set<string>,
+): { direction: GmailDirection; reason: string } {
+  const sender = senderForMessage(root);
+  if (sender.isMeMarker) {
+    return { direction: 'outbound', reason: 'gmail_me_sender_marker' };
+  }
+  if (loggedInEmails.size === 0) {
+    return { direction: 'unknown', reason: 'missing_logged_in_account_identity' };
+  }
+  if (sender.email && loggedInEmails.has(sender.email)) {
+    return { direction: 'outbound', reason: 'sender_email_matches_logged_in_account' };
+  }
+  if (sender.email && !loggedInEmails.has(sender.email)) {
+    return { direction: 'inbound', reason: 'sender_email_differs_from_logged_in_account' };
+  }
+  return { direction: 'unknown', reason: 'missing_sender_identity' };
 }
 
 function scrapeThread(): ThreadContext {
@@ -39,25 +167,25 @@ function scrapeThread(): ThreadContext {
     // Subject line — the topmost h2 in the thread view.
     const subject = document.querySelector('h2') as HTMLElement | null;
     if (subject) header_text = (subject.innerText || '').trim().slice(0, 200);
-    // Message bodies — Gmail uses .a3s and .h7 wrappers per message.
-    const msgEls = Array.from(document.querySelectorAll('.h7, [role="list"] > *, .a3s')).slice(0, 20);
-    for (const el of msgEls) {
-      const text = ((el as HTMLElement).innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+    const loggedInEmails = collectLoggedInEmails();
+    for (const el of messageRoots().slice(-30)) {
+      const { direction } = directionForMessage(el, loggedInEmails);
+      if (direction === 'unknown') continue;
+      const body = el.querySelector('.a3s') || el;
+      const text = cleanMessageText(body);
       if (!text || text.length < 5) continue;
-      messages.push({ text: text.slice(0, 800), direction: 'unknown' });
+      messages.push({ text: text.slice(0, 800), direction });
     }
-    // Fallback to full-list scrape for the raw_text side.
-    const list = document.querySelector('.h7, [role="list"], .a3s') as HTMLElement | null;
-    raw_text = (list?.innerText || document.body?.innerText || '').slice(0, 5000);
+    raw_text = messages.map((message) => `[${message.direction}] ${message.text}`).join('\n').slice(0, 5000);
   } catch {
     /* noop */
   }
-  const inboundGuess = messages.length ? messages[messages.length - 1].text : raw_text.slice(0, 2000);
+  const lastInbound = messages.slice().reverse().find((message) => message.direction === 'inbound')?.text || '';
   return {
     conversation_key: stableKeyFromPath('gmail'),
     raw_text: [header_text, raw_text].filter(Boolean).join('\n').slice(0, 5000),
     messages,
-    last_inbound_text: inboundGuess,
+    last_inbound_text: lastInbound,
     header_text,
     url: window.location.href,
   };

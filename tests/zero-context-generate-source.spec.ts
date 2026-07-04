@@ -51,6 +51,13 @@ test('honest event platform names stay aligned with adapter surfaces', () => {
   expect(normalizeBody).not.toContain('google_messages');
 });
 
+test('Gmail auto-scan does not invent last inbound from outbound or raw text fallback', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(source).toContain("const isDeterministicGmailThread = (ctx.platform || currentPlatform.platform) === 'gmail' && messages.length > 0");
+  expect(source).toContain("(isDeterministicGmailThread ? '' : messages[messages.length - 1]?.text)");
+  expect(source).toContain("(isDeterministicGmailThread ? '' : lastReadableThreadLine(rawText))");
+});
+
 test('auto-scan keeps the textbox as optional steer and preserves honest fallback', () => {
   const ui = read('entrypoints/lib/panelUI.ts');
   const css = read('entrypoints/lib/panelCSS.ts');

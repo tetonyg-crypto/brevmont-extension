@@ -838,11 +838,12 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
   const thread = ctx.thread || {};
   const messages = buildThreadMessages(thread.messages);
   const rawText = cleanContextText(thread.raw_text || ctx.raw_text || ctx.source_raw_text || '', 5000);
+  const isDeterministicGmailThread = (ctx.platform || currentPlatform.platform) === 'gmail' && messages.length > 0;
   const lastInbound = stripThreadDecorators(
     thread.last_inbound_text ||
     messages.slice().reverse().find((message) => message.direction === 'inbound')?.text ||
-    messages[messages.length - 1]?.text ||
-    lastReadableThreadLine(rawText)
+    (isDeterministicGmailThread ? '' : messages[messages.length - 1]?.text) ||
+    (isDeterministicGmailThread ? '' : lastReadableThreadLine(rawText))
   );
   const headerText = stripThreadDecorators(thread.header_text || ctx.context?.subject_line || ctx.context?.listing_title || '');
   if (!rawText && !lastInbound && !headerText) return null;
@@ -873,7 +874,7 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
       conversation_key: thread.conversation_key || ctx.thread_fingerprint || ctx.context_fingerprint || null,
       raw_text: rawText || [headerText, ...messages.map((message) => `[${message.direction || 'unknown'}] ${message.text}`)].filter(Boolean).join('\n').slice(0, 5000),
       messages,
-      last_inbound_text: lastInbound || lastReadableThreadLine(rawText),
+      last_inbound_text: lastInbound || (isDeterministicGmailThread ? '' : lastReadableThreadLine(rawText)),
       header_text: headerText || null,
       url: thread.url || currentPlatform.url || null,
     },
