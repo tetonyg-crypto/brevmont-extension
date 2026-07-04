@@ -2760,11 +2760,20 @@ async function resolveDealerToken(): Promise<string> {
 async function handleGenerate(payload: {
   type: string;
   leadContext: any;
+  threadContext?: {
+    conversation_key?: string | null;
+    raw_text?: string | null;
+    messages?: Array<{ text?: string; direction?: string; ts?: number }>;
+    last_inbound_text?: string | null;
+    header_text?: string | null;
+    url?: string | null;
+  } | null;
   repInput: string;
   repName: string;
   dealership: string;
   platform?: string;
   metadata?: Record<string, any>;
+  systemHints?: { noVehicleDetected?: boolean } | null;
 }) {
   // Phase T7: block generation outright if license is revoked
   await assertNotRevoked();
@@ -2854,6 +2863,12 @@ async function handleGenerate(payload: {
     vehicle_context: payload.metadata?.vehicle_context || payload.leadContext?.vehicle_context || payload.leadContext?.vehicle || null,
     context_fingerprint: payload.metadata?.context_fingerprint || payload.leadContext?.context_fingerprint || null,
     thread_fingerprint: payload.metadata?.thread_fingerprint || payload.leadContext?.thread_fingerprint || payload.leadContext?.context_fingerprint || null,
+    zero_context_generate: payload.metadata?.zero_context_generate || Boolean(payload.threadContext),
+    adapter_id: payload.metadata?.adapter_id || payload.leadContext?.adapter_id || null,
+    surface_kind: payload.metadata?.surface_kind || payload.leadContext?.surface_kind || null,
+    conversation_key: payload.metadata?.conversation_key || payload.threadContext?.conversation_key || null,
+    last_inbound_text: payload.metadata?.last_inbound_text || payload.threadContext?.last_inbound_text || null,
+    scan_source: payload.metadata?.scan_source || null,
   };
 
   const apiBase = await getResolvedApiUrl();
@@ -3506,8 +3521,48 @@ async function requireFeature(feature: string, label: string): Promise<void> {
   }
 }
 
+function promptText(value: unknown, max = 5000): string {
+  return String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, max);
+}
+
+function cleanRepSteer(value: unknown): string {
+  return promptText(value, 1200)
+    .replace(/\[SYSTEM:\s*No vehicle of interest detected[^\]]*\]/gi, '')
+    .trim();
+}
+
+function threadMessagesForPrompt(messages: unknown): string {
+  if (!Array.isArray(messages)) return '';
+  return messages
+    .slice(-16)
+    .map((message: any) => {
+      const text = promptText(message?.text || message?.body || message, 700);
+      if (!text) return '';
+      const direction = String(message?.direction || 'unknown').toLowerCase();
+      return `[${direction}] ${text}`;
+    })
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, 5000);
+}
+
 function buildUserMessage(payload: any, repName: string, dealership: string, repContext: string = ''): string {
   const lc = payload.leadContext || {};
+  const thread = payload.threadContext || payload.thread_context || null;
+  const repSteer = cleanRepSteer(payload.repInput);
+  const rawThread = promptText(thread?.raw_text, 5000);
+  const lastInbound = promptText(thread?.last_inbound_text, 1400);
+  const threadMessages = threadMessagesForPrompt(thread?.messages);
+  const headerText = promptText(thread?.header_text, 300);
+  const hasThreadContext = Boolean(rawThread || lastInbound || threadMessages || headerText);
+  const noVehicleDetected = Boolean(payload.systemHints?.noVehicleDetected) ||
+    /\[SYSTEM:\s*No vehicle of interest detected/i.test(String(payload.repInput || ''));
   let msg = '';
 
   // Inject rep context block at the top of every prompt
@@ -3536,8 +3591,26 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
 
   msg += `Rep: ${repName}\nDealership: ${dealership}\n\n`;
 
+  if (hasThreadContext) {
+    msg += 'SCANNED THREAD CONTEXT (visible conversation on the current page):\n';
+    if (headerText) msg += `Thread header: ${headerText}\n`;
+    if (lastInbound) msg += `LAST CUSTOMER MESSAGE: ${lastInbound}\n`;
+    if (thread?.conversation_key) msg += `Conversation key: ${thread.conversation_key}\n`;
+    const history = threadMessages || rawThread;
+    if (history) msg += `Visible history:\n${history}\n`;
+    msg += 'Use the scanned thread as the primary source of truth. Answer the latest customer message directly, keep the customer name clean, and do not invent vehicle specs, prices, availability, or financing terms not present in the vehicle/dealership context.\n\n';
+  }
+
+  if (noVehicleDetected) {
+    msg += 'SAFETY: No vehicle of interest was confidently detected. Do not mention or invent a vehicle unless the scanned thread or CRM context clearly names one.\n\n';
+  }
+
   if (payload.type === 'all') {
-    msg += `REP VOICE/TYPED INPUT:\n${payload.repInput}\n\n`;
+    if (hasThreadContext) {
+      msg += `REP STEER / OPTIONAL DIRECTION:\n${repSteer || 'No extra direction. Use the scanned thread.'}\n\n`;
+    } else {
+      msg += `REP VOICE/TYPED INPUT:\n${repSteer || payload.repInput || ''}\n\n`;
+    }
     msg += 'Generate ALL THREE follow-ups. You MUST produce all three labeled sections:\n';
     msg += '1. TEXT (2-3 sentences max, no exclamation points, end with a question)\n';
     msg += '2. EMAIL (subject + 3-4 sentence body + signature)\n';
@@ -3545,15 +3618,18 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
     msg += 'Label each section clearly as TEXT, EMAIL, and CRM NOTE. Do not skip any section.\n';
   } else if (payload.type === 'text') {
     msg += `Generate a TEXT MESSAGE. CRITICAL: 2-3 sentences MAXIMUM. No more. End with one question. No exclamation points. No filler.\n`;
-    if (payload.repInput) msg += `Context: ${payload.repInput}\n`;
+    if (hasThreadContext && repSteer) msg += `Rep steer: ${repSteer}\n`;
+    else if (!hasThreadContext && repSteer) msg += `Context: ${repSteer}\n`;
   } else if (payload.type === 'email') {
     msg += `Generate an EMAIL.\n`;
-    if (payload.repInput) msg += `Context: ${payload.repInput}\n`;
+    if (hasThreadContext && repSteer) msg += `Rep steer: ${repSteer}\n`;
+    else if (!hasThreadContext && repSteer) msg += `Context: ${repSteer}\n`;
   } else if (payload.type === 'crm') {
     msg += `Generate a CRM NOTE.\n`;
-    if (payload.repInput) msg += `Context: ${payload.repInput}\n`;
+    if (hasThreadContext && repSteer) msg += `Rep steer: ${repSteer}\n`;
+    else if (!hasThreadContext && repSteer) msg += `Context: ${repSteer}\n`;
   } else {
-    msg += payload.repInput || 'Generate TEXT + EMAIL + CRM NOTE.\n';
+    msg += repSteer || payload.repInput || 'Generate TEXT + EMAIL + CRM NOTE.\n';
   }
 
   return msg;

@@ -17,6 +17,7 @@ type LazyAdapter = () => Promise<PlatformAdapter>;
 const REGISTRY: Record<PlatformId, LazyAdapter> = {
   facebook: () => import('./facebook').then((m) => m.facebookAdapter),
   gmail: () => import('./gmail').then((m) => m.gmailAdapter),
+  outlook: () => import('./outlook').then((m) => m.outlookAdapter),
   linkedin: () => import('./linkedin').then((m) => m.linkedinAdapter),
   vinsolutions: () => import('./vinsolutions').then((m) => m.vinsolutionsAdapter),
   instagram: () => import('./instagram').then((m) => m.instagramAdapter),
@@ -35,6 +36,7 @@ export function platformIdFromUrl(url: string): PlatformId | null {
   const u = String(url || '').toLowerCase();
   if (u.includes('vinsolutions.com') || u.includes('coxautoinc.com')) return 'vinsolutions';
   if (u.includes('mail.google.com')) return 'gmail';
+  if (u.includes('outlook.live.com') || u.includes('outlook.office.com') || u.includes('outlook.office365.com')) return 'outlook';
   if (u.includes('messenger.com') || u.includes('facebook.com/messages') || u.includes('facebook.com/marketplace/t/')) return 'facebook';
   if (u.includes('facebook.com')) return 'facebook';
   if (u.includes('linkedin.com')) return 'linkedin';

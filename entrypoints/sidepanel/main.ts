@@ -32,7 +32,24 @@ import {
 } from '../../lib/accessState';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
+type Platform =
+  | 'vinsolutions'
+  | 'gmail'
+  | 'outlook'
+  | 'facebook'
+  | 'linkedin'
+  | 'whatsapp'
+  | 'instagram'
+  | 'google-messages'
+  | 'cargurus'
+  | 'carsdotcom'
+  | 'autotrader'
+  | 'dealersocket'
+  | 'elead'
+  | 'unknown';
+
+type OutputChip = 'text' | 'email' | 'crm';
+type AutoThreadScanStatus = 'idle' | 'scanning' | 'ready' | 'fallback' | 'error';
 
 interface PlatformContext {
   platform: Platform;
@@ -67,6 +84,31 @@ interface PinnedCustomer {
   pinnedAt: number;
 }
 
+interface AutoThreadScan {
+  source: 'adapter' | 'legacy';
+  platform: Platform | string;
+  adapter_id?: string | null;
+  surface_kind?: string | null;
+  capabilities?: Record<string, any> | null;
+  defaultOutput?: OutputChip | null;
+  customerName?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  vehicle?: string | null;
+  detectionConfidence?: number | null;
+  detectionMethod?: string | null;
+  contextFingerprint?: string | null;
+  threadFingerprint?: string | null;
+  threadContext: {
+    conversation_key?: string | null;
+    raw_text: string;
+    messages: Array<{ text: string; direction?: string; ts?: number }>;
+    last_inbound_text: string;
+    header_text?: string | null;
+    url?: string | null;
+  };
+}
+
 // ─── State ───────────────────────────────────────────────────────────────────
 let currentPlatform: PlatformContext = { platform: 'unknown', tabId: -1, url: '' };
 let isGenerating = false;
@@ -76,6 +118,13 @@ let pendingCustomerSuggestion: any = null;
 let customerDetectionTimer: number | null = null;
 let customerDetectionUrl = '';
 let customerDetectionFingerprint = '';
+let autoThreadScan: AutoThreadScan | null = null;
+let autoThreadScanStatus: AutoThreadScanStatus = 'idle';
+let autoThreadScanUrl = '';
+let autoThreadScanRequestId = 0;
+let autoThreadScanTimer: number | null = null;
+let autoThreadScanListenersAttached = false;
+let outputSelectionTouched = false;
 const dismissedChallengeIds = new Set<string>();
 const FIRST_GENERATION_KEY = 'first_generation_completed';
 const ONBOARDING_BANNER_DISMISSED_KEY = 'onboarding_banner_dismissed';
@@ -131,12 +180,19 @@ function detectPlatformFromURL(url: string): Platform {
   if (!url) return 'unknown';
   if (url.includes('vinsolutions') || url.includes('coxautoinc')) return 'vinsolutions';
   if (url.includes('mail.google.com')) return 'gmail';
+  if (url.includes('outlook.live.com') || url.includes('outlook.office.com') || url.includes('outlook.office365.com')) return 'outlook';
   if (url.includes('messenger.com') || url.includes('facebook.com/messages') || url.includes('facebook.com/marketplace/t/')) return 'facebook';
   if (url.includes('facebook.com')) return 'facebook';
   if (url.includes('linkedin.com')) return 'linkedin';
   if (url.includes('instagram.com/direct')) return 'instagram';
   if (url.includes('instagram.com')) return 'unknown';
   if (url.includes('web.whatsapp.com')) return 'whatsapp';
+  if (url.includes('messages.google.com')) return 'google-messages';
+  if (url.includes('cargurus.com')) return 'cargurus';
+  if (url.includes('cars.com')) return 'carsdotcom';
+  if (url.includes('autotrader.com')) return 'autotrader';
+  if (url.includes('dealersocket.com')) return 'dealersocket';
+  if (url.includes('elead-crm.com') || url.includes('eleadcrm.com')) return 'elead';
   return 'unknown';
 }
 
@@ -145,10 +201,17 @@ function getBadge(platform: Platform) {
   switch (platform) {
     case 'vinsolutions': return { label: 'Dealer CRM', color: '#0D6E6E', bg: '#F0EFFF' };
     case 'gmail': return { label: 'Gmail', color: '#dc2626', bg: '#fef2f2' };
+    case 'outlook': return { label: 'Outlook', color: '#2563eb', bg: '#eff6ff' };
     case 'facebook': return { label: 'Facebook', color: '#1877f2', bg: '#eff6ff' };
     case 'linkedin': return { label: 'LinkedIn', color: '#0a66c2', bg: '#eff6ff' };
     case 'whatsapp': return { label: 'WhatsApp', color: '#25D366', bg: '#f0fdf4' };
     case 'instagram': return { label: 'Instagram', color: '#E1306C', bg: '#fef2f8' };
+    case 'google-messages': return { label: 'Google Messages', color: '#0D6E6E', bg: '#F0FAFA' };
+    case 'cargurus': return { label: 'CarGurus', color: '#0D6E6E', bg: '#F0FAFA' };
+    case 'carsdotcom': return { label: 'Cars.com', color: '#0D6E6E', bg: '#F0FAFA' };
+    case 'autotrader': return { label: 'AutoTrader', color: '#0D6E6E', bg: '#F0FAFA' };
+    case 'dealersocket': return { label: 'DealerSocket', color: '#0D6E6E', bg: '#F0FAFA' };
+    case 'elead': return { label: 'Elead', color: '#0D6E6E', bg: '#F0FAFA' };
     default: return { label: '', color: '#64748b', bg: '#f1f5f9' };
   }
 }
@@ -184,12 +247,20 @@ const DISPLAY_LABELS: Record<string, string> = {
   command: 'Ask Anything',
   screenshot_reply: 'Screenshot reply',
   gmail: 'Gmail',
+  outlook: 'Outlook',
   facebook: 'Facebook',
   messenger: 'Messenger',
   linkedin: 'LinkedIn',
   vinsolutions: 'Dealer CRM',
   whatsapp: 'WhatsApp',
   instagram: 'Instagram',
+  'google-messages': 'Google Messages',
+  google_messages: 'Google Messages',
+  cargurus: 'CarGurus',
+  carsdotcom: 'Cars.com',
+  autotrader: 'AutoTrader',
+  dealersocket: 'DealerSocket',
+  elead: 'Elead',
   extension: 'Extension',
 };
 
@@ -264,7 +335,20 @@ function truncateCsv(value: unknown, max = 500): string {
 
 function normalizeEventPlatform(platform: Platform): string {
   if (platform === 'facebook') return 'messenger';
-  if (platform === 'gmail' || platform === 'linkedin' || platform === 'vinsolutions') return platform;
+  if (
+    platform === 'gmail' ||
+    platform === 'outlook' ||
+    platform === 'linkedin' ||
+    platform === 'vinsolutions' ||
+    platform === 'whatsapp' ||
+    platform === 'instagram' ||
+    platform === 'cargurus' ||
+    platform === 'carsdotcom' ||
+    platform === 'autotrader' ||
+    platform === 'dealersocket' ||
+    platform === 'elead'
+  ) return platform;
+  if (platform === 'google-messages') return 'google_messages';
   return 'unknown';
 }
 
@@ -524,7 +608,41 @@ function isContentScriptMissing(error: unknown): boolean {
 
 function canInjectIntoUrl(url?: string): boolean {
   if (!url) return false;
-  return /^https?:\/\/(mail\.google\.com|[^/]+\.vinsolutions\.com|vinsolutions\.app\.coxautoinc\.com|[^/]+\.facebook\.com|www\.facebook\.com|[^/]+\.messenger\.com|www\.messenger\.com|[^/]+\.linkedin\.com|www\.linkedin\.com|[^/]+\.instagram\.com|www\.instagram\.com|web\.whatsapp\.com)\//i.test(url);
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
+    return host === 'mail.google.com'
+      || host === 'outlook.live.com'
+      || host === 'outlook.office.com'
+      || host === 'outlook.office365.com'
+      || host === 'vinsolutions.app.coxautoinc.com'
+      || host.endsWith('.vinsolutions.com')
+      || host.endsWith('.facebook.com')
+      || host === 'facebook.com'
+      || host.endsWith('.messenger.com')
+      || host === 'messenger.com'
+      || host.endsWith('.linkedin.com')
+      || host === 'linkedin.com'
+      || host.endsWith('.instagram.com')
+      || host === 'instagram.com'
+      || host === 'web.whatsapp.com'
+      || host === 'messages.google.com'
+      || host === 'cargurus.com'
+      || host.endsWith('.cargurus.com')
+      || host === 'cars.com'
+      || host.endsWith('.cars.com')
+      || host === 'autotrader.com'
+      || host.endsWith('.autotrader.com')
+      || host === 'dealersocket.com'
+      || host.endsWith('.dealersocket.com')
+      || host === 'elead-crm.com'
+      || host.endsWith('.elead-crm.com')
+      || host === 'eleadcrm.com'
+      || host.endsWith('.eleadcrm.com');
+  } catch {
+    return false;
+  }
 }
 
 function tabMessage(tabId: number, msg: any): Promise<any> {
@@ -674,6 +792,248 @@ async function collectCurrentLeadContext(): Promise<any> {
     if (lead && typeof lead === 'object') return lead;
   } catch {}
   return {};
+}
+
+function normalizeDefaultOutputChip(value: unknown): OutputChip | null {
+  const raw = String(value || '').toLowerCase();
+  if (raw === 'crm_note' || raw === 'crm') return 'crm';
+  if (raw === 'email') return 'email';
+  if (raw === 'text' || raw === 'message' || raw === 'sms') return 'text';
+  return null;
+}
+
+function stripThreadDecorators(value: unknown): string {
+  return stripMarkdownText(value)
+    .replace(/^\[(?:inbound|outbound|unknown)\]\s*/i, '')
+    .replace(/^(?:customer|buyer|lead|prospect|rep|salesperson|me|you)\s*:\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function truncateReplyContext(value: unknown, max = 118): string {
+  const text = stripThreadDecorators(value);
+  if (!text) return '';
+  return text.length > max ? `${text.slice(0, max - 1).trim()}...` : text;
+}
+
+function lastReadableThreadLine(rawText: unknown): string {
+  const lines = String(rawText || '')
+    .split(/\n+/)
+    .map((line) => stripThreadDecorators(line))
+    .filter((line) => line.length > 3);
+  return lines.length ? lines[lines.length - 1] : '';
+}
+
+function buildThreadMessages(value: any): AutoThreadScan['threadContext']['messages'] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(-30).map((message: any) => ({
+    text: stripThreadDecorators(message?.text || message?.body || message),
+    direction: typeof message?.direction === 'string' ? message.direction : 'unknown',
+    ts: typeof message?.ts === 'number' ? message.ts : undefined,
+  })).filter((message) => message.text.length > 0);
+}
+
+function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): AutoThreadScan | null {
+  if (!ctx || typeof ctx !== 'object') return null;
+  const thread = ctx.thread || {};
+  const messages = buildThreadMessages(thread.messages);
+  const rawText = cleanContextText(thread.raw_text || ctx.raw_text || ctx.source_raw_text || '', 5000);
+  const lastInbound = stripThreadDecorators(
+    thread.last_inbound_text ||
+    messages.slice().reverse().find((message) => message.direction === 'inbound')?.text ||
+    messages[messages.length - 1]?.text ||
+    lastReadableThreadLine(rawText)
+  );
+  const headerText = stripThreadDecorators(thread.header_text || ctx.context?.subject_line || ctx.context?.listing_title || '');
+  if (!rawText && !lastInbound && !headerText) return null;
+
+  const context = ctx.context || {};
+  const customerName = getCustomerNameFromContext(ctx);
+  const vehicle = getCustomerVehicleFromContext({
+    vehicle: context.vehicle || ctx.vehicle,
+    vehicleOfInterest: context.vehicle || ctx.vehicleOfInterest || ctx.vehicle_interest,
+  });
+  const capabilities = ctx.capabilities || null;
+  return {
+    source,
+    platform: ctx.platform || currentPlatform.platform,
+    adapter_id: ctx.adapter_id || (source === 'legacy' ? null : ctx.platform) || null,
+    surface_kind: capabilities?.surface_kind || null,
+    capabilities,
+    defaultOutput: normalizeDefaultOutputChip(capabilities?.default_output),
+    customerName: customerName || null,
+    phone: ctx.phone || ctx.customer_phone || null,
+    email: ctx.email || ctx.customer_email || null,
+    vehicle,
+    detectionConfidence: Number(ctx.detectionConfidence ?? ctx.detection_confidence ?? 0) || null,
+    detectionMethod: ctx.detectionMethod || ctx.detection_method || null,
+    contextFingerprint: ctx.context_fingerprint || null,
+    threadFingerprint: ctx.thread_fingerprint || ctx.context_fingerprint || null,
+    threadContext: {
+      conversation_key: thread.conversation_key || ctx.thread_fingerprint || ctx.context_fingerprint || null,
+      raw_text: rawText || [headerText, ...messages.map((message) => `[${message.direction || 'unknown'}] ${message.text}`)].filter(Boolean).join('\n').slice(0, 5000),
+      messages,
+      last_inbound_text: lastInbound || lastReadableThreadLine(rawText),
+      header_text: headerText || null,
+      url: thread.url || currentPlatform.url || null,
+    },
+  };
+}
+
+function leadContextFromAutoThreadScan(scan: AutoThreadScan | null): any {
+  if (!scan) return {};
+  return {
+    customerName: scan.customerName || null,
+    customer_name: scan.customerName || null,
+    name: scan.customerName || null,
+    phone: scan.phone || null,
+    email: scan.email || null,
+    vehicle: scan.vehicle || null,
+    vehicleOfInterest: scan.vehicle || null,
+    vehicle_interest: scan.vehicle || null,
+    source: scan.platform || currentPlatform.platform,
+    adapter_id: scan.adapter_id || null,
+    surface_kind: scan.surface_kind || null,
+    raw_text: scan.threadContext.raw_text || null,
+    source_raw_text: scan.threadContext.raw_text || null,
+    detectionConfidence: scan.detectionConfidence ?? null,
+    detection_confidence: scan.detectionConfidence ?? null,
+    detectionMethod: scan.detectionMethod || (scan.source === 'adapter' ? 'adapter_auto_scan' : 'legacy_auto_scan'),
+    detection_method: scan.detectionMethod || (scan.source === 'adapter' ? 'adapter_auto_scan' : 'legacy_auto_scan'),
+    context_fingerprint: scan.contextFingerprint || null,
+    thread_fingerprint: scan.threadFingerprint || scan.contextFingerprint || null,
+  };
+}
+
+function getUsableAutoThreadScan(): AutoThreadScan | null {
+  if (!autoThreadScan || autoThreadScanStatus !== 'ready') return null;
+  if (autoThreadScanUrl && currentPlatform.url && autoThreadScanUrl !== currentPlatform.url) return null;
+  const lastInbound = autoThreadScan.threadContext?.last_inbound_text || '';
+  const rawText = autoThreadScan.threadContext?.raw_text || '';
+  return lastInbound || rawText ? autoThreadScan : null;
+}
+
+function applyDefaultOutputFromScan(root: HTMLElement, scan: AutoThreadScan): void {
+  if (outputSelectionTouched || !scan.defaultOutput) return;
+  if (root.querySelectorAll('.out-card').length > 0) return;
+  root.querySelectorAll<HTMLButtonElement>('.chip').forEach((chip) => {
+    chip.classList.toggle('on', chip.dataset.type === scan.defaultOutput);
+  });
+}
+
+function renderAutoThreadScan(root: HTMLElement): void {
+  const el = root.querySelector('#o8-reply-context') as HTMLElement | null;
+  const input = root.querySelector('#o8-input') as HTMLTextAreaElement | null;
+  if (!el) return;
+
+  if (input && !input.value.trim()) {
+    input.placeholder = autoThreadScanStatus === 'ready'
+      ? 'Optional: steer it, like "push for appointment"'
+      : 'Type context or a direction when Brevmont cannot read the page';
+  }
+
+  if (autoThreadScanStatus === 'idle') {
+    el.style.display = 'none';
+    el.className = 'reply-context';
+    el.innerHTML = '';
+    return;
+  }
+
+  el.style.display = 'block';
+  el.className = `reply-context reply-context-${autoThreadScanStatus}`;
+
+  if (autoThreadScanStatus === 'scanning') {
+    el.innerHTML = '<span class="reply-context-dot"></span><span>Reading conversation...</span>';
+    return;
+  }
+
+  if (autoThreadScanStatus === 'ready' && autoThreadScan) {
+    const last = truncateReplyContext(autoThreadScan.threadContext.last_inbound_text || autoThreadScan.threadContext.raw_text);
+    const fallback = truncateReplyContext(autoThreadScan.threadContext.header_text || 'Conversation scanned');
+    const surface = getDisplayLabel(autoThreadScan.platform || currentPlatform.platform);
+    el.innerHTML = `
+      <span class="reply-context-label">Replying to:</span>
+      <span class="reply-context-text">${esc(last || fallback || 'Conversation scanned')}</span>
+      ${surface ? `<span class="reply-context-surface">${esc(surface)}</span>` : ''}
+    `;
+    return;
+  }
+
+  const message = currentPlatform.platform === 'unknown'
+    ? 'Open a supported conversation or type context below.'
+    : 'Could not read this page. Type context below.';
+  el.innerHTML = `<span class="reply-context-label">Manual context:</span><span class="reply-context-text">${esc(message)}</span>`;
+}
+
+async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<AutoThreadScan | null> {
+  await refreshPlatform();
+  if (!force && autoThreadScanUrl === currentPlatform.url && autoThreadScanStatus === 'ready' && autoThreadScan) {
+    renderAutoThreadScan(root);
+    return autoThreadScan;
+  }
+  const requestId = ++autoThreadScanRequestId;
+  autoThreadScanStatus = 'scanning';
+  autoThreadScan = null;
+  renderAutoThreadScan(root);
+
+  try {
+    let ctx = await sendToContent({ type: 'SCAN_LEAD_V2' });
+    let source: 'adapter' | 'legacy' = 'adapter';
+    if (!ctx || ctx.ok === false) {
+      source = 'legacy';
+      ctx = await sendToContent({ type: 'SCAN_LEAD' });
+    }
+    if (requestId !== autoThreadScanRequestId) return null;
+    const scan = autoThreadScanFromResponse(ctx, source);
+    if (scan) {
+      autoThreadScan = scan;
+      autoThreadScanStatus = 'ready';
+      autoThreadScanUrl = currentPlatform.url || '';
+      applyDefaultOutputFromScan(root, scan);
+      renderAutoThreadScan(root);
+      return scan;
+    }
+    autoThreadScan = null;
+    autoThreadScanStatus = 'fallback';
+    autoThreadScanUrl = currentPlatform.url || '';
+    renderAutoThreadScan(root);
+    return null;
+  } catch {
+    if (requestId !== autoThreadScanRequestId) return null;
+    autoThreadScan = null;
+    autoThreadScanStatus = 'error';
+    autoThreadScanUrl = currentPlatform.url || '';
+    renderAutoThreadScan(root);
+    return null;
+  }
+}
+
+function scheduleAutoThreadScan(root: HTMLElement, delayMs = 150, force = false): void {
+  if (autoThreadScanTimer) window.clearTimeout(autoThreadScanTimer);
+  autoThreadScanTimer = window.setTimeout(() => {
+    autoThreadScanTimer = null;
+    scanThreadForGenerate(root, force).catch(() => {
+      autoThreadScanStatus = 'error';
+      renderAutoThreadScan(root);
+    });
+  }, delayMs);
+}
+
+function startAutoThreadScan(root: HTMLElement): void {
+  renderAutoThreadScan(root);
+  scheduleAutoThreadScan(root, 175);
+  if (autoThreadScanListenersAttached) return;
+  autoThreadScanListenersAttached = true;
+  window.addEventListener('focus', () => {
+    const panelRoot = document.getElementById('sp-root');
+    if (panelRoot && panelRoot.style.display !== 'none') scheduleAutoThreadScan(panelRoot, 100);
+  });
+  document.addEventListener('visibilitychange', () => {
+    const panelRoot = document.getElementById('sp-root');
+    if (document.visibilityState === 'visible' && panelRoot && panelRoot.style.display !== 'none') {
+      scheduleAutoThreadScan(panelRoot, 100);
+    }
+  });
 }
 
 function customerStampPayload(): Record<string, any> {
@@ -1556,6 +1916,7 @@ async function renderPanel(): Promise<void> {
   // Wire event handlers
   wireHandlers(root);
   startCustomerDetection(root);
+  startAutoThreadScan(root);
 
   chrome.runtime.sendMessage({ type: 'SYNC_AUTH_FROM_COOKIE' }).then((resp: any) => {
     if (resp?.configured) {
@@ -2144,9 +2505,7 @@ async function applyFirstUseGuide(root: HTMLElement): Promise<void> {
   card.style.display = 'block';
   const title = card.querySelector('.first-use-title') as HTMLElement | null;
   if (title && repName) title.textContent = `Welcome, ${repName}. Try your first follow-up.`;
-  if (input && !input.value.trim()) {
-    input.placeholder = FIRST_GENERATION_EXAMPLE;
-  }
+  if (input && !input.value.trim()) renderAutoThreadScan(root);
 }
 
 async function markFirstGenerationComplete(root: HTMLElement): Promise<void> {
@@ -2333,6 +2692,7 @@ function wireHandlers(root: HTMLElement): void {
   // Output chips — toggle selection
   root.querySelectorAll('.chip').forEach(c => {
     c.addEventListener('click', () => {
+      outputSelectionTouched = true;
       const hasCards = root.querySelectorAll('.out-card').length > 0;
       if (hasCards) {
         setActiveOutputTab(root, c.getAttribute('data-type') || '');
@@ -2834,6 +3194,16 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   if (selected.length === 0) { isGenerating = false; return; }
 
   const type = selected.length === 3 ? 'all' : selected.length === 1 ? selected[0]! : 'all';
+  let scan = getUsableAutoThreadScan();
+  if (!scan && currentPlatform.platform !== 'unknown') {
+    scan = await scanThreadForGenerate(root, true);
+  }
+  if (!scan && !input) {
+    isGenerating = false;
+    renderAutoThreadScan(root);
+    showToast(root, 'Type context or open a supported conversation first.');
+    return;
+  }
   const btn = root.querySelector('#o8-generate') as HTMLButtonElement;
   btn.innerHTML = '<span class="gen-spinner"></span> Generating…';
   btn.disabled = true;
@@ -2847,11 +3217,13 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     goal = stored.brevmont_goal || 'close_deal';
   } catch {}
 
-  // Ask content script for lead context (DOM scraping happens there)
-  let leadContext: any = {};
+  // Ask content script for lead context (DOM scraping happens there).
+  // Zero-context Generate uses the adapter scan as primary context;
+  // legacy context is merged underneath for CRM-specific details.
+  let leadContext: any = scan ? leadContextFromAutoThreadScan(scan) : {};
   try {
     const ctx = await sendToContent({ type: 'GET_LEAD_CONTEXT' });
-    if (ctx) leadContext = ctx;
+    if (ctx) leadContext = { ...ctx, ...leadContext };
   } catch {}
   const generationMismatch = pinMismatchReason(pinnedCustomer, leadContext);
   if (generationMismatch) {
@@ -2871,7 +3243,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   leadContext = enrichLeadContextWithPinnedCustomer(leadContext);
 
   const _generationId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const repInputVehicle = extractVehicleMention(input);
+  const repInputVehicle = extractVehicleMention(input) || extractVehicleMention(scan?.threadContext?.raw_text || '');
   const vehicleForGeneration = leadContext.vehicle || leadContext.vehicleOfInterest || repInputVehicle || null;
   const stamp = customerStampPayload();
 
@@ -2894,6 +3266,12 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     vehicle_context: stamp.vehicle_context || vehicleForGeneration || null,
     context_fingerprint: stamp.context_fingerprint || leadContext.context_fingerprint || null,
     thread_fingerprint: stamp.thread_fingerprint || leadContext.thread_fingerprint || leadContext.context_fingerprint || null,
+    zero_context_generate: !!scan,
+    adapter_id: scan?.adapter_id || leadContext.adapter_id || null,
+    surface_kind: scan?.surface_kind || leadContext.surface_kind || null,
+    conversation_key: scan?.threadContext?.conversation_key || null,
+    last_inbound_text: scan?.threadContext?.last_inbound_text || null,
+    scan_source: scan?.source || null,
   };
 
   try {
@@ -2913,7 +3291,11 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     const response = await safeSend({
       type: 'GENERATE_OUTPUT',
       payload: {
-        type, leadContext, repInput: input + (vehicleForGeneration ? '' : '\n[SYSTEM: No vehicle of interest detected. Do not mention or invent a vehicle in the response.]'),
+        type,
+        leadContext,
+        threadContext: scan?.threadContext || null,
+        repInput: input,
+        systemHints: { noVehicleDetected: !vehicleForGeneration },
         repName: '', dealership: '', platform: currentPlatform.platform, tone, goal,
         metadata: _meta,
         lead_id: (root as any).__pendingLeadId || null,
@@ -2967,6 +3349,10 @@ async function doGenerate(root: HTMLElement): Promise<void> {
                 detection_method: _meta.detection_method,
                 detection_confidence: _meta.detection_confidence,
                 vehicle_context: _meta.vehicle_context,
+                zero_context_generate: _meta.zero_context_generate,
+                adapter_id: _meta.adapter_id,
+                surface_kind: _meta.surface_kind,
+                conversation_key: _meta.conversation_key,
               },
               output_length: (o.content || '').length,
             },
@@ -4414,14 +4800,20 @@ async function openStats(root: HTMLElement): Promise<void> {
 chrome.tabs.onActivated.addListener(async () => {
   await refreshPlatform();
   const root = document.getElementById('sp-root');
-  if (root && root.style.display !== 'none') updatePlatformBadge(root);
+  if (root && root.style.display !== 'none') {
+    updatePlatformBadge(root);
+    scheduleAutoThreadScan(root, 125, true);
+  }
 });
 
 chrome.tabs.onUpdated.addListener(async (_tabId, changeInfo) => {
   if (changeInfo.url) {
     await refreshPlatform();
     const root = document.getElementById('sp-root');
-    if (root && root.style.display !== 'none') updatePlatformBadge(root);
+    if (root && root.style.display !== 'none') {
+      updatePlatformBadge(root);
+      scheduleAutoThreadScan(root, 125, true);
+    }
   }
 });
 

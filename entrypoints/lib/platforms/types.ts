@@ -11,6 +11,7 @@
 export type PlatformId =
   | 'facebook'          // Marketplace + Messenger (shared FB adapter)
   | 'gmail'
+  | 'outlook'
   | 'linkedin'
   | 'vinsolutions'
   | 'instagram'

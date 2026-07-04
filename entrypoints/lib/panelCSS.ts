@@ -12,7 +12,21 @@
  * Panel omits those because the browser chrome frames the panel already.
  */
 
-type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
+type Platform =
+  | 'vinsolutions'
+  | 'gmail'
+  | 'outlook'
+  | 'facebook'
+  | 'linkedin'
+  | 'whatsapp'
+  | 'instagram'
+  | 'google-messages'
+  | 'cargurus'
+  | 'carsdotcom'
+  | 'autotrader'
+  | 'dealersocket'
+  | 'elead'
+  | 'unknown';
 
 export interface PanelCSSOptions {
   /** DOM-injected sidebar width (e.g. '320px'). Ignored when domMode is false. */
@@ -211,6 +225,16 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .tool-result { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.6; margin-top:8px; }
 .coach-chips { display:flex; flex-wrap:wrap; gap:4px; } .coach-chip { padding:4px 10px; border-radius:14px; font-size:10px; font-weight:500; font-family:inherit; border:1px solid #e2e8f0; background:#f8fafc; color:#64748b; cursor:pointer; } .coach-chip:hover { border-color:#0D6E6E; color:#0D6E6E; background:#F0EFFF; }
 .input-hint { font-size:11px; color:#9CA3AF; text-align:center; margin-top:6px; letter-spacing:0.2px; }
+.reply-context { margin-top:7px; padding:7px 8px; border:1px solid #D9E7E7; border-radius:8px; background:#F8FAFC; color:#475569; font-size:11px; line-height:1.35; display:flex; align-items:center; gap:6px; min-height:32px; }
+.reply-context-ready { background:#F0FAFA; border-color:#CFE2E2; color:#0F1419; }
+.reply-context-scanning { background:#F8FAFC; border-color:#E5E7EB; color:#64748B; }
+.reply-context-fallback, .reply-context-error { background:#FFFBEB; border-color:#FDE68A; color:#92400E; }
+.reply-context-label { flex:0 0 auto; font-weight:850; color:#0D6E6E; }
+.reply-context-fallback .reply-context-label, .reply-context-error .reply-context-label { color:#92400E; }
+.reply-context-text { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.reply-context-surface { flex:0 0 auto; max-width:92px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border-radius:999px; background:#fff; border:1px solid #D9E7E7; color:#0D6E6E; padding:2px 6px; font-size:9px; font-weight:850; }
+.reply-context-dot { width:7px; height:7px; flex:0 0 7px; border-radius:999px; background:#0D6E6E; box-shadow:0 0 0 4px rgba(13,110,110,.11); animation:reply-pulse 1s ease-in-out infinite; }
+@keyframes reply-pulse { 0%,100%{opacity:.45} 50%{opacity:1} }
 .inline-links { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:8px; } .link-btn { background:none; border:none; color:#0D6E6E; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; padding:2px 4px; } .link-btn:hover { text-decoration:underline; } .link-sep { color:#e2e8f0; font-size:11px; }
 .nav-link { font-size:13px; padding:8px 4px; }
 .goal-desc { display:block; font-size:10px; color:#9CA3AF; margin-left:20px; margin-top:1px; font-weight:400; }

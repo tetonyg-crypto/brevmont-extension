@@ -7,7 +7,21 @@
  * is driven by the `platform` parameter.
  */
 
-type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'unknown';
+type Platform =
+  | 'vinsolutions'
+  | 'gmail'
+  | 'outlook'
+  | 'facebook'
+  | 'linkedin'
+  | 'whatsapp'
+  | 'instagram'
+  | 'google-messages'
+  | 'cargurus'
+  | 'carsdotcom'
+  | 'autotrader'
+  | 'dealersocket'
+  | 'elead'
+  | 'unknown';
 
 export function esc(s: string): string {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -17,10 +31,17 @@ function getBadge(platform: Platform) {
   switch (platform) {
     case 'vinsolutions': return { label: 'Dealer CRM', color: '#0D6E6E', bg: '#F0EFFF' };
     case 'gmail': return { label: 'Gmail', color: '#dc2626', bg: '#fef2f2' };
+    case 'outlook': return { label: 'Outlook', color: '#2563eb', bg: '#eff6ff' };
     case 'facebook': return { label: 'Messenger', color: '#1877f2', bg: '#eff6ff' };
     case 'linkedin': return { label: 'LinkedIn', color: '#0a66c2', bg: '#eff6ff' };
     case 'whatsapp': return { label: 'WhatsApp', color: '#25D366', bg: '#f0fdf4' };
     case 'instagram': return { label: 'Instagram', color: '#E1306C', bg: '#fef2f8' };
+    case 'google-messages': return { label: 'Google Messages', color: '#0D6E6E', bg: '#F0FAFA' };
+    case 'cargurus': return { label: 'CarGurus', color: '#0D6E6E', bg: '#F0FAFA' };
+    case 'carsdotcom': return { label: 'Cars.com', color: '#0D6E6E', bg: '#F0FAFA' };
+    case 'autotrader': return { label: 'AutoTrader', color: '#0D6E6E', bg: '#F0FAFA' };
+    case 'dealersocket': return { label: 'DealerSocket', color: '#0D6E6E', bg: '#F0FAFA' };
+    case 'elead': return { label: 'Elead', color: '#0D6E6E', bg: '#F0FAFA' };
     default: return { label: '', color: '#64748b', bg: '#f1f5f9' };
   }
 }
@@ -48,7 +69,7 @@ export function getPanelHTML(platform: Platform): string {
   const isVinSolutions = platform === 'vinsolutions';
   const badge = getBadge(platform);
   const customerCard = isVinSolutions ? `<div id="o8-card" class="card"><div id="o8-name" class="name" style="font-style:italic;color:#94a3b8">Open a customer record</div><div id="o8-vehicle" class="vehicle"></div><div id="o8-meta" class="meta"></div></div>` : '';
-  const placeholder = 'e.g., Customer left the lot, wants to think about the payment';
+  const placeholder = 'Optional: steer it, like "push for appointment"';
 
   return `
 <div class="header">
@@ -97,8 +118,8 @@ export function getPanelHTML(platform: Platform): string {
     <div id="o8-first-use" class="first-use-card" style="display:none;">
       <button id="o8-first-use-dismiss" class="first-use-dismiss" type="button" aria-label="Dismiss onboarding banner">&times;</button>
       <div class="first-use-eyebrow">Try your first follow-up</div>
-      <div class="first-use-title">Type one sentence about a customer.</div>
-      <div class="first-use-copy">Brevmont will write a follow-up text, email, and CRM note. You review it, copy it, and move to the next deal.</div>
+      <div class="first-use-title">Open a conversation and tap Generate.</div>
+      <div class="first-use-copy">Brevmont reads the thread, writes the follow-up, and lets you review before sending.</div>
       <button id="o8-first-use-example" class="first-use-example" type="button">Use example</button>
     </div>
     <div class="chips">
@@ -111,7 +132,8 @@ export function getPanelHTML(platform: Platform): string {
       <button id="o8-customer-open" class="customer-picker-trigger" title="Stamp to a customer" type="button">Customer</button>
       <button id="o8-mic" class="inline-mic" title="Tap to dictate"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button>
     </div>
-    <div class="input-hint">One sentence. Text, email, CRM note.</div>
+    <div class="input-hint">Optional steer. Text, email, CRM note.</div>
+    <div id="o8-reply-context" class="reply-context" style="display:none"></div>
     <button id="o8-generate" class="gen-btn">Generate</button>
     <div id="o8-usage-counter" class="usage-counter" style="display:none;"></div>
     <div id="o8-upgrade-prompt" class="upgrade-prompt" style="display:none;"></div>

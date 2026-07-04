@@ -127,6 +127,20 @@ function platformHtml(kind) {
       </div>`);
   }
 
+  if (kind === 'instagram') {
+    return shell('Instagram Direct - Mina V.', `
+      <div class="layout">
+        <aside class="rail"><h1>Inbox</h1><div class="card">Mina V.</div></aside>
+        <main role="main" class="thread">
+          <header><h1>Mina V.</h1></header>
+          <div role="row" class="bubble">Is the 2021 Tacoma still available? I can come look at it this weekend if the price is still $34,500.</div>
+          <div role="row" class="bubble sent">Yes, I can check that for you.</div>
+          <div role="row" class="bubble">Can you send the mileage and whether it has a clean title?</div>
+          <div role="textbox" contenteditable="true" aria-label="Message"></div>
+        </main>
+      </div>`);
+  }
+
   return shell('Random Page', `
     <main role="main" class="thread">
       <h1>Weather and local news</h1>
@@ -134,9 +148,9 @@ function platformHtml(kind) {
     </main>`);
 }
 
-async function extensionPage(context, extensionId) {
+async function extensionPage(context, extensionId, pageName = 'sidepanel.html') {
   const page = await context.newPage();
-  await page.goto(`chrome-extension://${extensionId}/sidepanel.html`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`chrome-extension://${extensionId}/${pageName}`, { waitUntil: 'domcontentloaded' });
   return page;
 }
 
@@ -154,8 +168,27 @@ async function scanTab(extPage, targetUrl) {
     const tabs = await chrome.tabs.query({});
     const tab = tabs.find((candidate) => candidate.url && candidate.url.startsWith(urlPrefix));
     if (!tab?.id) return { error: `No tab found for ${urlPrefix}` };
+    const v2 = await chrome.tabs.sendMessage(tab.id, { type: 'SCAN_LEAD_V2' }).catch((err) => ({ error: err?.message || String(err) }));
+    if (v2 && !v2.error && v2.ok !== false) return v2;
     return await chrome.tabs.sendMessage(tab.id, { type: 'SCAN_LEAD' }).catch((err) => ({ error: err?.message || String(err) }));
   }, targetUrl);
+}
+
+function outputTypeForScan(scan, kind) {
+  const natural = scan?.capabilities?.default_output || '';
+  if (natural === 'email' || kind === 'gmail') return 'email';
+  if (natural === 'crm_note') return 'crm';
+  return 'text';
+}
+
+function leadContextForScan(scan, kind) {
+  return {
+    customerName: scan?.customerName || scan?.customer_name || scan?.name || (kind === 'gmail' ? 'Louise M.' : kind === 'linkedin' ? 'Raj M.' : kind === 'instagram' ? 'Mina V.' : 'Nora T.'),
+    vehicle: scan?.vehicle || scan?.vehicleOfInterest || scan?.vehicle_interest || (kind === 'gmail' ? 'Chevrolet Tahoe' : kind === 'linkedin' ? 'Work trucks' : kind === 'instagram' ? '2021 Tacoma' : '2020 Silverado 1500'),
+    source: scan?.platform || kind,
+    adapter_id: scan?.adapter_id || null,
+    surface_kind: scan?.capabilities?.surface_kind || null,
+  };
 }
 
 async function seedStorage(extPage, session) {
@@ -213,7 +246,8 @@ async function main() {
     if (!worker) worker = await context.waitForEvent('serviceworker', { timeout: 15000 });
     extensionId = worker.url().split('/')[2];
     const ext = await extensionPage(context, extensionId);
-    await seedStorage(ext, session);
+    const runtimeBridge = await extensionPage(context, extensionId, 'options-legacy.html');
+    await seedStorage(runtimeBridge, session);
 
     const visibleText = await ext.locator('body').innerText({ timeout: 15000 });
     const sidePanelOpens = /BREVMONT/i.test(visibleText);
@@ -222,6 +256,7 @@ async function main() {
       { platform: 'Facebook Marketplace', kind: 'facebook', url: 'https://www.facebook.com/marketplace/t/brevmont-smoke?locale=en_US' },
       { platform: 'Gmail', kind: 'gmail', url: 'https://mail.google.com/mail/u/0/#inbox/brevmont-smoke' },
       { platform: 'LinkedIn', kind: 'linkedin', url: 'https://www.linkedin.com/messaging/thread/brevmont-smoke/' },
+      { platform: 'Instagram DM', kind: 'instagram', url: 'https://www.instagram.com/direct/t/brevmont-smoke/' },
       { platform: 'Random website', kind: 'random', url: 'https://www.facebook.com/brevmont-random-page' },
     ];
 
@@ -235,26 +270,33 @@ async function main() {
       const page = await context.newPage();
       await page.goto(routeDef.url, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(1800);
-      const scan = await scanTab(ext, routeDef.url.split('#')[0]);
+      const scan = await scanTab(runtimeBridge, routeDef.url.split('#')[0]);
       const detectsContext = !scan?.error && routeDef.kind !== 'random'
         ? Boolean((scan.customerName || scan.name || scan.raw_text || scan.rawText || '').toString().length > 0)
         : routeDef.kind === 'random' ? true : false;
+      const leadContext = leadContextForScan(scan, routeDef.kind);
+      const outputType = outputTypeForScan(scan, routeDef.kind);
 
       const generate = routeDef.kind === 'random'
         ? { skipped: true }
-        : await sendRuntime(ext, {
+        : await sendRuntime(runtimeBridge, {
             type: 'GENERATE_OUTPUT',
             payload: {
-              type: routeDef.kind === 'gmail' ? 'email' : 'message',
-              repInput: 'Customer has a 650 credit score, $1,000 down, and wants to know if approval is realistic before coming in.',
+              type: outputType,
+              repInput: '',
+              threadContext: scan?.thread || null,
               platform: routeDef.kind,
-              leadContext: {
-                customerName: routeDef.kind === 'gmail' ? 'Louise M.' : routeDef.kind === 'linkedin' ? 'Raj M.' : 'Nora T.',
-                vehicle: routeDef.kind === 'gmail' ? 'Chevrolet Tahoe' : routeDef.kind === 'linkedin' ? 'Work trucks' : '2020 Silverado 1500',
-              },
+              leadContext,
+              systemHints: { noVehicleDetected: !leadContext.vehicle },
               metadata: {
-                workflow_type: routeDef.kind === 'gmail' ? 'email' : 'message',
-                customer_name: routeDef.kind === 'gmail' ? 'Louise M.' : routeDef.kind === 'linkedin' ? 'Raj M.' : 'Nora T.',
+                workflow_type: outputType,
+                customer_name: leadContext.customerName,
+                vehicle: leadContext.vehicle,
+                zero_context_generate: true,
+                adapter_id: scan?.adapter_id || null,
+                surface_kind: scan?.capabilities?.surface_kind || null,
+                conversation_key: scan?.thread?.conversation_key || null,
+                last_inbound_text: scan?.thread?.last_inbound_text || null,
               },
             },
           });
@@ -264,13 +306,13 @@ async function main() {
 
       const leadCapture = routeDef.kind === 'random'
         ? { skipped: true }
-        : await sendRuntime(ext, {
+        : await sendRuntime(runtimeBridge, {
             type: 'PARSE_LEAD',
             payload: {
               raw_text: `${routeDef.platform} smoke test. ${JSON.stringify(scan).slice(0, 1200)}`,
               platform: routeDef.kind,
-              customer_name: routeDef.kind === 'gmail' ? 'Louise M.' : routeDef.kind === 'linkedin' ? 'Raj M.' : 'Nora T.',
-              vehicle_interest: routeDef.kind === 'gmail' ? 'Chevrolet Tahoe' : routeDef.kind === 'linkedin' ? 'Fleet trucks' : '2020 Silverado 1500',
+              customer_name: leadContext.customerName,
+              vehicle_interest: leadContext.vehicle,
             },
           });
       const leadCaptureWorks = routeDef.kind === 'random'
@@ -285,7 +327,7 @@ async function main() {
         leadCaptureWorks,
         evidence: {
           scan: scan?.error ? scan.error : `${scan.customerName || scan.name || 'context'} / ${(scan.vehicle || scan.vehicleOfInterest || '').toString().slice(0, 80)}`,
-          generate: generate?.error || (generate?.skipped ? 'not applicable' : `${String(generate?.text || '').slice(0, 90)}...`),
+          generate: generate?.error || (generate?.skipped ? 'not applicable' : `zero-context ${outputType}: ${String(generate?.text || '').slice(0, 90)}...`),
           leadCapture: leadCapture?.error || (leadCapture?.skipped ? 'not applicable' : leadCapture?.lead?.customer_name),
         },
       });
@@ -296,13 +338,13 @@ async function main() {
     await fbPage.goto('https://www.facebook.com/marketplace/t/brevmont-smoke?locale=en_US', { waitUntil: 'domcontentloaded' });
     await fbPage.bringToFront();
     await fbPage.waitForTimeout(500);
-    const screenshot = await sendRuntime(ext, { type: 'CAPTURE_SCREENSHOT' });
+    const screenshot = await sendRuntime(runtimeBridge, { type: 'CAPTURE_SCREENSHOT' });
     const screenshotWorks = Boolean(
       screenshot?.image?.startsWith('data:image/jpeg;base64,') ||
       (screenshot?.fallback === 'page_text' && screenshot?.page_text)
     );
     const screenshotReply = screenshotWorks
-      ? await sendRuntime(ext, {
+      ? await sendRuntime(runtimeBridge, {
           type: 'CONTEXT_REPLY',
           payload: {
             image: screenshot.image,
@@ -344,7 +386,7 @@ Build: \`${extensionDir}\`
 ${rows}
 
 Notes:
-- Facebook Marketplace, Gmail, and LinkedIn were tested against controlled pages using the same host URLs and DOM patterns the content scripts match in production.
+- Facebook Marketplace, Gmail, LinkedIn, and Instagram DM were tested against controlled pages using the same host URLs and DOM patterns the content scripts match in production.
 - Random website uses a non-buyer page and is expected to avoid crashing while providing no buyer context.
 - Screenshot Reply captured the visible tab and sent it through the same background message path used by the side panel.
 `);

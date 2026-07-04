@@ -21,13 +21,16 @@ import { detectCustomerFromPage } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 import { withInjectInFlight as overdriveWithInjectInFlight, configureSoloTestMode as overdriveConfigureSoloTestMode } from './lib/overdrive/safetyEnvelope';
 
-type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'google-messages' | 'cargurus' | 'carsdotcom' | 'autotrader' | 'dealersocket' | 'elead' | 'unknown';
+type Platform = 'vinsolutions' | 'gmail' | 'outlook' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'google-messages' | 'cargurus' | 'carsdotcom' | 'autotrader' | 'dealersocket' | 'elead' | 'unknown';
 
 export default defineContentScript({
   matches: [
     '*://*.vinsolutions.com/*',
     '*://vinsolutions.app.coxautoinc.com/*',
     '*://mail.google.com/*',
+    '*://outlook.live.com/*',
+    '*://outlook.office.com/*',
+    '*://outlook.office365.com/*',
     '*://*.facebook.com/*',
     '*://www.facebook.com/messages/*',
     '*://www.facebook.com/marketplace/t/*',
@@ -56,6 +59,7 @@ export default defineContentScript({
     const _url = window.location.href;
     const PLATFORM: Platform = _url.includes('vinsolutions') || _url.includes('coxautoinc') ? 'vinsolutions'
       : _url.includes('mail.google.com') ? 'gmail'
+      : _url.includes('outlook.live.com') || _url.includes('outlook.office.com') || _url.includes('outlook.office365.com') ? 'outlook'
       : _url.includes('messenger.com') || _url.includes('facebook.com/messages') || _url.includes('facebook.com/marketplace/t/') ? 'facebook'
       : _url.includes('facebook.com') ? 'facebook'
       : _url.includes('linkedin.com') ? 'linkedin'
