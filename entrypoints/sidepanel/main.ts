@@ -31,6 +31,7 @@ import {
   accessEndedTitle,
 } from '../../lib/accessState';
 import { sanitizeCustomerFacingOutput } from '../lib/outputContract';
+import { isChannelOrUiName, stripConversationWrapper } from '../lib/leadContextScan';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Platform =
@@ -972,6 +973,7 @@ function applyDefaultOutputFromScan(root: HTMLElement, scan: AutoThreadScan): vo
 function renderAutoThreadScan(root: HTMLElement): void {
   const el = root.querySelector('#o8-reply-context') as HTMLElement | null;
   const input = root.querySelector('#o8-input') as HTMLTextAreaElement | null;
+  const firstUse = root.querySelector('#o8-first-use') as HTMLElement | null;
   if (!el) return;
 
   if (input && !input.value.trim()) {
@@ -996,6 +998,7 @@ function renderAutoThreadScan(root: HTMLElement): void {
   }
 
   if (autoThreadScanStatus === 'ready' && autoThreadScan) {
+    if (firstUse) firstUse.style.display = 'none';
     const last = truncateReplyContext(autoThreadScan.threadContext.last_inbound_text || autoThreadScan.threadContext.raw_text);
     const fallback = truncateReplyContext(autoThreadScan.threadContext.header_text || 'Conversation scanned');
     const surface = getDisplayLabel(autoThreadScan.platform || currentPlatform.platform);
@@ -1120,7 +1123,11 @@ function enrichLeadContextWithPinnedCustomer(leadContext: any = {}): any {
 }
 
 function getCustomerNameFromContext(ctx: any): string {
-  return String(ctx?.customerName || ctx?.customer_name || ctx?.name || '').trim();
+  const raw = ctx?.customerName || ctx?.customer_name || ctx?.name || '';
+  const stripped = stripConversationWrapper(raw).trim();
+  if (!stripped) return '';
+  if (isChannelOrUiName(stripped)) return '';
+  return stripped;
 }
 
 function getCustomerVehicleFromContext(ctx: any): string | null {
@@ -1147,10 +1154,10 @@ function isManualCustomerOverride(customer: PinnedCustomer | null): boolean {
 
 function pinMatchesContext(customer: PinnedCustomer | null, ctx: any): boolean {
   if (!customer) return false;
+  if (isManualCustomerOverride(customer)) return true;
   const ctxFingerprint = getContextFingerprint(ctx);
   const pinFingerprint = customer.contextFingerprint || customer.threadFingerprint || '';
   if (ctxFingerprint && pinFingerprint && ctxFingerprint !== pinFingerprint) return false;
-  if (isManualCustomerOverride(customer)) return true;
   const ctxName = getCustomerNameFromContext(ctx);
   if (ctxName && normalizeComparable(customer.name) !== normalizeComparable(ctxName)) return false;
   const ctxVehicle = getCustomerVehicleFromContext(ctx);
@@ -1160,10 +1167,10 @@ function pinMatchesContext(customer: PinnedCustomer | null, ctx: any): boolean {
 
 function pinMismatchReason(customer: PinnedCustomer | null, ctx: any): string | null {
   if (!customer) return null;
+  if (isManualCustomerOverride(customer)) return null;
   const ctxFingerprint = getContextFingerprint(ctx);
   const pinFingerprint = customer.contextFingerprint || customer.threadFingerprint || '';
   if (ctxFingerprint && pinFingerprint && ctxFingerprint !== pinFingerprint) return 'thread_changed';
-  if (isManualCustomerOverride(customer)) return null;
   const ctxName = getCustomerNameFromContext(ctx);
   if (ctxName && normalizeComparable(customer.name) !== normalizeComparable(ctxName)) return 'customer_changed';
   const ctxVehicle = getCustomerVehicleFromContext(ctx);
@@ -1171,12 +1178,11 @@ function pinMismatchReason(customer: PinnedCustomer | null, ctx: any): string | 
   return null;
 }
 
-function clearStalePinnedCustomer(root: HTMLElement, reason: string): void {
+function clearStalePinnedCustomer(root: HTMLElement, _reason: string): void {
   if (pinnedCustomer || pendingCustomerSuggestion) {
     pinnedCustomer = null;
     pendingCustomerSuggestion = null;
     renderCustomerStamp(root);
-    if (reason !== 'initial') showToast(root, 'Customer context refreshed');
   }
 }
 
@@ -1847,6 +1853,30 @@ function hidePrimaryPanels(root: HTMLElement): void {
   });
 }
 
+function showQuickView(root: HTMLElement, resetScroll = false): void {
+  hidePrimaryPanels(root);
+  const quick = root.querySelector('#o8-quick') as HTMLElement | null;
+  if (quick) {
+    quick.style.display = 'flex';
+    if (resetScroll) quick.scrollTop = 0;
+  }
+}
+
+function showPrimaryPanel(root: HTMLElement, selector: string, resetScroll = true): HTMLElement | null {
+  const quick = root.querySelector('#o8-quick') as HTMLElement | null;
+  if (quick) quick.style.display = 'none';
+  hidePrimaryPanels(root);
+  const panel = root.querySelector(selector) as HTMLElement | null;
+  if (!panel) return null;
+  panel.style.display = 'flex';
+  if (resetScroll) {
+    panel.scrollTop = 0;
+    const scrollBody = panel.querySelector('.settings-scroll, #o8-my-leads-content, #o8-stats-content') as HTMLElement | null;
+    if (scrollBody) scrollBody.scrollTop = 0;
+  }
+  return panel;
+}
+
 function toolLabel(tool: string | null): string {
   switch (tool) {
     case 'coach': return 'Coach';
@@ -2165,12 +2195,8 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
     try {
       // If prerequisites missing, deep-link to the Overdrive setup panel
       if (btn.textContent === 'Open') {
-        const settingsPanel = root.querySelector('#o8-settings-panel') as HTMLElement | null;
-        hidePrimaryPanels(root);
-        const quick = root.querySelector('#o8-quick') as HTMLElement | null;
-        if (quick) quick.style.display = 'none';
+        const settingsPanel = showPrimaryPanel(root, '#o8-settings-panel');
         if (settingsPanel) {
-          settingsPanel.style.display = 'flex';
           window.setTimeout(() => {
             settingsPanel.querySelector('#overdrive-panel-mount')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
           }, 80);
@@ -2811,17 +2837,7 @@ function wireHandlers(root: HTMLElement): void {
   const accountBtn = el('o8-account-btn') as HTMLButtonElement | null;
   if (accountBtn) {
     accountBtn.onclick = () => {
-      el('o8-quick')!.style.display = 'none';
-      const tp = el('o8-tools-panel'); if (tp) tp.style.display = 'none';
-      const stats = el('o8-stats-panel'); if (stats) stats.style.display = 'none';
-      const lead = el('o8-lead-panel'); if (lead) lead.style.display = 'none';
-      const myLeads = el('o8-my-leads-panel'); if (myLeads) myLeads.style.display = 'none';
-      const settingsPanelForDot = el('o8-settings-panel');
-      if (settingsPanelForDot) {
-        settingsPanelForDot.style.display = 'flex';
-        const scrollBody = settingsPanelForDot.querySelector('#o8-settings-scroll') as HTMLElement | null;
-        if (scrollBody) scrollBody.scrollTop = 0;
-      }
+      showPrimaryPanel(root, '#o8-settings-panel');
     };
   }
   const customerBtn = el('o8-customer-open');
@@ -2853,7 +2869,7 @@ function wireHandlers(root: HTMLElement): void {
   const settingsPanel = el('o8-settings-panel');
   const settingsBack = el('o8-settings-back');
   if (settingsBack) {
-    settingsBack.onclick = () => { settingsPanel!.style.display = 'none'; el('o8-quick')!.style.display = 'flex'; };
+    settingsBack.onclick = () => showQuickView(root);
   }
 
   // ─── Overdrive panel — mounted inside Settings ─────────────────────
@@ -2887,16 +2903,7 @@ function wireHandlers(root: HTMLElement): void {
   const settingsBtnInline = el('o8-settings-btn-inline');
   if (settingsBtnInline) {
     settingsBtnInline.onclick = () => {
-      el('o8-quick')!.style.display = 'none';
-      const tp = el('o8-tools-panel'); if (tp) tp.style.display = 'none';
-      const stats = el('o8-stats-panel'); if (stats) stats.style.display = 'none';
-      const lead = el('o8-lead-panel'); if (lead) lead.style.display = 'none';
-      const myLeads = el('o8-my-leads-panel'); if (myLeads) myLeads.style.display = 'none';
-      if (settingsPanel) {
-        settingsPanel.style.display = 'flex';
-        const scrollBody = settingsPanel.querySelector('#o8-settings-scroll') as HTMLElement | null;
-        if (scrollBody) scrollBody.scrollTop = 0;
-      }
+      showPrimaryPanel(root, '#o8-settings-panel');
     };
   }
 
@@ -2951,21 +2958,15 @@ function wireHandlers(root: HTMLElement): void {
   }
 
   // Tools panel
-  const toolsPanel = el('o8-tools-panel');
   const toolsBack = el('o8-tools-back');
   const toolsBtnInline = el('o8-tools-btn-inline');
   if (toolsBtnInline) {
     toolsBtnInline.onclick = () => {
-      el('o8-quick')!.style.display = 'none';
-      const sp = el('o8-settings-panel'); if (sp) sp.style.display = 'none';
-      const stats = el('o8-stats-panel'); if (stats) stats.style.display = 'none';
-      const lead = el('o8-lead-panel'); if (lead) lead.style.display = 'none';
-      const myLeads = el('o8-my-leads-panel'); if (myLeads) myLeads.style.display = 'none';
-      if (toolsPanel) toolsPanel.style.display = 'flex';
+      showPrimaryPanel(root, '#o8-tools-panel');
       setActiveToolSection(root, 'coach');
     };
   }
-  if (toolsBack) toolsBack.onclick = () => { setActiveToolSection(root, null); toolsPanel!.style.display = 'none'; el('o8-quick')!.style.display = 'flex'; };
+  if (toolsBack) toolsBack.onclick = () => { setActiveToolSection(root, null); showQuickView(root); };
 
   // Tool tab switching
   root.querySelectorAll('.tool-tab-btn').forEach(btn => {
@@ -2987,18 +2988,16 @@ function wireHandlers(root: HTMLElement): void {
   });
 
   // Stats panel
-  const statsPanel = el('o8-stats-panel');
   const statsBack = el('o8-stats-back');
   const statsBtnInline = el('o8-stats-btn-inline');
   if (statsBtnInline) statsBtnInline.onclick = () => openStats(root);
-  if (statsBack) statsBack.onclick = () => { statsPanel!.style.display = 'none'; el('o8-quick')!.style.display = 'flex'; };
+  if (statsBack) statsBack.onclick = () => showQuickView(root);
 
   // My Leads panel
-  const myLeadsPanel = el('o8-my-leads-panel');
   const myLeadsBack = el('o8-my-leads-back');
   const myLeadsBtn = el('o8-my-leads-btn-inline');
   if (myLeadsBtn) myLeadsBtn.onclick = () => openMyLeads(root);
-  if (myLeadsBack) myLeadsBack.onclick = () => { if (myLeadsPanel) myLeadsPanel.style.display = 'none'; el('o8-quick')!.style.display = 'flex'; };
+  if (myLeadsBack) myLeadsBack.onclick = () => showQuickView(root);
 
   // Follow-ups pill — polls the queued-drafts endpoint, shows count when >0.
   // Clicking opens the My Leads view (in the interim; a dedicated
@@ -3436,7 +3435,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     } else if (response?.queued) {
       showToast(root, response.message || 'Saved. Will sync when online.');
     } else if (response?.error) {
-      addOutput(root, 'Error', GENERATION_FAILURE_MESSAGE);
+      showGenerationError(root, GENERATION_FAILURE_MESSAGE);
     } else {
       removeStreamingOutput(root, _generationId);
       const sec = response.sections;
@@ -3499,7 +3498,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       updateUsageCounter(root);
     }
   } catch (_e: any) {
-    addOutput(root, 'Error', GENERATION_FAILURE_MESSAGE);
+    showGenerationError(root, GENERATION_FAILURE_MESSAGE);
   } finally {
     removeStreamingOutput(root, _generationId);
     btn.innerHTML = 'Generate';
@@ -3510,6 +3509,22 @@ async function doGenerate(root: HTMLElement): Promise<void> {
 }
 
 // ─── Add output card ─────────────────────────────────────────────────────────
+function showGenerationError(root: HTMLElement, message = GENERATION_FAILURE_MESSAGE): void {
+  const outputs = root.querySelector('#o8-outputs') as HTMLElement | null;
+  if (!outputs) return;
+  outputs.innerHTML = `
+    <div class="out-card out-card-error">
+      <div class="out-label">Error</div>
+      <div class="out-error-copy">${esc(message || GENERATION_FAILURE_MESSAGE)}</div>
+      <div class="out-actions">
+        <button class="out-action out-regen" id="o8-error-regen" type="button">Try again</button>
+      </div>
+    </div>
+  `;
+  const retry = outputs.querySelector('#o8-error-regen') as HTMLButtonElement | null;
+  if (retry) retry.onclick = () => doGenerate(root);
+}
+
 function addOutput(root: HTMLElement, label: string, content: string, outputType?: string, generationId?: string): void {
   const outputs = root.querySelector('#o8-outputs')!;
   const card = document.createElement('div');
@@ -3619,7 +3634,7 @@ function showToast(root: HTMLElement, msg: string): void {
   toast.id = 'brevmont-toast';
   toast.textContent = msg;
   Object.assign(toast.style, {
-    position: 'fixed', bottom: '16px', left: '50%', transform: 'translateX(-50%)',
+    position: 'fixed', bottom: '76px', left: '50%', transform: 'translateX(-50%)',
     background: '#1a202c', color: '#fff', padding: '8px 16px', borderRadius: '6px',
     fontSize: '11px', fontWeight: '500', zIndex: '99', opacity: '1', transition: 'opacity 0.3s',
   });
@@ -4330,9 +4345,7 @@ function wireMyLeadCardActions(root: HTMLElement): void {
             input.focus();
           }
           (root as any).__pendingLeadId = leadId;
-          hidePrimaryPanels(root);
-          const quick = root.querySelector('#o8-quick') as HTMLElement | null;
-          if (quick) quick.style.display = 'flex';
+          showQuickView(root);
           showToast(root, 'Lead context loaded. Hit Generate.');
           return;
         }
@@ -4377,11 +4390,7 @@ function wireMyLeadCardActions(root: HTMLElement): void {
 }
 
 async function openMyLeads(root: HTMLElement): Promise<void> {
-  const quick = root.querySelector('#o8-quick') as HTMLElement | null;
-  if (quick) quick.style.display = 'none';
-  hidePrimaryPanels(root);
-  const panel = root.querySelector('#o8-my-leads-panel') as HTMLElement | null;
-  if (panel) panel.style.display = 'flex';
+  showPrimaryPanel(root, '#o8-my-leads-panel');
   await renderMyLeads(root);
 }
 
@@ -4588,9 +4597,7 @@ function showLeadResult(root: HTMLElement, lead: any): void {
       // Store lead_id for doGenerate to include in payload
       if (leadId) (root as any).__pendingLeadId = leadId;
       // Switch to Generate view
-      const leadPanel = root.querySelector('#o8-lead-panel') as HTMLElement;
-      if (leadPanel) leadPanel.style.display = 'none';
-      root.querySelector('#o8-quick')!.setAttribute('style', 'display:flex');
+      showQuickView(root);
       if (mainInput) mainInput.focus();
     });
   }
@@ -4692,11 +4699,18 @@ function showLeadResult(root: HTMLElement, lead: any): void {
 // ─── Lead Capture ────────────────────────────────────────────────────────────
 function wireLeadCapture(root: HTMLElement): void {
   const leadBtn = root.querySelector('#o8-lead-btn') as HTMLElement;
-  const leadPanel = root.querySelector('#o8-lead-panel') as HTMLElement;
   const leadBack = root.querySelector('#o8-lead-back') as HTMLElement;
   let autoScanTimer: number | null = null;
 
-  const activateLeadTab = (tab: 'scan' | 'voice' | 'paste') => {
+  const clearLeadResult = () => {
+    const result = root.querySelector('#o8-lead-result') as HTMLElement | null;
+    if (!result) return;
+    result.style.display = 'none';
+    result.innerHTML = '';
+  };
+
+  const activateLeadTab = (tab: 'scan' | 'voice' | 'paste', keepResult = false) => {
+    if (!keepResult) clearLeadResult();
     root.querySelectorAll('.lead-tab-btn').forEach(b => {
       const active = (b as HTMLElement).dataset.ltab === tab;
       b.classList.toggle('active', active);
@@ -4708,15 +4722,10 @@ function wireLeadCapture(root: HTMLElement): void {
   };
 
   const openLeadScan = () => {
-    root.querySelector('#o8-quick')!.setAttribute('style', 'display:none');
-    const tp = root.querySelector('#o8-tools-panel') as HTMLElement; if (tp) tp.style.display = 'none';
-    const sp = root.querySelector('#o8-settings-panel') as HTMLElement; if (sp) sp.style.display = 'none';
-    const stats = root.querySelector('#o8-stats-panel') as HTMLElement; if (stats) stats.style.display = 'none';
-    const myLeads = root.querySelector('#o8-my-leads-panel') as HTMLElement; if (myLeads) myLeads.style.display = 'none';
-    const result = root.querySelector('#o8-lead-result') as HTMLElement; if (result) result.style.display = 'none';
+    showPrimaryPanel(root, '#o8-lead-panel');
+    clearLeadResult();
     const emptyMsg = root.querySelector('#o8-scan-empty') as HTMLElement; if (emptyMsg) emptyMsg.style.display = 'none';
-    activateLeadTab('scan');
-    if (leadPanel) leadPanel.style.display = 'flex';
+    activateLeadTab('scan', true);
 
     if (autoScanTimer) window.clearTimeout(autoScanTimer);
     autoScanTimer = window.setTimeout(() => {
@@ -4732,8 +4741,8 @@ function wireLeadCapture(root: HTMLElement): void {
       window.clearTimeout(autoScanTimer);
       autoScanTimer = null;
     }
-    if (leadPanel) leadPanel.style.display = 'none';
-    root.querySelector('#o8-quick')!.setAttribute('style', 'display:flex');
+    clearLeadResult();
+    showQuickView(root);
   };
 
   // Tab switching
@@ -4903,13 +4912,7 @@ function wireLeadCapture(root: HTMLElement): void {
 
 // ─── Stats panel ─────────────────────────────────────────────────────────────
 async function openStats(root: HTMLElement): Promise<void> {
-  root.querySelector('#o8-quick')!.setAttribute('style', 'display:none');
-  const tp = root.querySelector('#o8-tools-panel') as HTMLElement; if (tp) tp.style.display = 'none';
-  const sp = root.querySelector('#o8-settings-panel') as HTMLElement; if (sp) sp.style.display = 'none';
-  const lp = root.querySelector('#o8-lead-panel') as HTMLElement; if (lp) lp.style.display = 'none';
-  const ml = root.querySelector('#o8-my-leads-panel') as HTMLElement; if (ml) ml.style.display = 'none';
-  const statsPanel = root.querySelector('#o8-stats-panel') as HTMLElement;
-  if (statsPanel) statsPanel.style.display = 'flex';
+  showPrimaryPanel(root, '#o8-stats-panel');
   const statsContent = root.querySelector('#o8-stats-content') as HTMLElement;
   if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading stats...</div>';
   try {
@@ -5040,7 +5043,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     textarea.scrollTop = textarea.scrollHeight;
   } else if (msg.event === 'error') {
     removeStreamingOutput(root, String(msg.generation_id || ''));
-    addOutput(root, 'Error', GENERATION_FAILURE_MESSAGE);
+    showGenerationError(root, GENERATION_FAILURE_MESSAGE);
   } else if (msg.event === 'done') {
     if (status) status.remove();
     if (label) label.textContent = 'Generated';

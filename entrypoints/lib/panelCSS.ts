@@ -53,10 +53,10 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .header { position:relative; padding:10px 14px; min-height:44px; border-bottom:1px solid #E5E7EB; display:flex; align-items:center; gap:8px; flex-shrink:0; background:#fff;${headerRadius} }
 .version-badge { font-size:10px; font-family:'JetBrains Mono',ui-monospace,monospace; color:#4f8f8f; background:#F0FAFA; border:1px solid #D6E4E4; padding:2px 7px; border-radius:999px; letter-spacing:0; white-space:nowrap; line-height:1.2; }
 .close { font-size:20px; color:#94a3b8; cursor:pointer; padding:0 4px; flex-shrink:0; line-height:1; } .close:hover { color:#475569; }
-.quick-mode { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; overflow:hidden; }
+.quick-mode { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; padding-bottom:96px; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; scrollbar-gutter:stable; }
 .card { padding:10px 14px; border-bottom:1px solid #e8eaed; flex-shrink:0; }
 .name { font-size:14px; font-weight:600; } .vehicle { font-size:11px; color:#2563eb; margin-top:1px; } .meta { font-size:10px; color:#64748b; margin-top:2px; }
-.input-section { padding:12px 14px; border-bottom:1px solid #e8eaed; flex-shrink:0; }
+.input-section { padding:10px 14px; border-bottom:1px solid #e8eaed; flex:0 0 auto; }
 .chips { display:flex; gap:5px; margin-bottom:8px; }
 .chip { padding:5px 12px; border-radius:16px; font-size:11px; font-weight:600; font-family:inherit; border:1.5px solid #e2e8f0; background:#fff; color:#94a3b8; cursor:pointer; transition:all 0.15s; position:relative; }
 .chip.on { border-color:#0D6E6E; color:#0D6E6E; background:#F0EFFF; }
@@ -74,12 +74,12 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .gen-btn:hover { background:#0A5555; } .gen-btn:disabled { background:#94a3b8; cursor:wait; }
 .gen-spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:gen-spin 0.6s linear infinite; vertical-align:middle; margin-right:4px; }
 @keyframes gen-spin { to { transform:rotate(360deg); } }
-.first-use-card { position:relative; margin-bottom:10px; padding:12px 34px 12px 12px; border:1px solid rgba(13,110,110,0.18); border-radius:10px; background:#F8F6F1; }
+.first-use-card { position:relative; margin-bottom:8px; padding:9px 32px 9px 10px; border:1px solid rgba(13,110,110,0.18); border-radius:10px; background:#F8F6F1; }
 .first-use-card.done { border-color:rgba(22,163,74,0.22); background:#F0FDF4; }
-.first-use-eyebrow { font-size:9px; font-weight:800; letter-spacing:1px; text-transform:uppercase; color:#0D6E6E; margin-bottom:4px; }
-.first-use-title { font-size:14px; font-weight:750; color:#0F1419; margin-bottom:4px; }
-.first-use-copy { font-size:11px; line-height:1.45; color:#64748b; }
-.first-use-example { margin-top:8px; border:1px solid rgba(13,110,110,0.22); background:#fff; color:#0D6E6E; border-radius:7px; padding:6px 9px; font-size:11px; font-weight:700; font-family:inherit; cursor:pointer; }
+.first-use-eyebrow { font-size:8px; font-weight:800; letter-spacing:1px; text-transform:uppercase; color:#0D6E6E; margin-bottom:2px; }
+.first-use-title { font-size:12px; font-weight:750; color:#0F1419; margin-bottom:2px; line-height:1.2; }
+.first-use-copy { font-size:10px; line-height:1.35; color:#64748b; }
+.first-use-example { margin-top:6px; border:1px solid rgba(13,110,110,0.22); background:#fff; color:#0D6E6E; border-radius:7px; padding:5px 8px; font-size:10px; font-weight:700; font-family:inherit; cursor:pointer; }
 .first-use-example:hover { background:#eef8f5; }
 .first-use-dismiss { position:absolute; top:8px; right:8px; width:22px; height:22px; display:flex; align-items:center; justify-content:center; border:none; border-radius:999px; background:rgba(15,20,25,0.06); color:#64748b; font-size:16px; line-height:1; cursor:pointer; font-family:inherit; }
 .first-use-dismiss:hover { background:rgba(15,20,25,0.11); color:#0F1419; }
@@ -216,9 +216,11 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .standing-card { border:1px solid #E5E7EB; border-radius:10px; padding:10px; background:#fff; margin-bottom:8px; }
 .standing-tier { font-size:18px; font-weight:900; color:#0F172A; }
 .standing-list { margin-top:7px; display:flex; flex-direction:column; gap:4px; font-size:11px; color:#475569; }
-.outputs { padding:0 14px; overflow-y:auto; flex:0 0 auto; }
-.outputs:not(:empty) { padding:8px 14px 96px; flex:1 1 auto; min-height:0; }
+.outputs { padding:0 14px; overflow:visible; flex:0 0 auto; min-height:0; }
+.outputs:not(:empty) { padding:8px 14px 0; flex:0 0 auto; min-height:auto; }
 .out-card { background:#fff; border:1px solid #E5E7EB; border-radius:12px; padding:10px 12px; margin-bottom:8px; }
+.out-card-error { border-color:#FECACA; background:#FFF7F7; }
+.out-error-copy { border:1px solid #FECACA; border-radius:8px; background:#fff; color:#991B1B; font-size:12px; line-height:1.5; padding:10px; }
 .out-card[data-output-type]:not(.tab-visible) { display:none !important; }
 .out-card[data-output-type].tab-visible { display:block !important; }
 .out-label { font-size:9px; font-weight:700; color:#0D6E6E; letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
@@ -236,9 +238,12 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .tool-tabs { display:flex; border-bottom:1px solid #e8eaed; }
 .tool-tab-btn { flex:1; padding:8px 4px; font-size:11px; font-weight:600; font-family:inherit; border:none; background:transparent; color:#94a3b8; cursor:pointer; border-bottom:2px solid transparent; } .tool-tab-btn.active { color:#0D6E6E; border-bottom-color:#0D6E6E; }
 .tool-content { padding:12px 14px; flex:1 1 auto; min-height:0; overflow-y:auto; display:none; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
+#o8-lead-panel { overflow-y:auto; overflow-x:hidden; padding-bottom:96px; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; scrollbar-gutter:stable; }
+#o8-lead-panel .tool-content { flex:0 0 auto; min-height:auto; overflow:visible; }
 .tool-section { display:flex; flex-direction:column; gap:8px; } .tool-output { padding:8px 0; }
-#o8-my-leads-content, #o8-stats-content, #o8-lead-result, .settings-scroll { flex:1 1 auto; min-height:0; height:100%; max-height:100%; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; scrollbar-gutter:stable; }
-.settings-scroll, #o8-my-leads-content, #o8-stats-content, #o8-lead-result { padding-bottom:140px; }
+#o8-my-leads-content, #o8-stats-content, .settings-scroll { flex:1 1 auto; min-height:0; height:100%; max-height:100%; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; scrollbar-gutter:stable; }
+#o8-lead-result { height:auto; max-height:none; padding-top:0; }
+.settings-scroll, #o8-my-leads-content, #o8-stats-content { padding-bottom:140px; }
 .tool-result { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.6; margin-top:8px; }
 .coach-chips { display:flex; flex-wrap:wrap; gap:4px; } .coach-chip { padding:4px 10px; border-radius:14px; font-size:10px; font-weight:500; font-family:inherit; border:1px solid #e2e8f0; background:#f8fafc; color:#64748b; cursor:pointer; } .coach-chip:hover { border-color:#0D6E6E; color:#0D6E6E; background:#F0EFFF; }
 .input-hint { font-size:11px; color:#9CA3AF; text-align:center; margin-top:6px; letter-spacing:0.2px; }
@@ -320,7 +325,7 @@ ${domMode && isGmail ? `
 /* Gmail DOM-sidebar overrides */
 #o8 { font-size:13px; border-radius:0; box-shadow:none; border:none; }
 .header { border-radius:0; }
-.quick-mode { overflow:auto; }
+.quick-mode { overflow-y:auto; overflow-x:hidden; padding-bottom:96px; }
 .input-section { padding:10px 12px; }
 .chips { gap:4px; margin-bottom:8px; }
 .chip { padding:4px 10px; font-size:11px; border-radius:14px; }
@@ -328,7 +333,8 @@ ${domMode && isGmail ? `
 .inline-mic { width:26px; height:26px; right:5px; top:5px; }
 .gen-btn { padding:9px; font-size:13px; margin-top:8px; border-radius:6px; }
 .inline-links { margin-top:6px; gap:5px; } .link-btn { font-size:11px; }
-.outputs { padding:6px 12px; overflow-y:auto; flex:1; min-height:0; }
+.outputs { padding:0 12px; overflow:visible; flex:0 0 auto; min-height:0; }
+.outputs:not(:empty) { padding:6px 12px 0; flex:0 0 auto; min-height:auto; }
 .out-card { padding:8px 10px; margin-bottom:6px; }
 .out-label { font-size:9px; margin-bottom:3px; }
 .out-textarea { min-height:120px; max-height:300px; height:auto; font-size:11px; }

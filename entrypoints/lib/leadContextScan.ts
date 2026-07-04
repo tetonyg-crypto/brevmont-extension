@@ -28,7 +28,7 @@ const CHANNEL_OR_UI_NAMES = new Set([
   'vinsolutions', 'cox', 'salesforce', 'hubspot',
   'buyer', 'seller', 'customer', 'contact', 'lead',
   'new message', 'new chat', 'no longer available', 'sold',
-  'brevmont', 'save lead', 'scan this page',
+  'brevmont', 'brevmont labs', 'brevmont labs llc', 'save lead', 'scan this page',
   'profile', 'conversation', 'notifications', 'search',
   'you', 'me', 'other', 'group',
   // 2026-07-03 regression: Facebook Marketplace threads for accounts
@@ -50,6 +50,7 @@ export function isChannelOrUiName(value: unknown): boolean {
   // "Marketplace Buyer" etc.
   if (/^(?:sold|active|available|listed|new)\b/i.test(raw)) return true;
   if (/^(?:facebook|messenger|marketplace|instagram)\s/i.test(raw)) return true;
+  if (/^brevmont\b/i.test(raw)) return true;
   // Facebook Marketplace fallback headers for accounts without a friendly
   // display name. "Conversation titled X" is the raw h1; "Chat with X"
   // is a common aria-label variant; "X started this chat" appears in

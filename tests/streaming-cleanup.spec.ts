@@ -9,6 +9,6 @@ test.describe('streaming output cleanup guards', () => {
     expect(source).toContain('} finally {');
     expect(source).toContain('removeStreamingOutput(root, _generationId);');
     expect(source).toContain("msg.event === 'error'");
-    expect(source).toContain("addOutput(root, 'Error', GENERATION_FAILURE_MESSAGE)");
+    expect(source).toContain('showGenerationError(root, GENERATION_FAILURE_MESSAGE)');
   });
 });

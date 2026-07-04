@@ -71,8 +71,29 @@ test('Settings owns a scroll body with Overdrive mounted inside it', () => {
   expect(css).toContain('padding-bottom:140px');
   expect(css).toContain('-webkit-overflow-scrolling:touch');
   expect(source).toContain("settingsPanel.querySelector('#overdrive-panel-mount')");
-  expect(source).toContain("settingsPanelForDot.style.display = 'flex'");
+  expect(source).toContain("showPrimaryPanel(root, '#o8-settings-panel')");
   expect(source).toContain('scrollBody.scrollTop = 0');
+});
+
+test('sidepanel main and lead capture views scroll without clipping behind the account chip', () => {
+  const css = read('entrypoints/lib/panelCSS.ts');
+  expect(css).toContain('.quick-mode { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; overflow-y:auto;');
+  expect(css).toContain('.outputs:not(:empty) { padding:8px 14px 0; flex:0 0 auto; min-height:auto; }');
+  expect(css).toContain('#o8-lead-panel { overflow-y:auto;');
+  expect(css).toContain('#o8-lead-panel .tool-content { flex:0 0 auto; min-height:auto; overflow:visible; }');
+  expect(css).toContain('#o8-lead-result { height:auto; max-height:none; padding-top:0; }');
+});
+
+test('primary panel navigation has one Back path to the Generate view', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(source).toContain('function showQuickView');
+  expect(source).toContain('function showPrimaryPanel');
+  expect(source).toContain("settingsBack.onclick = () => showQuickView(root)");
+  expect(source).toContain("toolsBack.onclick = () => { setActiveToolSection(root, null); showQuickView(root); }");
+  expect(source).toContain("statsBack.onclick = () => showQuickView(root)");
+  expect(source).toContain("myLeadsBack.onclick = () => showQuickView(root)");
+  expect(source).toContain("showPrimaryPanel(root, '#o8-settings-panel')");
+  expect(source).toContain("showPrimaryPanel(root, '#o8-lead-panel')");
 });
 
 test('Overdrive is rep-accessible unless manager settings explicitly disables it', () => {
@@ -130,6 +151,34 @@ test('manual customer picker selection wins over auto-detection until thread cha
   const body = source.slice(start, source.indexOf('function startCustomerDetection', start));
   expect(body).toContain('if (isManualCustomerOverride(pinnedCustomer))');
   expect(body.indexOf('if (isManualCustomerOverride(pinnedCustomer))')).toBeLessThan(body.indexOf('if (confidence >= 0.8)'));
+  expect(source.slice(source.indexOf('function pinMismatchReason'), source.indexOf('function clearStalePinnedCustomer'))).toContain('if (isManualCustomerOverride(customer)) return null;');
+  expect(source).not.toContain("showToast(root, 'Customer context refreshed')");
+});
+
+test('sidepanel rejects Brevmont company labels before stamping customers', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  const gate = read('entrypoints/lib/leadContextScan.ts');
+  expect(source).toContain("import { isChannelOrUiName, stripConversationWrapper } from '../lib/leadContextScan'");
+  expect(source).toContain('const stripped = stripConversationWrapper(raw).trim();');
+  expect(source).toContain('if (isChannelOrUiName(stripped)) return');
+  expect(gate).toContain("'brevmont labs'");
+  expect(gate).toContain('if (/^brevmont\\b/i.test(raw)) return true;');
+});
+
+test('Save Lead tab switches clear stale parsed results instead of leaving a split layout', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  const leadWire = source.slice(source.indexOf('function wireLeadCapture'), source.indexOf('// ─── Stats panel'));
+  expect(leadWire).toContain('const clearLeadResult = () =>');
+  expect(leadWire).toContain('if (!keepResult) clearLeadResult();');
+  expect(leadWire).toContain("activateLeadTab('scan', true)");
+});
+
+test('generation failures render as retry-only errors, never injectable copy', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(source).toContain('function showGenerationError');
+  expect(source).toContain('out-card out-card-error');
+  expect(source).toContain('id="o8-error-regen"');
+  expect(source).not.toContain("addOutput(root, 'Error'");
 });
 
 test('Ask Anything input handles Enter locally without falling into Generate', () => {

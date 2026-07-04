@@ -53,6 +53,8 @@ test.describe('isChannelOrUiName — regression coverage', () => {
     expect(isChannelOrUiName('WhatsApp')).toBe(true);
     expect(isChannelOrUiName('VinSolutions')).toBe(true);
     expect(isChannelOrUiName('Brevmont')).toBe(true);
+    expect(isChannelOrUiName('Brevmont Labs')).toBe(true);
+    expect(isChannelOrUiName('Brevmont Labs LLC')).toBe(true);
     expect(isChannelOrUiName('Save Lead')).toBe(true);
     expect(isChannelOrUiName('Scan This Page')).toBe(true);
     expect(isChannelOrUiName('Options')).toBe(true);
