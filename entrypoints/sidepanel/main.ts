@@ -2046,6 +2046,7 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
   const paint = (state: {
     enabled: boolean;
     dealer_enabled: boolean;
+    dealer_disabled?: boolean;
     prerequisites_met: boolean;
     hours?: string;
     hasFired?: boolean;
@@ -2074,6 +2075,15 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       el.style.background = '#fff';
       el.style.borderBottom = '1px solid rgba(0,0,0,0.06)';
     }
+    if (state.dealer_disabled) {
+      dot.style.background = '#94a3b8';
+      title.textContent = 'Overdrive: off';
+      sub.textContent = 'Disabled for this store by manager settings';
+      actionLabel.textContent = 'Disabled';
+      btn.style.display = 'none';
+      paintHeaderDot('off', 'Overdrive disabled by manager settings');
+      return;
+    }
     if (!state.prerequisites_met) {
       dot.style.background = '#94a3b8';
       title.textContent = 'Overdrive: setup needed';
@@ -2083,15 +2093,6 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       btn.style.display = 'inline-flex';
       btn.classList.remove('is-primary');
       paintHeaderDot('setup', 'Overdrive setup needed');
-      return;
-    }
-    if (!state.dealer_enabled) {
-      dot.style.background = '#F59E0B';
-      title.textContent = 'Overdrive: off (dealership)';
-      sub.textContent = 'Your GM has Overdrive disabled at the store';
-      actionLabel.textContent = 'Disabled';
-      btn.style.display = 'none';
-      paintHeaderDot('off', 'Overdrive off at dealership');
       return;
     }
     btn.style.display = 'inline-flex';
@@ -2130,7 +2131,8 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       const disclosureAcked = !!data.linked?.disclosure_ack_at;
       const hasPhoto = !!data.linked?.rep_photo_url;
       const enabled = !!data.settings?.enabled;
-      const dealerEnabled = !!data.dealership_enabled;
+      const dealerDisabled = data.dealership_disabled === true;
+      const dealerEnabled = !dealerDisabled;
       const start = data.settings?.active_hours_start ?? 7;
       const end = data.settings?.active_hours_end ?? 22;
       let soloMode = false;
@@ -2141,6 +2143,7 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       paint({
         enabled,
         dealer_enabled: dealerEnabled,
+        dealer_disabled: dealerDisabled,
         prerequisites_met: linked && disclosureAcked && hasPhoto,
         hours: `${start}:00 – ${end}:00`,
         solo_test_mode: soloMode,

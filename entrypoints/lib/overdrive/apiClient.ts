@@ -47,6 +47,7 @@ async function overdriveFetch<T>(path: string, init: RequestInit = {}): Promise<
 export interface OverdriveSettingsResponse {
   label: string;
   dealership_enabled: boolean;
+  dealership_disabled?: boolean;
   dealership_daily_cap: number;
   settings: {
     enabled: boolean;

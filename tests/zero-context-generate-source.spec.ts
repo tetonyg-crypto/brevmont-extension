@@ -68,9 +68,26 @@ test('Settings owns a scroll body with Overdrive mounted inside it', () => {
   expect(ui.indexOf('id="sp-rep-first-name"')).toBeLessThan(ui.indexOf('id="overdrive-panel-mount"'));
   expect(ui).toContain('id="sp-settings-sign-out"');
   expect(css).toContain('.settings-scroll');
+  expect(css).toContain('padding-bottom:140px');
+  expect(css).toContain('-webkit-overflow-scrolling:touch');
   expect(source).toContain("settingsPanel.querySelector('#overdrive-panel-mount')");
   expect(source).toContain("settingsPanelForDot.style.display = 'flex'");
   expect(source).toContain('scrollBody.scrollTop = 0');
+});
+
+test('Overdrive is rep-accessible unless manager settings explicitly disables it', () => {
+  const panel = read('entrypoints/sidepanel/overdrivePanel.ts');
+  const main = read('entrypoints/sidepanel/main.ts');
+  const client = read('entrypoints/lib/overdrive/apiClient.ts');
+
+  expect(client).toContain('dealership_disabled?: boolean');
+  expect(panel).toContain('data.dealership_disabled === true');
+  expect(panel).toContain('linked && disclosureAcked && hasPhoto && !dealerBlocked');
+  expect(panel).not.toContain('Your GM has Overdrive disabled at the dealership');
+  expect(panel).not.toContain('!data.dealership_enabled');
+  expect(main).toContain('data.dealership_disabled === true');
+  expect(main).not.toContain('Your GM has Overdrive disabled at the store');
+  expect(main).not.toContain("title.textContent = 'Overdrive: off (dealership)'");
 });
 
 test('sign-out blocks cookie-only re-adoption until app bridge handoff', () => {

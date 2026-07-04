@@ -215,17 +215,17 @@ function renderPanelHTML(data: OverdrivePanelState['data'], currentThread: Overd
   const disclosureAcked = !!data.linked.disclosure_ack_at;
   const hasPhoto = !!data.linked.rep_photo_url;
   const enabled = !!data.settings?.enabled;
-  const dealerOff = !data.dealership_enabled;
+  const dealerBlocked = data.dealership_disabled === true;
 
   const steps = [
     { key: 'link', label: 'Link Facebook', done: linked, current: !linked },
     { key: 'disclosure', label: 'Review + acknowledge', done: disclosureAcked, current: linked && !disclosureAcked },
     { key: 'photo', label: 'Upload thumbs-up selfie', done: hasPhoto, current: linked && disclosureAcked && !hasPhoto },
-    { key: 'toggle', label: 'Turn Overdrive ON', done: enabled, current: linked && disclosureAcked && hasPhoto && !enabled },
+    { key: 'toggle', label: dealerBlocked ? 'Overdrive blocked by manager' : 'Turn Overdrive ON', done: enabled, current: linked && disclosureAcked && hasPhoto && !enabled && !dealerBlocked },
   ];
 
-  const dealerBanner = dealerOff
-    ? `<div class="overdrive-banner">Your GM has Overdrive disabled at the dealership. Ask them to enable it in Manager Settings.</div>`
+  const dealerBanner = dealerBlocked
+    ? `<div class="overdrive-banner">Overdrive is disabled for this store. A manager can turn it back on from Manager Settings.</div>`
     : '';
 
   const activeStatus = enabled
@@ -249,7 +249,7 @@ function renderPanelHTML(data: OverdrivePanelState['data'], currentThread: Overd
 
   const toggleControl = enabled
     ? `<button class="overdrive-btn overdrive-btn-secondary" data-action="disable">Turn Overdrive OFF</button>`
-    : linked && disclosureAcked && hasPhoto && !dealerOff
+    : linked && disclosureAcked && hasPhoto && !dealerBlocked
       ? `<button class="overdrive-btn overdrive-btn-primary" data-action="enable">Turn Overdrive ON</button>`
       : '';
 

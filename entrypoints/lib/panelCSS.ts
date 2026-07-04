@@ -235,10 +235,10 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .back-btn { background:none; border:none; color:#0D6E6E; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; } .tools-title { font-size:13px; font-weight:600; }
 .tool-tabs { display:flex; border-bottom:1px solid #e8eaed; }
 .tool-tab-btn { flex:1; padding:8px 4px; font-size:11px; font-weight:600; font-family:inherit; border:none; background:transparent; color:#94a3b8; cursor:pointer; border-bottom:2px solid transparent; } .tool-tab-btn.active { color:#0D6E6E; border-bottom-color:#0D6E6E; }
-.tool-content { padding:12px 14px; flex:1 1 auto; min-height:0; overflow-y:auto; display:none; }
+.tool-content { padding:12px 14px; flex:1 1 auto; min-height:0; overflow-y:auto; display:none; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
 .tool-section { display:flex; flex-direction:column; gap:8px; } .tool-output { padding:8px 0; }
-#o8-my-leads-content, #o8-stats-content, #o8-lead-result, .settings-scroll { flex:1 1 auto; min-height:0; overflow-y:auto; }
-.settings-scroll, #o8-my-leads-content, #o8-stats-content, #o8-lead-result { padding-bottom:96px; }
+#o8-my-leads-content, #o8-stats-content, #o8-lead-result, .settings-scroll { flex:1 1 auto; min-height:0; height:100%; max-height:100%; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.settings-scroll, #o8-my-leads-content, #o8-stats-content, #o8-lead-result { padding-bottom:140px; }
 .tool-result { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.6; margin-top:8px; }
 .coach-chips { display:flex; flex-wrap:wrap; gap:4px; } .coach-chip { padding:4px 10px; border-radius:14px; font-size:10px; font-weight:500; font-family:inherit; border:1px solid #e2e8f0; background:#f8fafc; color:#64748b; cursor:pointer; } .coach-chip:hover { border-color:#0D6E6E; color:#0D6E6E; background:#F0EFFF; }
 .input-hint { font-size:11px; color:#9CA3AF; text-align:center; margin-top:6px; letter-spacing:0.2px; }
@@ -297,7 +297,8 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .lead-cancel-btn { width:100%; padding:8px; background:transparent; border:1px solid #E5E7EB; border-radius:8px; font-size:12px; font-weight:500; color:#475569; cursor:pointer; font-family:inherit; margin-top:6px; } .lead-cancel-btn:hover { background:#f3f4f6; }
 .lead-gate-msg { font-size:10px; color:#9CA3AF; text-align:center; margin-top:6px; }
 .lead-banner { padding:8px 12px; background:#F0EFFF; border-bottom:1px solid #E5E7EB; cursor:pointer; font-size:12px; color:#0D6E6E; font-weight:600; display:flex; align-items:center; gap:6px; } .lead-banner:hover { background:#e8e4ff; }
-.settings-section { padding:16px 14px; } .settings-label { font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; margin-top:12px; }
+#o8-settings-panel { min-height:0; overflow:hidden; }
+.settings-section { padding:16px 14px 140px; } .settings-label { font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; margin-top:12px; }
 .settings-kicker { font-size:10px; font-weight:900; letter-spacing:.12em; text-transform:uppercase; color:#0D6E6E; margin-bottom:7px; }
 .settings-card { border:1px solid #E5E7EB; border-radius:8px; background:#fff; padding:10px; margin-bottom:10px; }
 .settings-account-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:4px 0; font-size:11px; color:#64748B; }
@@ -569,6 +570,6 @@ ${domMode && isLinkedIn ? `
 /* Reserve space at the bottom of the scrollable area so the chip doesn't
    cover the last UI element. */
 body { padding-bottom: 0; }
-.tool-content { padding-bottom: 96px; }
+.tool-content { padding-bottom: 140px; }
 `;
 }
