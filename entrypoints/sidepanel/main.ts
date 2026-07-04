@@ -2897,8 +2897,10 @@ async function showSettingsSupport(root: HTMLElement, mode: SettingsSupportMode,
   card.style.display = '';
   const scrollBody = root.querySelector('#o8-settings-scroll') as HTMLElement | null;
   if (scrollBody) {
-    const maxScroll = Math.max(0, scrollBody.scrollHeight - scrollBody.clientHeight);
-    scrollBody.scrollTop = Math.min(maxScroll, card.offsetTop - 12);
+    requestAnimationFrame(() => {
+      const maxScroll = Math.max(0, scrollBody.scrollHeight - scrollBody.clientHeight);
+      scrollBody.scrollTop = Math.min(maxScroll, Math.max(0, card.offsetTop - 12));
+    });
   }
 }
 
@@ -4882,29 +4884,37 @@ function showLeadResult(root: HTMLElement, lead: any): void {
     });
   }
 
-  // Feature 3: Log to CRM — inject into active field or clipboard fallback
+  // Feature 3: Log to CRM — only write into actual CRM note fields.
+  // On chat surfaces this must never touch the customer composer.
   const logCrmBtn = result.querySelector('#o8-lead-log-crm') as HTMLButtonElement;
   if (logCrmBtn) {
     logCrmBtn.addEventListener('click', async () => {
+      const cleanedContext = stripMarkdownText(contextCopy || '')
+        .replace(/\[(?:inbound|outbound|customer|rep)\]\s*/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 280);
       const noteText = [
-        `[Brevmont Lead Capture]`,
+        `Brevmont lead capture`,
         `Source: ${getDisplayLabel(lead.source_platform) || 'Extension'}`,
-        `Name: ${name}`,
+        `Customer: ${name}`,
         lead.phone ? `Phone: ${lead.phone}` : null,
         lead.email ? `Email: ${lead.email}` : null,
-        vehicle ? `Vehicle Interest: ${vehicle}` : null,
-        `Captured: ${lead.captured_at ? new Date(lead.captured_at).toLocaleDateString() : 'Now'}`,
-        ``,
-        `Original context:`,
-        rawText?.substring(0, 500) || 'No additional context',
+        vehicle ? `Vehicle: ${vehicle}` : null,
+        heatScore !== null ? `Heat: ${heatScore}` : null,
+        lead.lead_stage_at_capture ? `Lead stage: ${stageLabelMap(String(lead.lead_stage_at_capture))}` : null,
+        cleanedContext ? `Context: ${cleanedContext}` : null,
+        captureDetails ? `Details: ${captureDetails}` : null,
       ].filter(Boolean).join('\n');
 
-      // Try injecting into active CRM field
+      // Try injecting only into a real CRM field. Chat surfaces copy only.
       let injected = false;
-      try {
-        const resp = await sendToContent({ type: 'INJECT_CONTENT', payload: { content: noteText, outputType: 'crm' } });
-        injected = !!resp?.ok;
-      } catch { /* content script unavailable */ }
+      if (currentPlatform.platform === 'vinsolutions') {
+        try {
+          const resp = await sendToContent({ type: 'INJECT_CONTENT', payload: { content: noteText, outputType: 'crm' } });
+          injected = !!resp?.ok;
+        } catch { /* content script unavailable */ }
+      }
 
       if (!injected) {
         // Clipboard fallback

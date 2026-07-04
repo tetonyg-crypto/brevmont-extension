@@ -23,7 +23,7 @@ import { stripConversationWrapper } from '../leadContextScan';
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
   supports_inject_email: false,
-  supports_inject_crm_note: true, // reps often paste a CRM note into an FB thread as a summary
+  supports_inject_crm_note: false,
   supports_thread_history: true,
   supports_customer_extraction: true,
   surface_kind: 'social_dm',
@@ -195,6 +195,9 @@ function extractContext(): DealContext {
 }
 
 async function inject(text: string, kind: InjectKind): Promise<InjectResult> {
+  if (kind !== 'text') {
+    return { ok: false, reason: 'facebook_only_supports_customer_message_inject' };
+  }
   // Facebook composer selector chain. Uses the same DOM contract
   // safeInjectText targets. The actual DOM write happens in content.ts
   // via the OVERDRIVE_INJECT_TEXT / INJECT_CONTENT handler, which

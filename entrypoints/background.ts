@@ -309,6 +309,67 @@ async function upsertLocalReminder(
   });
 }
 
+function localLeadStagePatch(
+  stage: string,
+  appointment_at?: string | null,
+  lost_reason?: string | null,
+  lost_reason_detail?: string | null,
+): Record<string, any> {
+  const patch: Record<string, any> = {
+    pipeline_stage: stage,
+    sync_status: 'pending',
+    updated_at: Date.now(),
+  };
+  if (appointment_at) patch.appointment_at = appointment_at;
+  if (lost_reason) patch.lost_reason = lost_reason;
+  if (lost_reason_detail !== undefined) patch.lost_reason_detail = lost_reason_detail || null;
+  if (stage === 'lost') patch.lost_at = new Date().toISOString();
+  return patch;
+}
+
+async function queueAppointmentReminderForLead(
+  leadId: string,
+  appointment_at: string,
+  lead: Pick<LocalLead, 'customer_name' | 'vehicle_interest'> | Record<string, any>,
+): Promise<void> {
+  const appointmentMs = new Date(appointment_at).getTime();
+  if (!Number.isFinite(appointmentMs)) return;
+  const reminderMs = appointmentMs - Date.now() > 30 * 60000
+    ? appointmentMs - 30 * 60000
+    : appointmentMs;
+  const customer = cleanLeadMetaValue((lead as any).customer_name || (lead as any).customerName || (lead as any).name) || 'Customer';
+  const vehicle = cleanLeadMetaValue((lead as any).vehicle_interest || (lead as any).vehicle || '');
+  await upsertLocalReminder(
+    `Appointment: ${customer}${vehicle ? ` - ${vehicle}` : ''}`,
+    reminderMs,
+    {
+      id: `appointment:${leadId}:${appointmentMs}`,
+      source: 'appointment_set',
+      lead_id: leadId,
+      appointment_at,
+    },
+  );
+}
+
+async function updateLocalLeadStage(
+  leadId: string,
+  stage: string,
+  appointment_at?: string | null,
+  lost_reason?: string | null,
+  lost_reason_detail?: string | null,
+): Promise<LocalLead | null> {
+  const existing = await leadDb.captured_leads.get(leadId);
+  if (!existing) return null;
+  const patch = localLeadStagePatch(stage, appointment_at, lost_reason, lost_reason_detail);
+  await leadDb.captured_leads.update(leadId, patch);
+  const updated = await leadDb.captured_leads.get(leadId);
+  if (stage === 'appointment_set' && appointment_at) {
+    await queueAppointmentReminderForLead(leadId, appointment_at, updated || existing);
+  }
+  syncPendingLeads().catch((e) => console.warn('[leadSync] local stage sync failed:', e));
+  return updated || { ...existing, ...patch } as LocalLead;
+}
+
 function customerQuery(params: Record<string, any>): string {
   const qs = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -1695,6 +1756,14 @@ export default defineBackground(() => {
 
           if (!resp.ok) {
             const err = await resp.json().catch(() => ({ error: resp.statusText }));
+            const errorText = String(err.error || err.message || resp.statusText || '');
+            if (resp.status === 404 || /lead not found/i.test(errorText)) {
+              const localLead = await updateLocalLeadStage(leadId, stage, appointment_at, lost_reason, lost_reason_detail);
+              if (localLead) {
+                sendResponse({ success: true, lead: localLead, local_only: true });
+                return;
+              }
+            }
             sendResponse({ error: err.error || `HTTP ${resp.status}` });
             return;
           }
@@ -1703,24 +1772,7 @@ export default defineBackground(() => {
           const lead = data.lead || data;
 
           if (stage === 'appointment_set' && appointment_at) {
-            const appointmentMs = new Date(appointment_at).getTime();
-            if (Number.isFinite(appointmentMs)) {
-              const reminderMs = appointmentMs - Date.now() > 30 * 60000
-                ? appointmentMs - 30 * 60000
-                : appointmentMs;
-              const customer = cleanLeadMetaValue(lead.customer_name || lead.customerName || lead.name) || 'Customer';
-              const vehicle = cleanLeadMetaValue(lead.vehicle_interest || lead.vehicle || '');
-              await upsertLocalReminder(
-                `Appointment: ${customer}${vehicle ? ` - ${vehicle}` : ''}`,
-                reminderMs,
-                {
-                  id: `appointment:${leadId}:${appointmentMs}`,
-                  source: 'appointment_set',
-                  lead_id: leadId,
-                  appointment_at,
-                },
-              );
-            }
+            await queueAppointmentReminderForLead(leadId, appointment_at, lead);
           }
 
           // Update local DB if lead exists there

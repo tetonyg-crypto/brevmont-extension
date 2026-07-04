@@ -1756,13 +1756,14 @@ export default defineContentScript({
     async function injectContent(parsed: any): Promise<boolean> {
       const { action, subject } = parsed;
       const content = String(parsed.content || '');
+      const isMessageWriteAction = action === 'write_message' || action === 'write_facebook_message' || action === 'write_linkedin_message';
       if ((action === 'write_email' || PLATFORM === 'gmail') && isGmail) return injectGmailEmail(content, subject);
       if (action === 'write_email' && isKnownEmailInjectionPage()) return injectGenericEmail(content, subject);
-      if ((action === 'write_facebook_message' || PLATFORM === 'facebook') && isFacebook) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
-      if ((action === 'write_linkedin_message' || PLATFORM === 'linkedin') && isLinkedIn) { const box = findLinkedInMessageBox(); if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
-      if (PLATFORM === 'whatsapp') { const box = document.querySelector('div[contenteditable="true"][data-tab="10"]') as HTMLElement ?? document.querySelector('footer div[contenteditable="true"]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
-      if (isInstagram) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement ?? document.querySelector('textarea[placeholder]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
       if (action === 'log_crm_note' && isVinSolutions) return await pasteIntoCRM(content || '');
+      if (isMessageWriteAction && isFacebook) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
+      if (isMessageWriteAction && isLinkedIn) { const box = findLinkedInMessageBox(); if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
+      if (isMessageWriteAction && PLATFORM === 'whatsapp') { const box = document.querySelector('div[contenteditable="true"][data-tab="10"]') as HTMLElement ?? document.querySelector('footer div[contenteditable="true"]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
+      if (isMessageWriteAction && isInstagram) { const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement ?? document.querySelector('textarea[placeholder]') as HTMLElement; if (box) { if (isDuplicateInject(content)) return true; safeInjectText(box, content); return true; } }
       return false;
     }
 
@@ -2197,6 +2198,14 @@ export default defineContentScript({
             }
             if (!adapter) {
               sendResponse({ ok: false, reason: 'no_adapter_for_url' });
+              return;
+            }
+            const unsupportedKind =
+              (kind === 'text' && !adapter.capabilities.supports_inject_text) ||
+              (kind === 'email' && !adapter.capabilities.supports_inject_email) ||
+              (kind === 'crm_note' && !adapter.capabilities.supports_inject_crm_note);
+            if (unsupportedKind) {
+              sendResponse({ ok: false, reason: `${kind}_not_supported_on_${adapter.id}`, adapter: adapter.id });
               return;
             }
             const plan = await adapter.inject(text, kind);

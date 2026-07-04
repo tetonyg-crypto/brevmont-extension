@@ -311,6 +311,43 @@ test('manual Inject button uses the verified content-script bridge', () => {
   expect(content).toContain('ok: verify.verified');
 });
 
+test('CRM notes cannot inject into social chat composers', () => {
+  const sidepanel = read('entrypoints/sidepanel/main.ts');
+  const content = read('entrypoints/content.ts');
+  const facebook = read('entrypoints/lib/platforms/facebook.ts');
+  const linkedin = read('entrypoints/lib/platforms/linkedin.ts');
+
+  expect(sidepanel).toContain('On chat surfaces this must never touch the customer composer.');
+  expect(sidepanel).toContain("currentPlatform.platform === 'vinsolutions'");
+  expect(sidepanel).toContain("replace(/\\[(?:inbound|outbound|customer|rep)\\]\\s*/gi, '')");
+  expect(content).toContain('const isMessageWriteAction');
+  expect(content).toContain('const unsupportedKind =');
+  expect(content).toContain("kind === 'crm_note' && !adapter.capabilities.supports_inject_crm_note");
+  expect(content).not.toContain("(action === 'write_facebook_message' || PLATFORM === 'facebook')");
+  expect(facebook).toContain('supports_inject_crm_note: false');
+  expect(facebook).toContain("reason: 'facebook_only_supports_customer_message_inject'");
+  expect(linkedin).toContain('supports_inject_crm_note: false');
+  expect(linkedin).toContain("reason: 'linkedin_only_supports_customer_message_inject'");
+});
+
+test('lead stage updates fall back to local radar rows instead of surfacing Lead not found', () => {
+  const background = read('entrypoints/background.ts');
+  expect(background).toContain('async function updateLocalLeadStage');
+  expect(background).toContain('/lead not found/i.test(errorText)');
+  expect(background).toContain('sendResponse({ success: true, lead: localLead, local_only: true })');
+  expect(background).toContain('syncPendingLeads().catch');
+  expect(background).toContain("source: 'appointment_set'");
+});
+
+test('settings support footer has scroll room above the account chip', () => {
+  const css = read('entrypoints/lib/panelCSS.ts');
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(css).toContain('.settings-scroll { padding-bottom:var(--panel-safe-bottom); }');
+  expect(css).toContain('.settings-footer-links { border-top:1px solid #E5E7EB; margin-top:14px; padding-top:10px; padding-bottom:24px;');
+  expect(source).toContain('requestAnimationFrame(() => {');
+  expect(source).toContain('Math.max(0, card.offsetTop - 12)');
+});
+
 test('honest event platform names stay aligned with adapter surfaces', () => {
   const sidepanel = read('entrypoints/sidepanel/main.ts');
   const honest = read('entrypoints/lib/honestEvents.ts');

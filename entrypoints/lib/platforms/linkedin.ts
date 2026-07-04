@@ -16,7 +16,7 @@ import { extractVehicleHint, stableKeyFromPath } from './shared';
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
   supports_inject_email: false,
-  supports_inject_crm_note: true,
+  supports_inject_crm_note: false,
   supports_thread_history: true,
   supports_customer_extraction: true,
   surface_kind: 'social_dm',
@@ -123,6 +123,7 @@ function extractContext(): DealContext {
 }
 
 async function inject(_text: string, _kind: InjectKind): Promise<InjectResult> {
+  if (_kind !== 'text') return { ok: false, reason: 'linkedin_only_supports_customer_message_inject' };
   const box = findMessageBox();
   if (!box) return { ok: false, reason: 'no_message_box_open' };
   return {

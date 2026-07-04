@@ -242,7 +242,8 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .tool-section { display:flex; flex-direction:column; gap:8px; flex:0 0 auto; } .tool-output { padding:8px 0 var(--panel-safe-bottom); flex:1 1 auto; min-height:0; overflow-y:auto; scroll-padding-bottom:var(--panel-safe-bottom); }
 .my-leads-scroll, #o8-stats-content, .settings-scroll { flex:1 1 auto; min-height:0; height:100%; max-height:100%; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; scrollbar-gutter:stable; scroll-padding-bottom:var(--panel-safe-bottom); }
 #o8-lead-result { height:auto; max-height:none; padding:8px 14px var(--panel-safe-bottom) !important; }
-.settings-scroll, #o8-stats-content { padding-bottom:0; }
+.settings-scroll { padding-bottom:var(--panel-safe-bottom); }
+#o8-stats-content { padding-bottom:0; }
 .my-leads-scroll { padding:12px 14px var(--panel-safe-bottom); }
 #o8-going-dark-alerts { flex:0 0 auto; margin-bottom:10px; }
 #o8-my-leads-content { flex:0 0 auto; min-height:auto; height:auto; max-height:none; overflow:visible; padding:0; }
@@ -318,7 +319,7 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .settings-secondary { width:100%; margin-top:10px; border:1px solid #E5E7EB; border-radius:7px; background:#fff; color:#334155; font-family:inherit; font-size:12px; font-weight:800; padding:9px 12px; cursor:pointer; }
 .settings-secondary:hover { border-color:#B91C1C; color:#B91C1C; background:#FEF2F2; }
 .settings-back-bottom:hover { border-color:#0D6E6E; color:#0D6E6E; background:#F0FAFA; }
-.settings-footer-links { border-top:1px solid #E5E7EB; margin-top:14px; padding-top:10px; display:flex; flex-direction:column; gap:7px; }
+.settings-footer-links { border-top:1px solid #E5E7EB; margin-top:14px; padding-top:10px; padding-bottom:24px; display:flex; flex-direction:column; gap:7px; }
 .settings-footer-links a, .settings-footer-links button:not(.settings-secondary) { width:max-content; background:none; border:none; padding:0; font-size:11px; line-height:1.4; color:#0D6E6E; cursor:pointer; text-align:left; font-weight:650; font-family:inherit; text-decoration:none; }
 .settings-footer-links a { color:#6B7280; font-weight:500; }
 .settings-footer-links a:hover, .settings-footer-links button:not(.settings-secondary):hover { text-decoration:underline; }
