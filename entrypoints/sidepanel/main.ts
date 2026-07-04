@@ -1915,7 +1915,7 @@ function showPrimaryPanel(root: HTMLElement, selector: string, resetScroll = tru
   panel.style.display = 'flex';
   if (resetScroll) {
     panel.scrollTop = 0;
-    const scrollBody = panel.querySelector('.settings-scroll, #o8-my-leads-content, #o8-stats-content') as HTMLElement | null;
+    const scrollBody = panel.querySelector('.settings-scroll, #o8-my-leads-scroll, #o8-stats-content') as HTMLElement | null;
     if (scrollBody) scrollBody.scrollTop = 0;
   }
   return panel;

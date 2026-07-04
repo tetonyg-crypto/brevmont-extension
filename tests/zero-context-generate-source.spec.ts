@@ -77,11 +77,17 @@ test('Settings owns a scroll body with Overdrive mounted inside it', () => {
 
 test('sidepanel main and lead capture views scroll without clipping behind the account chip', () => {
   const css = read('entrypoints/lib/panelCSS.ts');
+  const ui = read('entrypoints/lib/panelUI.ts');
+  const source = read('entrypoints/sidepanel/main.ts');
   expect(css).toContain('.quick-mode { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; overflow-y:auto;');
   expect(css).toContain('.outputs:not(:empty) { padding:8px 14px 0; flex:0 0 auto; min-height:auto; }');
   expect(css).toContain('#o8-lead-panel { overflow-y:auto;');
   expect(css).toContain('#o8-lead-panel .tool-content { flex:0 0 auto; min-height:auto; overflow:visible; }');
   expect(css).toContain('#o8-lead-result { height:auto; max-height:none; padding-top:0; }');
+  expect(ui).toContain('id="o8-my-leads-scroll"');
+  expect(css).toContain('.my-leads-scroll { padding:12px 14px 140px; height:auto; max-height:none; }');
+  expect(css).toContain('#o8-my-leads-content { flex:0 0 auto; min-height:auto; height:auto; max-height:none; overflow:visible; padding:0; }');
+  expect(source).toContain("panel.querySelector('.settings-scroll, #o8-my-leads-scroll, #o8-stats-content')");
 });
 
 test('primary panel navigation has one Back path to the Generate view', () => {

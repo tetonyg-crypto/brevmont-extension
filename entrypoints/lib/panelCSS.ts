@@ -241,9 +241,12 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 #o8-lead-panel { overflow-y:auto; overflow-x:hidden; padding-bottom:96px; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; scrollbar-gutter:stable; }
 #o8-lead-panel .tool-content { flex:0 0 auto; min-height:auto; overflow:visible; }
 .tool-section { display:flex; flex-direction:column; gap:8px; } .tool-output { padding:8px 0; }
-#o8-my-leads-content, #o8-stats-content, .settings-scroll { flex:1 1 auto; min-height:0; height:100%; max-height:100%; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.my-leads-scroll, #o8-stats-content, .settings-scroll { flex:1 1 auto; min-height:0; height:100%; max-height:100%; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; scrollbar-gutter:stable; }
 #o8-lead-result { height:auto; max-height:none; padding-top:0; }
-.settings-scroll, #o8-my-leads-content, #o8-stats-content { padding-bottom:140px; }
+.my-leads-scroll, .settings-scroll, #o8-stats-content { padding-bottom:140px; }
+.my-leads-scroll { padding:12px 14px 140px; height:auto; max-height:none; }
+#o8-going-dark-alerts { flex:0 0 auto; margin-bottom:10px; }
+#o8-my-leads-content { flex:0 0 auto; min-height:auto; height:auto; max-height:none; overflow:visible; padding:0; }
 .tool-result { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.6; margin-top:8px; }
 .coach-chips { display:flex; flex-wrap:wrap; gap:4px; } .coach-chip { padding:4px 10px; border-radius:14px; font-size:10px; font-weight:500; font-family:inherit; border:1px solid #e2e8f0; background:#f8fafc; color:#64748b; cursor:pointer; } .coach-chip:hover { border-color:#0D6E6E; color:#0D6E6E; background:#F0EFFF; }
 .input-hint { font-size:11px; color:#9CA3AF; text-align:center; margin-top:6px; letter-spacing:0.2px; }

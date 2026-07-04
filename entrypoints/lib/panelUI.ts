@@ -198,9 +198,11 @@ export function getPanelHTML(platform: Platform): string {
 </div>
 <div id="o8-my-leads-panel" class="tools-panel" style="display:none">
   <div class="tools-header"><button id="o8-my-leads-back" class="back-btn">&larr; Back</button><span class="tools-title">My Leads</span></div>
-  <div id="o8-going-dark-alerts" class="tool-section" style="padding:12px 14px 0;display:none"></div>
-  <div id="o8-my-leads-content" class="tool-section" style="padding:12px 14px;">
-    <div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading your pipeline...</div>
+  <div id="o8-my-leads-scroll" class="my-leads-scroll">
+    <div id="o8-going-dark-alerts" class="tool-section" style="display:none"></div>
+    <div id="o8-my-leads-content" class="tool-section">
+      <div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading your pipeline...</div>
+    </div>
   </div>
 </div>
 <div id="o8-settings-panel" class="tools-panel" style="display:none">
