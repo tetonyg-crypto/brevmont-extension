@@ -20,7 +20,6 @@
  */
 
 import type { OverdriveStage } from './types';
-import { isSoloTestMode } from './safetyEnvelope';
 
 const STORAGE_KEY_PREFIX = 'overdrive_thread:';
 
@@ -120,7 +119,6 @@ export interface ShouldReplyInput {
   state: LocalThreadState;
   last_inbound_hash: string;
   now: number;
-  active_hours: { start: number; end: number; timezone?: string };
   caps: {
     per_thread_per_minute: number;
     per_thread_per_day: number;
@@ -136,7 +134,7 @@ export interface ShouldReplyResult {
 }
 
 export function shouldReply(input: ShouldReplyInput): ShouldReplyResult {
-  const { state, last_inbound_hash, now, active_hours, caps, rep_replies_today, rep_currently_typing_in_thread } = input;
+  const { state, last_inbound_hash, now, caps, rep_replies_today, rep_currently_typing_in_thread } = input;
 
   if (isTerminal(state.stage)) {
     return { should: false, reason: `terminal_stage:${state.stage}` };
@@ -144,11 +142,7 @@ export function shouldReply(input: ShouldReplyInput): ShouldReplyResult {
   if (state.paused) {
     return { should: false, reason: `thread_paused:${state.paused_reason || 'unknown'}` };
   }
-  // Solo test mode (1.16.53) — demo escape hatch. When the rep flips
-  // Solo test mode ON from the sidepanel pill, we skip the
-  // rep_actively_typing guard entirely so a single person can play
-  // both buyer and rep for a demo without standing us down.
-  if (rep_currently_typing_in_thread && !isSoloTestMode()) {
+  if (rep_currently_typing_in_thread) {
     return { should: false, reason: 'rep_actively_typing' };
   }
   if (state.last_inbound_hash === last_inbound_hash) {
@@ -166,16 +160,6 @@ export function shouldReply(input: ShouldReplyInput): ShouldReplyResult {
   if (rep_replies_today >= caps.per_rep_per_day) {
     return { should: false, reason: 'rep_daily_cap' };
   }
-  // Active hours check — inquiry stage still fires outside hours per
-  // spec (first-touch speed is the pitch); other stages queue.
-  const hour = new Date(now).getHours();
-  const inActiveWindow = active_hours.start <= active_hours.end
-    ? hour >= active_hours.start && hour < active_hours.end
-    : hour >= active_hours.start || hour < active_hours.end;
-  if (!inActiveWindow && state.stage !== 'inquiry') {
-    return { should: false, reason: `outside_active_hours:${hour}h` };
-  }
-
   return { should: true, reason: 'ok' };
 }
 

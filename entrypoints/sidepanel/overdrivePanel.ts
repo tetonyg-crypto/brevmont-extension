@@ -229,7 +229,7 @@ function renderPanelHTML(data: OverdrivePanelState['data'], currentThread: Overd
     : '';
 
   const activeStatus = enabled
-    ? `<div class="overdrive-status overdrive-status-on">Overdrive is ON · active ${data.settings?.active_hours_start ?? 7}:00 - ${data.settings?.active_hours_end ?? 22}:00</div>`
+    ? `<div class="overdrive-status overdrive-status-on">Overdrive is ON</div>`
     : `<div class="overdrive-status overdrive-status-off">Overdrive is OFF</div>`;
 
   const stepsHTML = steps

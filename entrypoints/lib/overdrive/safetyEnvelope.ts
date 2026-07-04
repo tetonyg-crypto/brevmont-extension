@@ -1,6 +1,6 @@
 /**
- * Speed + safety envelope — jitter, typing simulation, active-hours
- * checks. Called by the background worker between detection and send.
+ * Speed + safety envelope — jitter and typing simulation. Called by
+ * the background worker between detection and send.
  *
  * Spec targets (§v2 Phase 2):
  *   - Detection → sent under 15s
@@ -20,35 +20,11 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Solo test mode — demo/test escape hatch. When enabled:
- *   - shouldReply() bypasses the rep_actively_typing guard
- *   - computePreSendJitterMs() collapses to 500ms
- *   - computeTypingMs() collapses to 500ms
- *
- * Set by backgroundController on install (reads
- * chrome.storage.local.overdrive_solo_test_mode) and by the sidepanel
- * pill checkbox. Persisted in chrome.storage.local so it survives
- * service-worker restarts.
- */
-let soloTestMode = false;
-
-export function configureSoloTestMode(enabled: boolean): void {
-  soloTestMode = !!enabled;
-}
-
-export function isSoloTestMode(): boolean {
-  return soloTestMode;
-}
-
-/**
  * Compute the pre-send jitter — a random 3-10 second delay before we
  * even start typing simulation. Weighted toward 4-7s (Marketplace's
  * native auto-replies are near-instant, but reps take a beat).
- *
- * Solo test mode collapses to 500ms so a demo fires in under 2s.
  */
 export function computePreSendJitterMs(): number {
-  if (soloTestMode) return 500;
   // Triangular distribution around 5.5s with min=3, max=10.
   const u1 = Math.random();
   const u2 = Math.random();
@@ -60,11 +36,8 @@ export function computePreSendJitterMs(): number {
  * Simulate typing time proportional to message length. ~1s per 15
  * chars, capped at 8s. A human doesn't type at a constant rate, so
  * we add ±20% jitter.
- *
- * Solo test mode collapses to 500ms so a demo fires in under 2s.
  */
 export function computeTypingMs(messageText: string): number {
-  if (soloTestMode) return 500;
   const chars = String(messageText || '').length;
   const base = Math.min(8000, Math.max(1500, Math.round((chars / 15) * 1000)));
   const jitter = 1 + (Math.random() - 0.5) * 0.4; // 0.8x - 1.2x

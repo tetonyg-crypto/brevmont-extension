@@ -253,11 +253,32 @@ test('Overdrive header dot paints from the same state as the pill', () => {
   const css = read('entrypoints/lib/panelCSS.ts');
   expect(source).toContain("root.querySelector('#o8-account-btn')");
   expect(source).toContain('paintHeaderDot');
-  expect(source).toContain('Overdrive solo test mode on');
   expect(source).toContain('Overdrive on and armed');
   expect(css).toContain('.account-btn.overdrive-dot-on');
   expect(css).toContain('.account-btn.overdrive-dot-on::after');
-  expect(css).toContain('.account-btn.overdrive-dot-solo');
+  expect(css).not.toContain('.account-btn.overdrive-dot-solo');
+});
+
+test('Overdrive is rep-facing on/off only with no test-mode or active-hours copy', () => {
+  const ui = read('entrypoints/lib/panelUI.ts');
+  const source = read('entrypoints/sidepanel/main.ts');
+  const panel = read('entrypoints/sidepanel/overdrivePanel.ts');
+  const stateMachine = read('entrypoints/lib/overdrive/stateMachine.ts');
+  const background = read('entrypoints/lib/overdrive/backgroundController.ts');
+  const content = read('entrypoints/content.ts');
+  const safety = read('entrypoints/lib/overdrive/safetyEnvelope.ts');
+  expect(ui).not.toContain('Solo test mode');
+  expect(ui).not.toContain('o8-overdrive-solo-toggle');
+  expect(source).not.toContain('solo_test_mode');
+  expect(source).not.toContain('overdrive_solo_test_mode');
+  expect(background).not.toContain('overdrive_solo_test_mode');
+  expect(background).not.toContain('OVERDRIVE_SOLO_TEST_MODE');
+  expect(content).not.toContain('OVERDRIVE_SOLO_TEST_MODE');
+  expect(safety).not.toContain('soloTestMode');
+  expect(panel).toContain('Overdrive is ON</div>');
+  expect(panel).not.toContain('Overdrive is ON · active');
+  expect(stateMachine).not.toContain('outside_active_hours');
+  expect(stateMachine).not.toContain('active_hours:');
 });
 
 test('manual customer picker selection wins over auto-detection until thread changes', () => {

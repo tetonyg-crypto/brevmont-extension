@@ -103,10 +103,6 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .overdrive-pill-toggle.is-primary:hover { background:#0A5555; }
 .overdrive-pill-details { margin-top:6px; padding-left:15px; }
 .overdrive-pill-sub { color:rgba(15,20,25,0.55); font-size:10.5px; line-height:1.35; }
-.overdrive-solo-row { display:flex; align-items:flex-start; gap:6px; margin-top:5px; cursor:pointer; }
-.overdrive-solo-row input { margin-top:2px; flex-shrink:0; }
-.overdrive-solo-title { display:block; font-weight:650; color:#0F1419; font-size:11px; line-height:1.25; }
-.overdrive-solo-copy { display:block; color:rgba(15,20,25,0.55); font-size:10px; margin-top:1px; line-height:1.25; }
 .upgrade-prompt { margin-top:8px; padding:12px; background:#fef3c7; border:1px solid #fcd34d; border-radius:8px; text-align:center; }
 .upgrade-prompt .upgrade-title { font-size:12px; font-weight:700; color:#92400e; margin-bottom:4px; }
 .upgrade-prompt .upgrade-msg { font-size:11px; color:#78350f; line-height:1.4; margin-bottom:8px; }
@@ -453,13 +449,6 @@ ${domMode && isLinkedIn ? `
   animation: none;
 }
 .account-btn.overdrive-dot-on::after { background: #10B981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.16); animation: overdrive-dot-pulse 1.6s ease-in-out infinite; }
-.account-btn.overdrive-dot-solo {
-  color: transparent;
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-}
-.account-btn.overdrive-dot-solo::after { background: #F59E0B; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18); }
 .account-btn.overdrive-dot-off {
   color: transparent;
   background: transparent;

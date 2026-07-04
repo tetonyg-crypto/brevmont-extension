@@ -136,13 +136,6 @@ export function getPanelHTML(platform: Platform): string {
   </div>
   <div id="o8-overdrive-pill-details" class="overdrive-pill-details" style="display:none">
     <div id="o8-overdrive-pill-sub" class="overdrive-pill-sub">Auto-answers your Marketplace leads</div>
-    <label id="o8-overdrive-solo-row" class="overdrive-solo-row">
-      <input id="o8-overdrive-solo-toggle" type="checkbox" />
-      <span>
-        <span class="overdrive-solo-title">Solo test mode</span>
-        <span class="overdrive-solo-copy">For demos where you are both the rep and the buyer</span>
-      </span>
-    </label>
   </div>
 </div>
 <div id="o8-challenge-banner" class="challenge-banner" style="display:none"></div>

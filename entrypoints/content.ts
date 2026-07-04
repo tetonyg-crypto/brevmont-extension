@@ -19,7 +19,7 @@ import { addBreadcrumb } from '../lib/breadcrumbs';
 import { cleanCustomerNameCandidate, extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface, isChannelOrUiName, stripConversationWrapper } from './lib/leadContextScan';
 import { detectCustomerFromPage } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
-import { withInjectInFlight as overdriveWithInjectInFlight, configureSoloTestMode as overdriveConfigureSoloTestMode } from './lib/overdrive/safetyEnvelope';
+import { withInjectInFlight as overdriveWithInjectInFlight } from './lib/overdrive/safetyEnvelope';
 
 type Platform = 'vinsolutions' | 'gmail' | 'outlook' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'google-messages' | 'cargurus' | 'carsdotcom' | 'autotrader' | 'dealersocket' | 'elead' | 'unknown';
 
@@ -2009,20 +2009,6 @@ export default defineContentScript({
           }
         })();
         return true;
-      }
-
-      if (msg.type === 'OVERDRIVE_SOLO_TEST_MODE_SET') {
-        // 1.16.53: sidepanel toggle broadcasts here so the content-script
-        // safetyEnvelope module state stays in sync. Same module is
-        // shared with stateMachine.shouldReply and with the pre-send
-        // jitter / typing sim.
-        try {
-          overdriveConfigureSoloTestMode(!!msg.enabled);
-          sendResponse({ ok: true });
-        } catch (err: any) {
-          sendResponse({ ok: false, error: err?.message || 'configure_failed' });
-        }
-        return false;
       }
 
       if (msg.type === 'OVERDRIVE_SCRAPE_FB_PROFILE') {

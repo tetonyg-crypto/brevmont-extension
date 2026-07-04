@@ -7,7 +7,7 @@
  *   2. Scan the active thread for context — buyer name, listing,
  *      recent messages, last inbound text + hash
  *   3. qualifyThread() — is this Marketplace-origin?
- *   4. shouldReply() — caps, active hours, rep-typing, duplicate hash
+ *   4. shouldReply() — caps, rep-typing, duplicate hash
  *   5. requestOverdriveReply() — server generates the reply, chooses
  *      next stage, decides escalation
  *   6. Wait computePreSendJitterMs()
@@ -329,7 +329,6 @@ async function orchestrateReplyInner(
     state,
     last_inbound_hash: scrape.last_inbound_hash,
     now,
-    active_hours: { start: settings.active_hours_start, end: settings.active_hours_end },
     caps: {
       per_thread_per_minute: settings.cap_per_thread_per_minute,
       per_thread_per_day: settings.cap_per_thread_per_day,

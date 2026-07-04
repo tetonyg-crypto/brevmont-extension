@@ -2108,69 +2108,30 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
   const actionLabel = root.querySelector('#o8-overdrive-pill-action-label') as HTMLElement | null;
   const summary = root.querySelector('#o8-overdrive-pill-summary') as HTMLButtonElement | null;
   const details = root.querySelector('#o8-overdrive-pill-details') as HTMLElement | null;
-  const soloToggle = root.querySelector('#o8-overdrive-solo-toggle') as HTMLInputElement | null;
   const headerDot = root.querySelector('#o8-account-btn') as HTMLButtonElement | null;
   if (!el || !dot || !title || !sub || !btn || !actionLabel) return;
-
-  // Solo test mode — persist to chrome.storage.local and broadcast so
-  // the background service worker + safetyEnvelope pick it up. When on,
-  // shouldReply() ignores rep_actively_typing and the pre-send jitter +
-  // typing sim collapse to 500ms each so a demo fires in under 2s.
-  if (soloToggle) {
-    try {
-      const stored = await chrome.storage.local.get(['overdrive_solo_test_mode']);
-      soloToggle.checked = !!stored?.overdrive_solo_test_mode;
-    } catch { /* noop */ }
-    soloToggle.onchange = async () => {
-      const enabled = !!soloToggle.checked;
-      try {
-        await chrome.storage.local.set({ overdrive_solo_test_mode: enabled });
-      } catch { /* noop */ }
-      // Broadcast so the background controller reconfigures safetyEnvelope
-      // + any content-script instances in Facebook tabs immediately.
-      try {
-        chrome.runtime.sendMessage({
-          type: 'OVERDRIVE_SOLO_TEST_MODE_CHANGED',
-          enabled,
-        }).catch(() => {});
-      } catch { /* noop */ }
-      // Repaint immediately so the amber tint + subtitle switch reflect the toggle.
-      await loadAndPaint();
-    };
-  }
 
   const paint = (state: {
     enabled: boolean;
     dealer_enabled: boolean;
     dealer_disabled?: boolean;
     prerequisites_met: boolean;
-    hours?: string;
     hasFired?: boolean;
-    solo_test_mode?: boolean;
   }): void => {
-    const paintHeaderDot = (mode: 'on' | 'solo' | 'off' | 'setup', label: string) => {
+    const paintHeaderDot = (mode: 'on' | 'off' | 'setup', label: string) => {
       if (!headerDot) return;
-      headerDot.classList.remove('overdrive-dot-on', 'overdrive-dot-solo', 'overdrive-dot-off', 'overdrive-dot-setup');
+      headerDot.classList.remove('overdrive-dot-on', 'overdrive-dot-off', 'overdrive-dot-setup');
       headerDot.classList.add(
         mode === 'on' ? 'overdrive-dot-on'
-          : mode === 'solo' ? 'overdrive-dot-solo'
-            : mode === 'setup' ? 'overdrive-dot-setup'
-              : 'overdrive-dot-off'
+          : mode === 'setup' ? 'overdrive-dot-setup'
+            : 'overdrive-dot-off'
       );
       headerDot.title = label;
       headerDot.setAttribute('aria-label', label);
     };
     el.style.display = 'block';
-    // 1.16.53: Solo test mode gets an amber-tinted pill so it's obvious
-    // this is a demo-only state, not the normal live-floor pill. Amber
-    // (not red — red is reserved for errors).
-    if (state.solo_test_mode) {
-      el.style.background = '#FFF7ED';
-      el.style.borderBottom = '1px solid #FDBA74';
-    } else {
-      el.style.background = '#fff';
-      el.style.borderBottom = '1px solid rgba(0,0,0,0.06)';
-    }
+    el.style.background = '#fff';
+    el.style.borderBottom = '1px solid rgba(0,0,0,0.06)';
     if (state.dealer_disabled) {
       dot.style.background = '#94a3b8';
       title.textContent = 'Overdrive: off';
@@ -2193,21 +2154,17 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
     }
     btn.style.display = 'inline-flex';
     if (state.enabled) {
-      dot.style.background = state.solo_test_mode ? '#F59E0B' : '#10B981';
-      title.textContent = state.solo_test_mode
-        ? 'Overdrive: on'
-        : 'Overdrive: on';
-      sub.style.fontWeight = state.solo_test_mode ? '600' : 'normal';
-      sub.style.color = state.solo_test_mode ? '#9A3412' : 'rgba(15,20,25,0.55)';
-      sub.textContent = state.solo_test_mode
-        ? 'Solo test mode active — 500ms delays, standby off. For demos, not live floor use.'
-        : (state.hasFired
-          ? `Auto-answers your Marketplace leads${state.hours ? ` — active ${state.hours}` : ''}`
-          : 'On and waiting. It will answer the next new Marketplace inquiry automatically.');
-      actionLabel.textContent = state.solo_test_mode ? 'Solo test' : 'Turn off';
+      dot.style.background = '#10B981';
+      title.textContent = 'Overdrive: on';
+      sub.style.fontWeight = 'normal';
+      sub.style.color = 'rgba(15,20,25,0.55)';
+      sub.textContent = state.hasFired
+        ? 'Auto-answers your Marketplace leads'
+        : 'On and waiting. It will answer the next new Marketplace inquiry automatically.';
+      actionLabel.textContent = 'Turn off';
       btn.textContent = 'Turn off';
       btn.classList.remove('is-primary');
-      paintHeaderDot(state.solo_test_mode ? 'solo' : 'on', state.solo_test_mode ? 'Overdrive solo test mode on' : 'Overdrive on and armed');
+      paintHeaderDot('on', 'Overdrive on and armed');
     } else {
       dot.style.background = '#94a3b8';
       title.textContent = 'Overdrive: off';
@@ -2229,20 +2186,11 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       const enabled = !!data.settings?.enabled;
       const dealerDisabled = data.dealership_disabled === true;
       const dealerEnabled = !dealerDisabled;
-      const start = data.settings?.active_hours_start ?? 7;
-      const end = data.settings?.active_hours_end ?? 22;
-      let soloMode = false;
-      try {
-        const s = await chrome.storage.local.get(['overdrive_solo_test_mode']);
-        soloMode = !!s?.overdrive_solo_test_mode;
-      } catch { /* noop */ }
       paint({
         enabled,
         dealer_enabled: dealerEnabled,
         dealer_disabled: dealerDisabled,
         prerequisites_met: linked && disclosureAcked && hasPhoto,
-        hours: `${start}:00 – ${end}:00`,
-        solo_test_mode: soloMode,
       });
     } catch { /* keep hidden on error */ }
   };
