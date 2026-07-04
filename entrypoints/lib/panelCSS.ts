@@ -69,6 +69,10 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .inline-mic { position:absolute; right:6px; top:6px; width:28px; height:28px; border-radius:50%; border:none; background:#0D6E6E; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; }
 .inline-mic:hover { background:#0A5555; transform:scale(1.05); }
 .inline-mic.mic-active { background:#B91C1C; animation:mic-pulse 1s infinite; }
+.input-wrap input.main-input + .inline-mic { top:50%; right:6px; transform:translateY(-50%); }
+.input-wrap input.main-input + .inline-mic:hover { transform:translateY(-50%) scale(1.05); }
+.input-wrap input.main-input + .inline-mic.mic-active { animation:mic-pulse-centered 1s infinite; }
+@keyframes mic-pulse-centered { 0%,100%{transform:translateY(-50%) scale(1)} 50%{transform:translateY(-50%) scale(1.12)} }
 @keyframes mic-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.12)} }
 .gen-btn { width:100%; padding:10px; background:#0D6E6E; color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; margin-top:8px; transition:background 0.15s; }
 .gen-btn:hover { background:#0A5555; } .gen-btn:disabled { background:#94a3b8; cursor:wait; }
@@ -145,10 +149,11 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .challenge-close { border:0; background:transparent; color:#64748B; cursor:pointer; font-size:14px; line-height:1; padding:0; }
 .challenge-bar { height:7px; border-radius:999px; background:#E0F2FE; overflow:hidden; margin-top:7px; }
 .challenge-fill { height:100%; border-radius:999px; background:#0D6E6E; transition:width .2s ease; }
-.customer-stamp { margin:8px 12px 0; border:1px solid #D9E7E7; border-radius:12px; background:#F8FAFC; color:#0F1419; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,.04); }
-.customer-stamp-row { display:flex; align-items:center; gap:9px; padding:8px 9px; min-height:38px; }
-.customer-stamp-main { flex:1; min-width:0; font-size:12px; font-weight:850; color:#0F1419; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.customer-stamp-sub { font-size:10px; font-weight:600; color:#64748B; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.customer-stamp { flex:0 0 auto; margin:8px 12px 8px; border:1px solid #D9E7E7; border-radius:12px; background:#F8FAFC; color:#0F1419; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+.customer-stamp-row { display:flex; align-items:center; gap:9px; padding:8px 9px; min-height:50px; }
+.customer-stamp-copy { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:1px; }
+.customer-stamp-main { min-width:0; font-size:12px; line-height:1.15; font-weight:850; color:#0F1419; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.customer-stamp-sub { min-width:0; font-size:10px; line-height:1.25; font-weight:600; color:#64748B; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .customer-stamp-badge { width:8px; height:8px; flex:0 0 8px; border-radius:999px; background:#0D6E6E; box-shadow:0 0 0 4px rgba(13,110,110,.1); }
 .customer-stamp-actions { display:flex; gap:6px; align-items:center; }
 .customer-stamp-btn { border:1px solid #D9E7E7; border-radius:999px; background:#fff; color:#0D6E6E; padding:5px 9px; font-size:11px; line-height:1; font-weight:850; font-family:inherit; cursor:pointer; }

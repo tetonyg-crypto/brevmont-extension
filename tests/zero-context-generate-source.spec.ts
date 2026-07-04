@@ -23,9 +23,14 @@ test('manual Generate reads output chips after forced scan applies surface defau
   expect(body.indexOf("root.querySelectorAll('.chip.on')")).toBeGreaterThan(
     body.indexOf('scan = await scanThreadForGenerate(root, true)'),
   );
-  expect(body.indexOf("const type = selected.length === 3 ? 'all'")).toBeGreaterThan(
+  expect(body.indexOf("const selectedType = normalizeDefaultOutputChip")).toBeGreaterThan(
     body.indexOf("root.querySelectorAll('.chip.on')"),
   );
+  expect(body).toContain("const type = 'all'");
+  expect(body).toContain("workflow_type: 'all'");
+  expect(body).toContain('setActiveOutputTab(root, selectedReady || firstReady!)');
+  expect(body).toContain('/v1/generate records one generation.created event for the one paid request');
+  expect(body).not.toContain("selected.includes('text')");
 });
 
 test('output chips are exclusive mode selectors before generation', () => {
@@ -48,6 +53,17 @@ test('manual customer control appears only on the customer stamp, not inside the
   expect(ui).not.toContain('customer-picker-trigger');
   expect(css).not.toContain('.customer-picker-trigger');
   expect(source).not.toContain("el('o8-customer-open')");
+});
+
+test('customer stamp and reminder mic reserve enough visual space', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  const css = read('entrypoints/lib/panelCSS.ts');
+  expect(source).toContain('class="customer-stamp-copy"');
+  expect(css).toContain('.customer-stamp { flex:0 0 auto; margin:8px 12px 8px;');
+  expect(css).toContain('.customer-stamp-row { display:flex; align-items:center; gap:9px; padding:8px 9px; min-height:50px; }');
+  expect(css).toContain('.customer-stamp-copy { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:1px; }');
+  expect(css).toContain('.input-wrap input.main-input + .inline-mic { top:50%; right:6px; transform:translateY(-50%); }');
+  expect(css).toContain('@keyframes mic-pulse-centered');
 });
 
 test('output chips keep next-generate selection after output cards exist', () => {

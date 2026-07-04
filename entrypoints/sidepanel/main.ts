@@ -51,6 +51,7 @@ type Platform =
   | 'unknown';
 
 type OutputChip = 'text' | 'email' | 'crm';
+const GENERATE_OUTPUT_TYPES: OutputChip[] = ['text', 'email', 'crm'];
 type AutoThreadScanStatus = 'idle' | 'scanning' | 'ready' | 'fallback' | 'error';
 
 interface PlatformContext {
@@ -1301,7 +1302,7 @@ function renderCustomerStamp(root: HTMLElement): void {
     stamp.innerHTML = `
       <div class="customer-stamp-row">
         <span class="customer-stamp-badge"></span>
-        <div style="min-width:0;flex:1">
+        <div class="customer-stamp-copy">
           <div class="customer-stamp-main">${esc(pinnedCustomer.name)}</div>
           <div class="customer-stamp-sub">${esc(pinnedCustomer.vehicle || 'Customer context active')}</div>
         </div>
@@ -1328,7 +1329,7 @@ function renderCustomerStamp(root: HTMLElement): void {
     stamp.innerHTML = `
       <div class="customer-stamp-row">
         <span class="customer-stamp-badge"></span>
-        <div style="min-width:0;flex:1">
+        <div class="customer-stamp-copy">
           <div class="customer-stamp-main">This for ${esc(name)}?</div>
           <div class="customer-stamp-sub">${esc(vehicle || 'Confirm once, then keep working.')}</div>
         </div>
@@ -3503,10 +3504,10 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     return;
   }
   const chips = root.querySelectorAll('.chip.on');
-  const selected = Array.from(chips).map(c => c.getAttribute('data-type'));
-  if (selected.length === 0) { isGenerating = false; return; }
+  const selectedType = normalizeDefaultOutputChip(Array.from(chips)[0]?.getAttribute('data-type')) || 'text';
+  if (chips.length === 0) { isGenerating = false; return; }
 
-  const type = selected.length === 3 ? 'all' : selected.length === 1 ? selected[0]! : 'all';
+  const type = 'all';
   const btn = root.querySelector('#o8-generate') as HTMLButtonElement;
   btn.innerHTML = '<span class="gen-spinner"></span> Generating…';
   btn.disabled = true;
@@ -3551,7 +3552,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   const stamp = customerStampPayload();
 
   const _meta: Record<string, any> = {
-    workflow_type: type === 'all' ? 'all' : type,
+    workflow_type: 'all',
     customer_name: leadContext.customerName || null,
     vehicle: vehicleForGeneration,
     customer_phone: leadContext.phone || null,
@@ -3617,51 +3618,23 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     } else {
       removeStreamingOutput(root, _generationId);
       const sec = response.sections;
-      if (selected.includes('text') && sec?.text) addOutput(root, 'MESSAGE', sec.text, 'text', _generationId);
-      if (selected.includes('email') && sec?.email) addOutput(root, 'EMAIL', await contentForEmailOutput(sec.email), 'email', _generationId);
-      if (selected.includes('crm') && sec?.crm) {
+      if (sec?.text) addOutput(root, 'MESSAGE', sec.text, 'text', _generationId);
+      if (sec?.email) addOutput(root, 'EMAIL', await contentForEmailOutput(sec.email), 'email', _generationId);
+      if (sec?.crm) {
         if (sec.crm.trim() === 'NO_NEW_NOTE') showToast(root, 'Nothing new to log. Last note covers this.');
         else addOutput(root, 'CRM NOTE', sec.crm, 'crm', _generationId);
       }
       if (!sec?.text && !sec?.email && !sec?.crm) addOutput(root, 'GENERATION', response.text || 'Generation returned empty.', 'text', _generationId);
 
-      // Auto-activate first tab
-      const tabOrder: Array<'text' | 'email' | 'crm'> = ['text', 'email', 'crm'];
-      const firstReady = tabOrder.find(t => !!root.querySelector(`.out-card[data-output-type="${t}"]`));
-      if (firstReady) setActiveOutputTab(root, firstReady);
+      // Activate the draft type the rep asked to see, while still paying for one bundled generation.
+      const firstReady = GENERATE_OUTPUT_TYPES.find(t => !!root.querySelector(`.out-card[data-output-type="${t}"]`));
+      const selectedReady = root.querySelector(`.out-card[data-output-type="${selectedType}"]`) ? selectedType : null;
+      if (selectedReady || firstReady) setActiveOutputTab(root, selectedReady || firstReady!);
       await markFirstGenerationComplete(root);
       await recordSuccessfulGeneration(root);
 
-      // Honest event tracking via background
-      try {
-        const outputs: Array<{ key: string; content: string }> = [];
-        if (selected.includes('text') && sec?.text) outputs.push({ key: 'text', content: sec.text });
-        if (selected.includes('email') && sec?.email) outputs.push({ key: 'email', content: sec.email });
-        if (selected.includes('crm') && sec?.crm && sec.crm.trim() !== 'NO_NEW_NOTE') outputs.push({ key: 'crm', content: sec.crm });
-        for (const o of outputs) {
-          safeSend({
-            type: 'LOG_HONEST_EVENT',
-            payload: {
-              event_type: 'generation.created',
-              platform: normalizeEventPlatform(currentPlatform.platform),
-              output_type: o.key === 'text' ? 'text' : o.key === 'email' ? 'email' : 'crm_note',
-              generation_id: _generationId,
-              customer_context: { name: _meta.customer_name, vehicle: _meta.vehicle },
-              action_metadata: {
-                customer_id: _meta.customer_id,
-                detection_method: _meta.detection_method,
-                detection_confidence: _meta.detection_confidence,
-                vehicle_context: _meta.vehicle_context,
-                zero_context_generate: _meta.zero_context_generate,
-                adapter_id: _meta.adapter_id,
-                surface_kind: _meta.surface_kind,
-                conversation_key: _meta.conversation_key,
-              },
-              output_length: (o.content || '').length,
-            },
-          }).catch(() => {});
-        }
-      } catch {}
+      // /v1/generate records one generation.created event for the one paid request.
+      // Copy and inject events still record which specific draft the rep actually used.
 
       // Increment local usage counter for immediate UI feedback (free tier)
       chrome.storage.local.get(['brevmont_tier', 'brevmont_usage']).then(data => {
