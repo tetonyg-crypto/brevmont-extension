@@ -348,7 +348,7 @@ function normalizeEventPlatform(platform: Platform): string {
     platform === 'dealersocket' ||
     platform === 'elead'
   ) return platform;
-  if (platform === 'google-messages') return 'google_messages';
+  if (platform === 'google-messages') return 'google-messages';
   return 'unknown';
 }
 
@@ -3189,11 +3189,6 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   isGenerating = true;
 
   const input = (root.querySelector('#o8-input') as HTMLTextAreaElement)?.value.trim() || '';
-  const chips = root.querySelectorAll('.chip.on');
-  const selected = Array.from(chips).map(c => c.getAttribute('data-type'));
-  if (selected.length === 0) { isGenerating = false; return; }
-
-  const type = selected.length === 3 ? 'all' : selected.length === 1 ? selected[0]! : 'all';
   let scan = getUsableAutoThreadScan();
   if (!scan && currentPlatform.platform !== 'unknown') {
     scan = await scanThreadForGenerate(root, true);
@@ -3204,6 +3199,11 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     showToast(root, 'Type context or open a supported conversation first.');
     return;
   }
+  const chips = root.querySelectorAll('.chip.on');
+  const selected = Array.from(chips).map(c => c.getAttribute('data-type'));
+  if (selected.length === 0) { isGenerating = false; return; }
+
+  const type = selected.length === 3 ? 'all' : selected.length === 1 ? selected[0]! : 'all';
   const btn = root.querySelector('#o8-generate') as HTMLButtonElement;
   btn.innerHTML = '<span class="gen-spinner"></span> Generating…';
   btn.disabled = true;

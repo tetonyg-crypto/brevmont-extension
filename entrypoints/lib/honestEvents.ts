@@ -39,7 +39,22 @@ export type HonestEventType =
   | 'generation.regenerated'
   | 'generation.discarded';
 
-export type HonestPlatform = 'gmail' | 'messenger' | 'linkedin' | 'vinsolutions' | 'unknown';
+export type HonestPlatform =
+  | 'gmail'
+  | 'outlook'
+  | 'messenger'
+  | 'facebook'
+  | 'linkedin'
+  | 'vinsolutions'
+  | 'instagram'
+  | 'whatsapp'
+  | 'google-messages'
+  | 'cargurus'
+  | 'carsdotcom'
+  | 'autotrader'
+  | 'dealersocket'
+  | 'elead'
+  | 'unknown';
 export type HonestOutputType = 'text' | 'email' | 'crm_note';
 
 export interface HonestEventPayload {
@@ -226,8 +241,17 @@ export function detectPlatform(): HonestPlatform {
   try {
     const h = (typeof window !== 'undefined' && window.location ? window.location.hostname : '') || '';
     if (h.includes('mail.google.com')) return 'gmail';
+    if (h.includes('outlook.live.com') || h.includes('outlook.office.com') || h.includes('outlook.office365.com')) return 'outlook';
     if (h.includes('messenger.com') || h.includes('facebook.com')) return 'messenger';
     if (h.includes('linkedin.com')) return 'linkedin';
+    if (h.includes('instagram.com')) return 'instagram';
+    if (h.includes('web.whatsapp.com')) return 'whatsapp';
+    if (h.includes('messages.google.com')) return 'google-messages';
+    if (h.includes('cargurus.com')) return 'cargurus';
+    if (h.includes('cars.com')) return 'carsdotcom';
+    if (h.includes('autotrader.com')) return 'autotrader';
+    if (h.includes('dealersocket.com')) return 'dealersocket';
+    if (h.includes('elead-crm.com') || h.includes('eleadcrm.com')) return 'elead';
     if (h.includes('vinsolutions.com') || h.includes('vinmanager.com')) return 'vinsolutions';
     return 'unknown';
   } catch {
