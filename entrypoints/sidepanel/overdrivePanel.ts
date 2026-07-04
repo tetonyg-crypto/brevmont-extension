@@ -229,7 +229,7 @@ function renderPanelHTML(data: OverdrivePanelState['data'], currentThread: Overd
     : '';
 
   const activeStatus = enabled
-    ? `<div class="overdrive-status overdrive-status-on">Overdrive is ON — active hours ${data.settings?.active_hours_start ?? 7}:00 – ${data.settings?.active_hours_end ?? 22}:00</div>`
+    ? `<div class="overdrive-status overdrive-status-on">Overdrive is ON · active ${data.settings?.active_hours_start ?? 7}:00 - ${data.settings?.active_hours_end ?? 22}:00</div>`
     : `<div class="overdrive-status overdrive-status-off">Overdrive is OFF</div>`;
 
   const stepsHTML = steps
@@ -522,23 +522,23 @@ async function runPhotoUploadFlow(file: File, container: HTMLElement, reload: ()
 }
 
 const STYLES = `
-.overdrive-panel { font: 13px system-ui, -apple-system, sans-serif; padding: 16px; background: #F8F6F1; border-radius: 12px; margin: 12px 0; }
-.overdrive-header { display: flex; flex-direction: column; margin-bottom: 12px; }
-.overdrive-title { font-size: 18px; font-weight: 700; color: #0F1419; }
+.overdrive-panel { font: 13px system-ui, -apple-system, sans-serif; padding: 10px; background: #F8FAFC; border: 1px solid #E5E7EB; border-radius: 8px; margin: 8px 0 12px; }
+.overdrive-header { display: flex; flex-direction: column; margin-bottom: 8px; }
+.overdrive-title { font-size: 13px; font-weight: 850; color: #0F1419; }
 .overdrive-subtitle { font-size: 12px; color: rgba(15,20,25,0.55); margin-top: 2px; }
 .overdrive-banner { background: #FEE2E2; color: #7F1D1D; padding: 10px; border-radius: 8px; font-size: 12px; margin-bottom: 10px; }
-.overdrive-status { padding: 8px 12px; border-radius: 8px; font-weight: 600; font-size: 12px; margin-bottom: 12px; }
+.overdrive-status { padding: 7px 9px; border-radius: 7px; font-weight: 700; font-size: 11px; margin-bottom: 8px; }
 .overdrive-status-on { background: #DCFCE7; color: #14532D; }
 .overdrive-status-off { background: #E5E7EB; color: #374151; }
 .overdrive-linked { font-size: 12px; color: rgba(15,20,25,0.65); margin-bottom: 12px; }
 .overdrive-linked a { color: #B91C1C; text-decoration: underline; }
-.overdrive-steps { display: flex; flex-direction: column; gap: 8px; }
-.overdrive-step { display: flex; align-items: center; gap: 10px; padding: 8px; background: white; border-radius: 8px; }
+.overdrive-steps { display: flex; flex-direction: column; gap: 6px; }
+.overdrive-step { display: flex; align-items: center; gap: 8px; padding: 7px; background: white; border-radius: 7px; }
 .overdrive-step-check { width: 20px; text-align: center; color: rgba(15,20,25,0.4); }
 .overdrive-step.done .overdrive-step-check { color: #14532D; font-weight: 700; }
 .overdrive-step.current .overdrive-step-check { color: #0D6E6E; }
 .overdrive-step.done .overdrive-step-label { color: rgba(15,20,25,0.4); text-decoration: line-through; }
-.overdrive-btn { margin-left: auto; padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; }
+.overdrive-btn { margin-left: auto; padding: 6px 10px; border-radius: 6px; border: none; cursor: pointer; font-size: 11px; font-weight: 700; }
 .overdrive-btn-primary { background: #0D6E6E; color: white; }
 .overdrive-btn-secondary { background: #E5E7EB; color: #0F1419; }
 .overdrive-toggle-row { margin-top: 12px; text-align: right; }

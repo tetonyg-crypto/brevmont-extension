@@ -838,6 +838,15 @@ function normalizeDefaultOutputChip(value: unknown): OutputChip | null {
   return null;
 }
 
+function selectOutputChip(root: HTMLElement, type: unknown): OutputChip | null {
+  const selected = normalizeDefaultOutputChip(type);
+  if (!selected) return null;
+  root.querySelectorAll<HTMLButtonElement>('.chip').forEach((chip) => {
+    chip.classList.toggle('on', chip.dataset.type === selected);
+  });
+  return selected;
+}
+
 function stripThreadDecorators(value: unknown): string {
   return stripMarkdownText(value)
     .replace(/^\[(?:inbound|outbound|unknown)\]\s*/i, '')
@@ -953,9 +962,7 @@ function getUsableAutoThreadScan(): AutoThreadScan | null {
 function applyDefaultOutputFromScan(root: HTMLElement, scan: AutoThreadScan): void {
   if (outputSelectionTouched || !scan.defaultOutput) return;
   if (root.querySelectorAll('.out-card').length > 0) return;
-  root.querySelectorAll<HTMLButtonElement>('.chip').forEach((chip) => {
-    chip.classList.toggle('on', chip.dataset.type === scan.defaultOutput);
-  });
+  selectOutputChip(root, scan.defaultOutput);
 }
 
 function renderAutoThreadScan(root: HTMLElement): void {
@@ -1435,6 +1442,11 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
   const isSamePinned = currentName && currentName === detectedName;
 
   if (isSamePinned) return;
+  if (isManualCustomerOverride(pinnedCustomer)) {
+    pendingCustomerSuggestion = null;
+    renderCustomerStamp(root);
+    return;
+  }
 
   if (confidence >= 0.8) {
     const resolved = await resolveCustomerForDetection(ctx);
@@ -1993,9 +2005,12 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
   const title = root.querySelector('#o8-overdrive-pill-title') as HTMLElement | null;
   const sub = root.querySelector('#o8-overdrive-pill-sub') as HTMLElement | null;
   const btn = root.querySelector('#o8-overdrive-pill-toggle') as HTMLButtonElement | null;
+  const actionLabel = root.querySelector('#o8-overdrive-pill-action-label') as HTMLElement | null;
+  const summary = root.querySelector('#o8-overdrive-pill-summary') as HTMLButtonElement | null;
+  const details = root.querySelector('#o8-overdrive-pill-details') as HTMLElement | null;
   const soloToggle = root.querySelector('#o8-overdrive-solo-toggle') as HTMLInputElement | null;
   const headerDot = root.querySelector('#o8-account-btn') as HTMLButtonElement | null;
-  if (!el || !dot || !title || !sub || !btn) return;
+  if (!el || !dot || !title || !sub || !btn || !actionLabel) return;
 
   // Solo test mode — persist to chrome.storage.local and broadcast so
   // the background service worker + safetyEnvelope pick it up. When on,
@@ -2059,9 +2074,10 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       dot.style.background = '#94a3b8';
       title.textContent = 'Overdrive: setup needed';
       sub.textContent = 'Link Facebook + acknowledge disclosure in Settings';
-      btn.textContent = 'Open Settings';
-      btn.style.background = '#F3F4F6';
-      btn.style.color = '#0F1419';
+      actionLabel.textContent = 'Open Settings';
+      btn.textContent = 'Open';
+      btn.style.display = 'inline-flex';
+      btn.classList.remove('is-primary');
       paintHeaderDot('setup', 'Overdrive setup needed');
       return;
     }
@@ -2069,15 +2085,16 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       dot.style.background = '#F59E0B';
       title.textContent = 'Overdrive: off (dealership)';
       sub.textContent = 'Your GM has Overdrive disabled at the store';
+      actionLabel.textContent = 'Disabled';
       btn.style.display = 'none';
       paintHeaderDot('off', 'Overdrive off at dealership');
       return;
     }
-    btn.style.display = 'inline-block';
+    btn.style.display = 'inline-flex';
     if (state.enabled) {
       dot.style.background = state.solo_test_mode ? '#F59E0B' : '#10B981';
       title.textContent = state.solo_test_mode
-        ? 'Overdrive: on · Solo test mode'
+        ? 'Overdrive: on'
         : 'Overdrive: on';
       sub.style.fontWeight = state.solo_test_mode ? '600' : 'normal';
       sub.style.color = state.solo_test_mode ? '#9A3412' : 'rgba(15,20,25,0.55)';
@@ -2086,17 +2103,17 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
         : (state.hasFired
           ? `Auto-answers your Marketplace leads${state.hours ? ` — active ${state.hours}` : ''}`
           : 'On and waiting. It will answer the next new Marketplace inquiry automatically.');
+      actionLabel.textContent = state.solo_test_mode ? 'Solo test' : 'Turn off';
       btn.textContent = 'Turn off';
-      btn.style.background = '#F3F4F6';
-      btn.style.color = '#0F1419';
+      btn.classList.remove('is-primary');
       paintHeaderDot(state.solo_test_mode ? 'solo' : 'on', state.solo_test_mode ? 'Overdrive solo test mode on' : 'Overdrive on and armed');
     } else {
       dot.style.background = '#94a3b8';
       title.textContent = 'Overdrive: off';
       sub.textContent = 'Auto-answers your Marketplace leads';
+      actionLabel.textContent = 'Turn on';
       btn.textContent = 'Turn on';
-      btn.style.background = '#0D6E6E';
-      btn.style.color = '#fff';
+      btn.classList.add('is-primary');
       paintHeaderDot('off', 'Overdrive off');
     }
   };
@@ -2129,19 +2146,27 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
 
   await loadAndPaint();
 
+  if (summary && details) {
+    summary.onclick = () => {
+      details.style.display = details.style.display === 'none' || !details.style.display ? 'block' : 'none';
+    };
+  }
+
   // Toggle handler. Confirm before flipping OFF so a stray tap doesn't
   // kill autopilot mid-shift; frictionless ON.
   btn.onclick = async () => {
     try {
       // If prerequisites missing, deep-link to the Overdrive setup panel
-      if (btn.textContent === 'Open Settings') {
+      if (btn.textContent === 'Open') {
         const settingsPanel = root.querySelector('#o8-settings-panel') as HTMLElement | null;
         hidePrimaryPanels(root);
         const quick = root.querySelector('#o8-quick') as HTMLElement | null;
         if (quick) quick.style.display = 'none';
         if (settingsPanel) {
           settingsPanel.style.display = 'flex';
-          settingsPanel.querySelector('#overdrive-panel-mount')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          window.setTimeout(() => {
+            settingsPanel.querySelector('#overdrive-panel-mount')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          }, 80);
         }
         return;
       }
@@ -2683,7 +2708,7 @@ function loadAccountInfo(root: HTMLElement): void {
   chrome.runtime.sendMessage({ type: 'GET_SYNC_QUEUE_COUNT' }).then((r: any) => {
     const count = typeof r?.count === 'number' ? r.count : 0;
     const row = root.querySelector('#sp-queue-row') as HTMLElement;
-    if (row) { row.style.display = count > 0 ? 'block' : 'none'; }
+    if (row) { row.style.display = count > 0 ? 'flex' : 'none'; }
     setText('sp-queue-count', String(count));
   }).catch(() => {});
 
@@ -2762,11 +2787,13 @@ function wireHandlers(root: HTMLElement): void {
     c.addEventListener('click', () => {
       outputSelectionTouched = true;
       const clickedChip = c as HTMLElement;
-      const hasCards = root.querySelectorAll('.out-card').length > 0;
-      if (hasCards) {
-        setActiveOutputTab(root, clickedChip.getAttribute('data-type') || '');
+      const selectedType = selectOutputChip(root, clickedChip.getAttribute('data-type') || '');
+      if (!selectedType) return;
+      const hasMatchingCard = !!root.querySelector(`.out-card[data-output-type="${selectedType}"]`);
+      if (hasMatchingCard) {
+        setActiveOutputTab(root, selectedType);
       } else {
-        root.querySelectorAll('.chip').forEach((chip) => chip.classList.toggle('on', chip === clickedChip));
+        root.querySelectorAll('.chip.tab-active').forEach((chip) => chip.classList.remove('tab-active'));
       }
     });
   });
@@ -2785,10 +2812,8 @@ function wireHandlers(root: HTMLElement): void {
       const settingsPanelForDot = el('o8-settings-panel');
       if (settingsPanelForDot) {
         settingsPanelForDot.style.display = 'flex';
-        window.setTimeout(() => {
-          const mount = settingsPanelForDot.querySelector('#overdrive-panel-mount') as HTMLElement | null;
-          mount?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-        }, 80);
+        const scrollBody = settingsPanelForDot.querySelector('#o8-settings-scroll') as HTMLElement | null;
+        if (scrollBody) scrollBody.scrollTop = 0;
       }
     };
   }
@@ -2860,7 +2885,11 @@ function wireHandlers(root: HTMLElement): void {
       const stats = el('o8-stats-panel'); if (stats) stats.style.display = 'none';
       const lead = el('o8-lead-panel'); if (lead) lead.style.display = 'none';
       const myLeads = el('o8-my-leads-panel'); if (myLeads) myLeads.style.display = 'none';
-      if (settingsPanel) settingsPanel.style.display = 'flex';
+      if (settingsPanel) {
+        settingsPanel.style.display = 'flex';
+        const scrollBody = settingsPanel.querySelector('#o8-settings-scroll') as HTMLElement | null;
+        if (scrollBody) scrollBody.scrollTop = 0;
+      }
     };
   }
 
@@ -2886,10 +2915,15 @@ function wireHandlers(root: HTMLElement): void {
   });
 
   // ─── Account info (migrated from popup) ─────────────────────────────────────
+  loadAccountInfo(root);
   loadRepPreferences(root);
   const saveSettingsBtn = root.querySelector('#sp-save-settings') as HTMLButtonElement | null;
   if (saveSettingsBtn) {
     saveSettingsBtn.onclick = () => { void saveRepPreferences(root); };
+  }
+  const settingsSignOutBtn = root.querySelector('#sp-settings-sign-out') as HTMLButtonElement | null;
+  if (settingsSignOutBtn) {
+    settingsSignOutBtn.onclick = () => { void performSignOut(); };
   }
   const reportBtn = root.querySelector('#sp-link-report') as HTMLButtonElement;
   if (reportBtn) {
@@ -3014,6 +3048,15 @@ function wireHandlers(root: HTMLElement): void {
   const cmdMic = el('o8-cmd-mic');
   const cmdInput = el('o8-cmd-input') as HTMLTextAreaElement | null;
   if (cmdMic && cmdInput) attachMic(cmdInput, cmdMic);
+  if (cmdInput) {
+    cmdInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        void doCommand(root);
+      }
+    });
+  }
 
   // Lead capture panel
   wireLeadCapture(root);

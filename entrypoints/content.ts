@@ -16,7 +16,7 @@
 import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
-import { extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface, isChannelOrUiName } from './lib/leadContextScan';
+import { extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface, isChannelOrUiName, stripConversationWrapper } from './lib/leadContextScan';
 import { detectCustomerFromPage } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 import { withInjectInFlight as overdriveWithInjectInFlight, configureSoloTestMode as overdriveConfigureSoloTestMode } from './lib/overdrive/safetyEnvelope';
@@ -251,7 +251,7 @@ export default defineContentScript({
     }
 
     function cleanFacebookNameCandidate(value: string | null | undefined, options: { allowSingleName?: boolean } = {}): string | null {
-      const cleaned = String(value || '')
+      const cleaned = stripConversationWrapper(value || '')
         .replace(/\(\d+\)\s*/g, '')
         .replace(/\s+\|\s+(?:Messenger|Facebook).*$/i, '')
         .replace(/\s+-\s+(?:Messenger|Facebook).*$/i, '')
@@ -275,8 +275,8 @@ export default defineContentScript({
 
       for (const el of Array.from(document.querySelectorAll('[aria-label]'))) {
         const label = el.getAttribute('aria-label') || '';
-        const match = label.match(/(?:Conversation with|Profile picture of|Open profile for|Message)\s+([^,|]+)/i);
-        const candidate = cleanFacebookNameCandidate(match?.[1] || null, { allowSingleName: true });
+        const match = label.match(/(?:Conversation\s+\w+|Profile picture of|Open profile for|Message)\s+([^,|]+)/i);
+        const candidate = cleanFacebookNameCandidate(match?.[1] || label, { allowSingleName: true });
         if (candidate) return candidate;
       }
 
@@ -2021,12 +2021,12 @@ export default defineContentScript({
             // The AI turns any non-null customer_name into "Hi <name>",
             // which is worse than "Hi there." Reject known bad names
             // here so nothing downstream has to remember to check.
-            const pickCleanName = (...candidates: (string | null | undefined)[]): string | null => {
-              for (const c of candidates) {
-                const trimmed = (c || '').trim();
-                if (!trimmed) continue;
-                if (isChannelOrUiName(trimmed)) continue;
-                return trimmed;
+	            const pickCleanName = (...candidates: (string | null | undefined)[]): string | null => {
+	              for (const c of candidates) {
+	                const trimmed = stripConversationWrapper(c || '');
+	                if (!trimmed) continue;
+	                if (isChannelOrUiName(trimmed)) continue;
+	                return trimmed;
               }
               return null;
             };
@@ -2204,7 +2204,7 @@ export default defineContentScript({
           if (isFacebook) {
             const main = document.querySelector('[role="main"]') as HTMLElement | null;
             const facebookName = extractFacebookConversationName() || safeExtractContactName();
-            const authorText = Array.from(document.querySelectorAll('[role="main"] h1, [role="main"] h2, [role="main"] strong, [aria-label*="Profile picture of"], [aria-label*="Conversation with"]'))
+            const authorText = Array.from(document.querySelectorAll('[role="main"] h1, [role="main"] h2, [role="main"] strong, [aria-label*="Profile picture of"], [aria-label^="Conversation" i]'))
               .map((el) => {
                 const label = el.getAttribute('aria-label') || '';
                 return [label, (el as HTMLElement).innerText || el.textContent || ''].filter(Boolean).join(' ');

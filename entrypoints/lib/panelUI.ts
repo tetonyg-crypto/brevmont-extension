@@ -48,6 +48,15 @@ function getBadge(platform: Platform) {
 
 function getSettingsHTML(): string {
   return `<div class="settings-section">
+    <div class="settings-kicker">Profile</div>
+    <div class="settings-card settings-account-card">
+      <div class="settings-account-row"><span>Name</span><strong id="sp-rep-name">Loading...</strong></div>
+      <div class="settings-account-row"><span>Dealership</span><strong id="sp-dealership">Loading...</strong></div>
+      <div class="settings-account-row"><span>Plan</span><strong id="sp-license">Loading...</strong></div>
+      <div class="settings-account-row"><span>Version</span><strong id="sp-version">Loading...</strong></div>
+      <div id="sp-queue-row" class="settings-account-row" style="display:none"><span>Queue</span><strong id="sp-queue-count">0</strong></div>
+      <div class="settings-account-status"><span id="sp-status-dot"></span><span id="sp-status-text">Checking account</span></div>
+    </div>
     <div style="font-size:12px;color:#6B7280;line-height:1.5;margin-bottom:4px;">Controls how Brevmont writes for you. Changes apply to your next follow-up.</div>
     <div class="settings-label">Your name</div>
     <input id="sp-rep-first-name" class="settings-input" type="text" placeholder="First name" autocomplete="given-name" />
@@ -57,6 +66,18 @@ function getSettingsHTML(): string {
     <div class="settings-options"><label><input type="radio" name="brevmont-goal" value="close_deal" checked> Close the deal<span class="goal-desc">Ask for the sale, push for commitment</span></label><label><input type="radio" name="brevmont-goal" value="book_appointment"> Book appointment<span class="goal-desc">Get them on the lot or on a call</span></label><label><input type="radio" name="brevmont-goal" value="gather_info"> Gather info<span class="goal-desc">Learn what they need before pitching</span></label><label><input type="radio" name="brevmont-goal" value="nurture"> Nurture long-term<span class="goal-desc">Stay top of mind, no pressure</span></label></div>
     <button id="sp-save-settings" class="settings-save" type="button">Save preferences</button>
     <span id="sp-settings-saved" class="settings-saved">Saved</span>
+    <div class="settings-card settings-note-card">
+      <div class="settings-note-title">Voice learning</div>
+      <div class="settings-note-copy">Brevmont keeps your tone and dealership rules attached to every follow-up.</div>
+    </div>
+    <div class="settings-card settings-note-card">
+      <div class="settings-note-title">Disclosure</div>
+      <div class="settings-note-copy">Overdrive only reads supported customer conversations and logs autonomous activity to the manager view.</div>
+    </div>
+    <button id="sp-settings-sign-out" class="settings-secondary" type="button">Sign out</button>
+    <div class="settings-divider"></div>
+    <div class="settings-kicker">Overdrive</div>
+    <div id="overdrive-panel-mount"></div>
     <div style="border-top:1px solid #E5E7EB;margin-top:14px;padding-top:10px;display:flex;flex-direction:column;gap:6px">
       <a id="sp-link-changelog" href="https://app.brevmont.com/changelog" target="_blank" rel="noopener" style="font-size:11px;color:#6B7280;text-decoration:none">Changelog</a>
       <button id="sp-link-help" style="background:none;border:none;padding:0;font-size:11px;color:#0D6E6E;cursor:pointer;text-align:left;font-weight:500;font-family:inherit">Get help</button>
@@ -76,7 +97,7 @@ export function getPanelHTML(platform: Platform): string {
   <span class="version-badge" id="o8-version-badge"></span>
   <span style="flex:1"></span>
   ${badge.label ? `<span id="o8-platform-badge" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;color:${badge.color};background:${badge.bg}">${esc(badge.label)}</span>` : '<span id="o8-platform-badge" style="display:none"></span>'}
-  <button id="o8-account-btn" class="account-btn overdrive-dot-off" type="button" title="Overdrive off" aria-label="Overdrive status">•</button>
+  <button id="o8-account-btn" class="account-btn overdrive-dot-off" type="button" title="Open settings" aria-label="Open settings">•</button>
   <button id="o8-lead-btn" class="lead-btn">+ Lead</button>
   <span id="o8-close" class="close">&times;</span>
 </div>
@@ -93,21 +114,25 @@ export function getPanelHTML(platform: Platform): string {
      one-tap toggle. renderOverdriveStatusPill() in main.ts drives the
      visible text + toggle handler. -->
 <div id="o8-overdrive-pill" class="overdrive-pill" style="display:none;padding:8px 12px;font-size:11px;background:#fff;border-bottom:1px solid rgba(0,0,0,0.06);">
-  <div style="display:flex;align-items:center;gap:8px;">
+  <div class="overdrive-pill-row">
     <span id="o8-overdrive-pill-dot" style="width:8px;height:8px;border-radius:50%;background:#94a3b8;flex-shrink:0;"></span>
-    <div style="flex:1;min-width:0;line-height:1.35;">
-      <div id="o8-overdrive-pill-title" style="font-weight:700;color:#0F1419;font-size:12px;">Overdrive: off</div>
-      <div id="o8-overdrive-pill-sub" style="color:rgba(15,20,25,0.55);font-size:10.5px;margin-top:1px;">Auto-answers your Marketplace leads</div>
-    </div>
-    <button id="o8-overdrive-pill-toggle" type="button" style="background:#0D6E6E;color:#fff;border:0;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;">Turn on</button>
+    <button id="o8-overdrive-pill-summary" class="overdrive-pill-summary" type="button">
+      <span id="o8-overdrive-pill-title">Overdrive: off</span>
+      <span class="overdrive-pill-dot-sep">·</span>
+      <span id="o8-overdrive-pill-action-label">Turn on</span>
+    </button>
+    <button id="o8-overdrive-pill-toggle" type="button" class="overdrive-pill-toggle">Turn on</button>
   </div>
-  <label id="o8-overdrive-solo-row" style="display:flex;align-items:flex-start;gap:6px;margin-top:6px;padding-left:16px;cursor:pointer;">
-    <input id="o8-overdrive-solo-toggle" type="checkbox" style="margin-top:2px;flex-shrink:0;" />
-    <span style="line-height:1.3;">
-      <span style="font-weight:600;color:#0F1419;font-size:11px;">Solo test mode</span>
-      <span style="display:block;color:rgba(15,20,25,0.55);font-size:10px;margin-top:1px;">For demos where you are both the rep and the buyer</span>
-    </span>
-  </label>
+  <div id="o8-overdrive-pill-details" class="overdrive-pill-details" style="display:none">
+    <div id="o8-overdrive-pill-sub" class="overdrive-pill-sub">Auto-answers your Marketplace leads</div>
+    <label id="o8-overdrive-solo-row" class="overdrive-solo-row">
+      <input id="o8-overdrive-solo-toggle" type="checkbox" />
+      <span>
+        <span class="overdrive-solo-title">Solo test mode</span>
+        <span class="overdrive-solo-copy">For demos where you are both the rep and the buyer</span>
+      </span>
+    </label>
+  </div>
 </div>
 <div id="o8-challenge-banner" class="challenge-banner" style="display:none"></div>
 <div id="o8-customer-stamp" class="customer-stamp" style="display:none"></div>
@@ -181,7 +206,6 @@ export function getPanelHTML(platform: Platform): string {
 <div id="o8-settings-panel" class="tools-panel" style="display:none">
   <div class="tools-header"><button id="o8-settings-back" class="back-btn">&larr; Back</button><span class="tools-title">Settings</span></div>
   <div id="o8-settings-scroll" class="settings-scroll">
-    <div id="overdrive-panel-mount"></div>
     ${getSettingsHTML()}
   </div>
 </div>

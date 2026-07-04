@@ -32,10 +32,21 @@ test('output chips are exclusive mode selectors before generation', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   const ui = read('entrypoints/lib/panelUI.ts');
   expect(source).not.toContain("c.classList.toggle('on')");
-  expect(source).toContain("chip.classList.toggle('on', chip === clickedChip)");
+  expect(source).toContain('function selectOutputChip');
+  expect(source).toContain('const selectedType = selectOutputChip(root');
+  expect(source).toContain('setActiveOutputTab(root, selectedType)');
   expect(ui).toContain('<button class="chip on" data-type="text">Message</button>');
   expect(ui).toContain('<button class="chip" data-type="email">Email</button>');
   expect(ui).toContain('<button class="chip" data-type="crm">CRM Note</button>');
+});
+
+test('output chips keep next-generate selection after output cards exist', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  const start = source.indexOf('// Output chips');
+  const chipHandler = source.slice(start, source.indexOf('// Generate button', start));
+  expect(chipHandler).toContain('const selectedType = selectOutputChip(root');
+  expect(chipHandler).toContain('const hasMatchingCard');
+  expect(chipHandler).not.toContain('const hasCards');
 });
 
 test('Screenshot Reply is folded out of the visible tools UI', () => {
@@ -54,9 +65,12 @@ test('Settings owns a scroll body with Overdrive mounted inside it', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   expect(ui).toContain('id="o8-settings-scroll"');
   expect(ui).toContain('id="overdrive-panel-mount"');
+  expect(ui.indexOf('id="sp-rep-first-name"')).toBeLessThan(ui.indexOf('id="overdrive-panel-mount"'));
+  expect(ui).toContain('id="sp-settings-sign-out"');
   expect(css).toContain('.settings-scroll');
   expect(source).toContain("settingsPanel.querySelector('#overdrive-panel-mount')");
   expect(source).toContain("settingsPanelForDot.style.display = 'flex'");
+  expect(source).toContain('scrollBody.scrollTop = 0');
 });
 
 test('sign-out blocks cookie-only re-adoption until app bridge handoff', () => {
@@ -89,7 +103,25 @@ test('Overdrive header dot paints from the same state as the pill', () => {
   expect(source).toContain('Overdrive solo test mode on');
   expect(source).toContain('Overdrive on and armed');
   expect(css).toContain('.account-btn.overdrive-dot-on');
+  expect(css).toContain('.account-btn.overdrive-dot-on::after');
   expect(css).toContain('.account-btn.overdrive-dot-solo');
+});
+
+test('manual customer picker selection wins over auto-detection until thread changes', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  const start = source.indexOf('async function refreshCustomerDetection');
+  const body = source.slice(start, source.indexOf('function startCustomerDetection', start));
+  expect(body).toContain('if (isManualCustomerOverride(pinnedCustomer))');
+  expect(body.indexOf('if (isManualCustomerOverride(pinnedCustomer))')).toBeLessThan(body.indexOf('if (confidence >= 0.8)'));
+});
+
+test('Ask Anything input handles Enter locally without falling into Generate', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  const start = source.indexOf('const cmdInput = el');
+  const commandWire = source.slice(start, source.indexOf('// Lead capture panel', start));
+  expect(commandWire).toContain('e.stopPropagation()');
+  expect(commandWire).toContain('void doCommand(root)');
+  expect(commandWire).not.toContain('doGenerate(root)');
 });
 
 test('honest event platform names stay aligned with adapter surfaces', () => {

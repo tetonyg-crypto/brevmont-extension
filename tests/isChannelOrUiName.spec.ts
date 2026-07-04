@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { isChannelOrUiName } from '../entrypoints/lib/leadContextScan';
+import { isChannelOrUiName, stripConversationWrapper } from '../entrypoints/lib/leadContextScan';
 
 /**
  * Regression tests for the customer-name UI-label gate.
@@ -21,6 +21,7 @@ test.describe('isChannelOrUiName — regression coverage', () => {
   test('blocks the 2026-07-03 Cardog regression inputs', () => {
     expect(isChannelOrUiName('Conversation titled Cardog')).toBe(true);
     expect(isChannelOrUiName('conversation titled cardog')).toBe(true);
+    expect(isChannelOrUiName('Conversation details Seth')).toBe(true);
     expect(isChannelOrUiName('Actions')).toBe(true);
     expect(isChannelOrUiName('actions')).toBe(true);
     expect(isChannelOrUiName('Chat with Cardog')).toBe(true);
@@ -97,5 +98,13 @@ test.describe('isChannelOrUiName — regression coverage', () => {
     expect(isChannelOrUiName('Mike')).toBe(false);
     // Case sensitivity check — 'CARDOG' should also pass (it's a name, not a label)
     expect(isChannelOrUiName('CARDOG')).toBe(false);
+  });
+
+  test('peels Facebook conversation wrapper families before name picking', () => {
+    expect(stripConversationWrapper('Conversation titled Cardog')).toBe('Cardog');
+    expect(stripConversationWrapper('Conversation details Seth')).toBe('Seth');
+    expect(stripConversationWrapper('Conversation info Nora T.')).toBe('Nora T.');
+    expect(stripConversationWrapper('Chat with Yancy Garcia')).toBe('Yancy Garcia');
+    expect(stripConversationWrapper('Cardog')).toBe('Cardog');
   });
 });

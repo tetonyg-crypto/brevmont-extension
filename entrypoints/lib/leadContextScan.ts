@@ -54,10 +54,31 @@ export function isChannelOrUiName(value: unknown): boolean {
   // display name. "Conversation titled X" is the raw h1; "Chat with X"
   // is a common aria-label variant; "X started this chat" appears in
   // the thread body as a system message.
+  if (/^conversation\s+\w+\s+\S+/i.test(raw)) return true;
   if (/^conversation\s+titled\b/i.test(raw)) return true;
+  if (/^conversation\s+\w+$/i.test(raw)) return true;
   if (/^chat\s+with\b/i.test(raw)) return true;
   if (/\bstarted\s+this\s+chat\b/i.test(raw)) return true;
   return false;
+}
+
+export function stripConversationWrapper(value: unknown): string {
+  const raw = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return raw;
+  const patterns = [
+    /^conversation\s+\w+\s+(.+)$/i,
+    /^chat\s+with\s+(.+)$/i,
+    /^message\s+(.+)$/i,
+    /^profile\s+picture\s+of\s+(.+)$/i,
+    /^open\s+profile\s+for\s+(.+)$/i,
+    /^started\s+this\s+chat\s+with\s+(.+)$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    const inner = match?.[1]?.trim();
+    if (inner) return inner;
+  }
+  return raw;
 }
 
 function isPoisoned(text: string, mi: number, ml: number): boolean {
@@ -421,23 +442,21 @@ export function extractContactName(platform: string): string | null {
     // the top. Prefer aria-label paths that explicitly name a person.
     const labelled = Array.from(document.querySelectorAll('[aria-label]')).find(el => {
       const label = el.getAttribute('aria-label') || '';
-      return /^(?:Message|Conversation with|Profile picture of|Open profile for)\s+/i.test(label);
+      return /^(?:Message|Conversation\s+\w+|Profile picture of|Open profile for)\s+/i.test(label);
     });
     if (labelled) {
       const label = labelled.getAttribute('aria-label') || '';
-      const cleaned = label
-        .replace(/^(?:Message|Conversation with|Profile picture of|Open profile for)\s+/i, '')
+      const cleaned = stripConversationWrapper(label)
         .replace(/\s+(?:profile|conversation)$/i, '')
         .trim();
       if (cleaned && cleaned.length > 1 && cleaned.length < 50 && !cleaned.includes('@') && !isChannelOrUiName(cleaned)) {
         return cleaned;
       }
     }
-    const convoHeader = document.querySelector('[aria-label*="Conversation with"]');
+    const convoHeader = document.querySelector('[aria-label^="Conversation" i]');
     if (convoHeader) {
       const label = convoHeader.getAttribute('aria-label') || '';
-      const match = label.match(/Conversation with (.+)/i);
-      const candidate = match?.[1]?.trim();
+      const candidate = stripConversationWrapper(label);
       if (candidate && candidate.length > 1 && !isChannelOrUiName(candidate)) return candidate;
     }
     // Try Marketplace-specific "<Buyer> · <Listing>" pattern near the top
@@ -446,7 +465,7 @@ export function extractContactName(platform: string): string | null {
     if (marketplaceHeader) {
       const raw = ((marketplaceHeader as HTMLElement).innerText || marketplaceHeader.textContent || '').trim();
       // Split on · (middle dot), • (bullet), or - to grab the name half.
-      const firstSegment = raw.split(/\s*[·•·•-]\s*/)[0]?.trim() || raw;
+      const firstSegment = stripConversationWrapper(raw.split(/\s*[·•·•-]\s*/)[0]?.trim() || raw);
       if (
         firstSegment &&
         firstSegment.length > 1 &&

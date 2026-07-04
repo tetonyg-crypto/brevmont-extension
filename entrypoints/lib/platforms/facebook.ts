@@ -18,6 +18,7 @@ import type {
   ThreadContext,
 } from './types';
 import { extractVehicleHint } from './shared';
+import { stripConversationWrapper } from '../leadContextScan';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
@@ -125,15 +126,14 @@ function extractCustomer(): CustomerCandidate {
   // core's channel/UI-name gate didn't recognize that pattern. Fixed
   // by (a) adding "titled" to the strip regex, (b) adding regex catches
   // in leadContextScan.ts for the raw string.
-  const stripUiPrefix = (label: string): string => label
-    .replace(/^(?:Message|Conversation\s+with|Conversation\s+titled|Chat\s+with|Profile\s+picture\s+of|Open\s+profile\s+for)\s+/i, '')
+  const stripUiPrefix = (label: string): string => stripConversationWrapper(label)
     .replace(/\s+(?:profile|conversation)$/i, '')
     .trim();
 
   try {
     const labelled = Array.from(document.querySelectorAll('[aria-label]'))
       .map((el) => el.getAttribute('aria-label') || '')
-      .find((label) => /^(?:Message|Conversation\s+with|Conversation\s+titled|Chat\s+with|Profile\s+picture\s+of|Open\s+profile\s+for)\s+\S+/i.test(label));
+      .find((label) => /^(?:Message|Conversation\s+\w+|Chat\s+with|Profile\s+picture\s+of|Open\s+profile\s+for)\s+\S+/i.test(label));
     if (labelled) {
       const cleaned = stripUiPrefix(labelled);
       if (cleaned && cleaned.length > 1 && cleaned.length < 60) {
