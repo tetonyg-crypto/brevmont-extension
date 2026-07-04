@@ -38,7 +38,7 @@ const CHANNEL_OR_UI_NAMES = new Set([
   // customer_name and producing "Hi Actions" / "Hi Conversation
   // Titled Cardog" openings. Added below plus regex fallbacks.
   'actions', 'action',
-  'options', 'menu',
+  'options', 'menu', 'archive', 'archived',
   'reply', 'send', 'settings',
 ]);
 
@@ -80,6 +80,19 @@ export function stripConversationWrapper(value: unknown): string {
     if (inner) return inner;
   }
   return raw;
+}
+
+export function cleanCustomerNameCandidate(value: unknown): string {
+  const cleaned = stripConversationWrapper(value)
+    .replace(/\(\d+\)\s*/g, '')
+    .replace(/\s+\|\s+(?:Messenger|Facebook|Gmail|LinkedIn).*$/i, '')
+    .replace(/\s+-\s+(?:Messenger|Facebook|Gmail|LinkedIn).*$/i, '')
+    .replace(/\s*[·•-]\s*(?:19|20)\d{2}\b.*$/i, '')
+    .replace(/\b(?:created this group|sent a photo|sent an attachment|is waiting for your response)\b.*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned || isChannelOrUiName(cleaned)) return '';
+  return cleaned;
 }
 
 function isPoisoned(text: string, mi: number, ml: number): boolean {

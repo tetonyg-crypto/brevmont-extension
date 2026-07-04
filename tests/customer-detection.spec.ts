@@ -72,3 +72,46 @@ test('detects a Facebook Marketplace buyer from the real middle-dot title patter
   expect(detected?.vehicle).toMatch(/2021 Jeep Grand/i);
   expect(detected?.source).toBe('facebook');
 });
+
+test('rejects Facebook UI and company labels from page-title detection', async ({ page }) => {
+  await page.route('https://www.facebook.com/marketplace/t/archive-label**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<!doctype html><html><head><title>Archive · 2021 GMC sierra 1500 denali</title></head><body>
+        <div role="main">
+          <header><h1>Archive · 2021 GMC sierra 1500 denali</h1></header>
+          <p>Archived thread</p>
+        </div>
+      </body></html>`,
+    });
+  });
+
+  await page.goto('https://www.facebook.com/marketplace/t/archive-label?locale=en_US');
+  await page.addScriptTag({ path: bundlePath });
+  const detected = await page.evaluate(async () => (window as any).CustomerDetectionTest.detectCustomerFromPage());
+
+  expect(detected).toBeNull();
+});
+
+test('strips vehicle suffixes from Facebook title customer names', async ({ page }) => {
+  await page.route('https://www.facebook.com/marketplace/t/cardog-title**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<!doctype html><html><head><title>Cardog · 2025 Subaru Ascent</title></head><body>
+        <div role="main">
+          <header><h1>Cardog · 2025 Subaru Ascent</h1></header>
+          <p>Is it still for sale</p>
+        </div>
+      </body></html>`,
+    });
+  });
+
+  await page.goto('https://www.facebook.com/marketplace/t/cardog-title?locale=en_US');
+  await page.addScriptTag({ path: bundlePath });
+  const detected = await page.evaluate(async () => (window as any).CustomerDetectionTest.detectCustomerFromPage());
+
+  expect(detected?.name).toBe('Cardog');
+  expect(detected?.vehicle).toMatch(/2025 Subaru Ascent/i);
+});

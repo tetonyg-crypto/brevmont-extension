@@ -1,3 +1,5 @@
+import { cleanCustomerNameCandidate } from './leadContextScan';
+
 export interface DetectedCustomer {
   name: string;
   firstName?: string;
@@ -20,6 +22,10 @@ const BAD_NAMES = new Set([
   'chats',
   'search messenger',
   'brevmont',
+  'brevmont labs',
+  'brevmont labs llc',
+  'archive',
+  'archived',
   'save lead',
   'scan this page',
   'new message',
@@ -34,13 +40,13 @@ function normalizeSeparators(value: unknown): string {
 }
 
 function cleanName(value: unknown, allowSingle = false): string | null {
-  const raw = normalizeSeparators(value)
+  const raw = cleanCustomerNameCandidate(normalizeSeparators(value)
     .replace(/\(\d+\)/g, '')
     .replace(/\s+/g, ' ')
     .replace(/\s*[|.-]\s*(?:Messenger|Facebook|Gmail|LinkedIn).*$/i, '')
     .replace(/\s*(?:\u00b7|\u2022)\s*20\d{2}\b.*$/i, '')
     .replace(/\s*[·•]\s*20\d{2}\b.*$/i, '')
-    .replace(/\s*-\s*(?:Messages|Inbox|Conversation).*$/i, '')
+    .replace(/\s*-\s*(?:Messages|Inbox|Conversation).*$/i, ''))
     .trim();
   if (!raw || raw.length < 2 || raw.length > 70 || raw.includes('@')) return null;
   if (BAD_NAMES.has(raw.toLowerCase())) return null;

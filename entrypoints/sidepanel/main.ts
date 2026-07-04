@@ -31,7 +31,7 @@ import {
   accessEndedTitle,
 } from '../../lib/accessState';
 import { sanitizeCustomerFacingOutput } from '../lib/outputContract';
-import { isChannelOrUiName, stripConversationWrapper } from '../lib/leadContextScan';
+import { cleanCustomerNameCandidate } from '../lib/leadContextScan';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Platform =
@@ -117,6 +117,7 @@ let isGenerating = false;
 let challengePollTimer: number | null = null;
 let pinnedCustomer: PinnedCustomer | null = null;
 let pendingCustomerSuggestion: any = null;
+let customerPickerOpen = false;
 let customerDetectionTimer: number | null = null;
 let customerDetectionUrl = '';
 let customerDetectionFingerprint = '';
@@ -1124,10 +1125,46 @@ function enrichLeadContextWithPinnedCustomer(leadContext: any = {}): any {
 
 function getCustomerNameFromContext(ctx: any): string {
   const raw = ctx?.customerName || ctx?.customer_name || ctx?.name || '';
-  const stripped = stripConversationWrapper(raw).trim();
-  if (!stripped) return '';
-  if (isChannelOrUiName(stripped)) return '';
-  return stripped;
+  return cleanCustomerNameCandidate(raw);
+}
+
+function cleanCustomerPickerRow(row: any): any | null {
+  const rawName = row?.name || `${row?.first_name || ''} ${row?.last_name || ''}`.trim();
+  const name = cleanCustomerNameCandidate(rawName);
+  if (!name) return null;
+  const first = cleanCustomerNameCandidate(row?.first_name || '');
+  const last = cleanCustomerNameCandidate(row?.last_name || '');
+  if ((row?.first_name && !first) || (row?.last_name && !last)) return null;
+  return {
+    ...row,
+    name,
+    vehicle_interest: optionalDisplayText(row?.vehicle_interest || row?.vehicle || '') || null,
+  };
+}
+
+function cleanCustomerPickerRows(rows: any[]): any[] {
+  const seen = new Set<string>();
+  const cleaned: any[] = [];
+  for (const row of rows || []) {
+    const customer = cleanCustomerPickerRow(row);
+    if (!customer) continue;
+    const key = normalizeComparable(customer.id || `${customer.name}:${customer.vehicle_interest || ''}:${customer.email || ''}:${customer.phone || ''}`);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(customer);
+  }
+  return cleaned;
+}
+
+function isCustomerPickerOpen(root: HTMLElement): boolean {
+  const picker = root.querySelector('#o8-customer-picker') as HTMLElement | null;
+  return customerPickerOpen && Boolean(picker && picker.style.display !== 'none');
+}
+
+function closeCustomerPicker(root: HTMLElement): void {
+  customerPickerOpen = false;
+  const picker = root.querySelector('#o8-customer-picker') as HTMLElement | null;
+  if (picker) picker.style.display = 'none';
 }
 
 function getCustomerVehicleFromContext(ctx: any): string | null {
@@ -1179,6 +1216,7 @@ function pinMismatchReason(customer: PinnedCustomer | null, ctx: any): string | 
 }
 
 function clearStalePinnedCustomer(root: HTMLElement, _reason: string): void {
+  closeCustomerPicker(root);
   if (pinnedCustomer || pendingCustomerSuggestion) {
     pinnedCustomer = null;
     pendingCustomerSuggestion = null;
@@ -1233,6 +1271,7 @@ async function resolveCustomerForDetection(ctx: any): Promise<PinnedCustomer | n
 
 function pinCustomer(root: HTMLElement, customer: PinnedCustomer | null): void {
   if (!customer?.id || !customer.name) return;
+  customerPickerOpen = false;
   pinnedCustomer = {
     ...customer,
     platform: customer.platform || currentPlatform.platform,
@@ -1245,6 +1284,7 @@ function pinCustomer(root: HTMLElement, customer: PinnedCustomer | null): void {
 }
 
 function clearPinnedCustomer(root: HTMLElement): void {
+  closeCustomerPicker(root);
   pinnedCustomer = null;
   pendingCustomerSuggestion = null;
   renderCustomerStamp(root);
@@ -1254,7 +1294,7 @@ function renderCustomerStamp(root: HTMLElement): void {
   const stamp = root.querySelector('#o8-customer-stamp') as HTMLElement | null;
   const picker = root.querySelector('#o8-customer-picker') as HTMLElement | null;
   if (!stamp) return;
-  if (picker && (pinnedCustomer || pendingCustomerSuggestion)) picker.style.display = 'none';
+  if (picker && !customerPickerOpen && (pinnedCustomer || pendingCustomerSuggestion)) picker.style.display = 'none';
 
   if (pinnedCustomer) {
     stamp.style.display = 'block';
@@ -1322,6 +1362,8 @@ async function openCustomerPicker(root: HTMLElement): Promise<void> {
   const picker = root.querySelector('#o8-customer-picker') as HTMLElement | null;
   if (!picker) return;
 
+  customerPickerOpen = true;
+  pendingCustomerSuggestion = null;
   picker.style.display = 'block';
   picker.innerHTML = `
     <div class="customer-picker-head">
@@ -1341,16 +1383,17 @@ async function openCustomerPicker(root: HTMLElement): Promise<void> {
   const input = picker.querySelector('#o8-customer-search') as HTMLInputElement | null;
   const list = picker.querySelector('#o8-customer-picker-list') as HTMLElement | null;
   picker.querySelector('#o8-customer-picker-close')?.addEventListener('click', () => {
-    picker.style.display = 'none';
+    closeCustomerPicker(root);
   });
 
   const renderList = (customers: any[]) => {
     if (!list) return;
-    if (!customers.length) {
+    const rows = cleanCustomerPickerRows(customers);
+    if (!rows.length) {
       list.innerHTML = '<div class="customer-picker-row"><div class="customer-picker-meta">No customers found. Create one from the name above.</div></div>';
       return;
     }
-    list.innerHTML = customers.map((customer) => `
+    list.innerHTML = rows.map((customer) => `
       <button class="customer-picker-row" data-customer-id="${esc(customer.id)}" type="button">
         <div class="customer-picker-name">${esc(customer.name || 'Unnamed customer')}</div>
         <div class="customer-picker-meta">${esc(customer.vehicle_interest || customer.phone || customer.email || 'Recent customer')}</div>
@@ -1358,7 +1401,7 @@ async function openCustomerPicker(root: HTMLElement): Promise<void> {
     `).join('');
     list.querySelectorAll<HTMLButtonElement>('.customer-picker-row[data-customer-id]').forEach((button) => {
       button.addEventListener('click', async () => {
-        const customer = customers.find((item) => String(item.id) === button.dataset.customerId);
+        const customer = rows.find((item) => String(item.id) === button.dataset.customerId);
         if (!customer) return;
         const currentCtx = pendingCustomerSuggestion || await collectCurrentLeadContext();
         const currentFingerprint = getContextFingerprint(currentCtx) || null;
@@ -1383,7 +1426,7 @@ async function openCustomerPicker(root: HTMLElement): Promise<void> {
 
   const load = async (search = '') => {
     try {
-      const resp = await safeSend({ type: 'CUSTOMER_LIST', payload: { search, limit: 8 } });
+      const resp = await safeSend({ type: 'CUSTOMER_LIST', payload: { search, limit: 20 } });
       renderList(Array.isArray(resp?.customers) ? resp.customers : []);
     } catch {
       renderList([]);
@@ -1413,12 +1456,13 @@ async function openCustomerPicker(root: HTMLElement): Promise<void> {
   picker.querySelector('#o8-customer-skip')?.addEventListener('click', () => {
     pinnedCustomer = null;
     pendingCustomerSuggestion = null;
-    picker.style.display = 'none';
+    closeCustomerPicker(root);
     renderCustomerStamp(root);
   });
 }
 
 async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
+  if (isCustomerPickerOpen(root)) return;
   let ctx: any = {};
   try {
     ctx = await collectCurrentLeadContext();

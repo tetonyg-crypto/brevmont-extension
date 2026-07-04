@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { isChannelOrUiName, stripConversationWrapper } from '../entrypoints/lib/leadContextScan';
+import { cleanCustomerNameCandidate, isChannelOrUiName, stripConversationWrapper } from '../entrypoints/lib/leadContextScan';
 
 /**
  * Regression tests for the customer-name UI-label gate.
@@ -59,6 +59,8 @@ test.describe('isChannelOrUiName — regression coverage', () => {
     expect(isChannelOrUiName('Scan This Page')).toBe(true);
     expect(isChannelOrUiName('Options')).toBe(true);
     expect(isChannelOrUiName('Menu')).toBe(true);
+    expect(isChannelOrUiName('Archive')).toBe(true);
+    expect(isChannelOrUiName('Archived')).toBe(true);
     expect(isChannelOrUiName('Reply')).toBe(true);
     expect(isChannelOrUiName('Settings')).toBe(true);
   });
@@ -108,5 +110,11 @@ test.describe('isChannelOrUiName — regression coverage', () => {
     expect(stripConversationWrapper('Conversation info Nora T.')).toBe('Nora T.');
     expect(stripConversationWrapper('Chat with Yancy Garcia')).toBe('Yancy Garcia');
     expect(stripConversationWrapper('Cardog')).toBe('Cardog');
+  });
+
+  test('normalizes listing-header names without keeping vehicle suffixes', () => {
+    expect(cleanCustomerNameCandidate('Cardog · 2025 Subaru Ascent')).toBe('Cardog');
+    expect(cleanCustomerNameCandidate('Archive · 2021 GMC sierra 1500 denali')).toBe('');
+    expect(cleanCustomerNameCandidate('Brevmont Labs · 2025 Subaru Ascent')).toBe('');
   });
 });

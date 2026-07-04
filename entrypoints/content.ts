@@ -16,7 +16,7 @@
 import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
-import { extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface, isChannelOrUiName, stripConversationWrapper } from './lib/leadContextScan';
+import { cleanCustomerNameCandidate, extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface, isChannelOrUiName, stripConversationWrapper } from './lib/leadContextScan';
 import { detectCustomerFromPage } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 import { withInjectInFlight as overdriveWithInjectInFlight, configureSoloTestMode as overdriveConfigureSoloTestMode } from './lib/overdrive/safetyEnvelope';
@@ -260,7 +260,7 @@ export default defineContentScript({
         .replace(/\s+/g, ' ')
         .trim();
       if (!cleaned || cleaned.length < 2 || cleaned.length > 60 || cleaned.includes('@')) return null;
-      if (/^(?:messenger|facebook|marketplace|chats|search messenger|brevmont|save lead|scan this page)$/i.test(cleaned)) return null;
+      if (isChannelOrUiName(cleaned)) return null;
       const namePattern = options.allowSingleName
         ? /^[A-Z][A-Za-z'-]{1,24}(?:\s+[A-Z][A-Za-z'-]{1,24}){0,3}$/
         : /^[A-Z][A-Za-z'-]{1,24}\s+[A-Z][A-Za-z'-]{1,24}(?:\s+[A-Z][A-Za-z'-]{1,24}){0,2}$/;
@@ -2021,12 +2021,11 @@ export default defineContentScript({
             // The AI turns any non-null customer_name into "Hi <name>",
             // which is worse than "Hi there." Reject known bad names
             // here so nothing downstream has to remember to check.
-	            const pickCleanName = (...candidates: (string | null | undefined)[]): string | null => {
-	              for (const c of candidates) {
-	                const trimmed = stripConversationWrapper(c || '');
-	                if (!trimmed) continue;
-	                if (isChannelOrUiName(trimmed)) continue;
-	                return trimmed;
+            const pickCleanName = (...candidates: (string | null | undefined)[]): string | null => {
+              for (const c of candidates) {
+                const trimmed = cleanCustomerNameCandidate(c || '');
+                if (!trimmed) continue;
+                return trimmed;
               }
               return null;
             };
@@ -2252,7 +2251,8 @@ export default defineContentScript({
             rawText = `${linkedinSignal.rawPrefix}\n\n${rawText}`.slice(0, 5000);
           }
           const rawName = scanned.customerName || leadData?.customerName || gmailSignal.customerName || linkedinSignal.customerName || detected?.name || extractFacebookConversationName() || safeExtractContactName() || partialSignal.customerName;
-          const name = isLikelyUiName(rawName) ? null : rawName;
+          const cleanedName = cleanCustomerNameCandidate(rawName);
+          const name = cleanedName && !isLikelyUiName(cleanedName) ? cleanedName : null;
           const phone = scanned.phone || leadData?.phone || detected?.phone || partialSignal.phone || null;
           const email = scanned.email || leadData?.email || detected?.email || gmailSignal.email || partialSignal.email || null;
           const vehicle = scanned.vehicle || leadData?.vehicle || leadData?.vehicleOfInterest || detected?.vehicle || partialSignal.vehicle || null;

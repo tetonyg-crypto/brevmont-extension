@@ -149,6 +149,12 @@ test('manual customer picker selection wins over auto-detection until thread cha
   const source = read('entrypoints/sidepanel/main.ts');
   const start = source.indexOf('async function refreshCustomerDetection');
   const body = source.slice(start, source.indexOf('function startCustomerDetection', start));
+  expect(source).toContain('let customerPickerOpen = false');
+  expect(source).toContain('function cleanCustomerPickerRow');
+  expect(source).toContain('function cleanCustomerPickerRows');
+  expect(source).toContain('function isCustomerPickerOpen');
+  expect(source).toContain('const rows = cleanCustomerPickerRows(customers)');
+  expect(body).toContain('if (isCustomerPickerOpen(root)) return;');
   expect(body).toContain('if (isManualCustomerOverride(pinnedCustomer))');
   expect(body.indexOf('if (isManualCustomerOverride(pinnedCustomer))')).toBeLessThan(body.indexOf('if (confidence >= 0.8)'));
   expect(source.slice(source.indexOf('function pinMismatchReason'), source.indexOf('function clearStalePinnedCustomer'))).toContain('if (isManualCustomerOverride(customer)) return null;');
@@ -158,10 +164,13 @@ test('manual customer picker selection wins over auto-detection until thread cha
 test('sidepanel rejects Brevmont company labels before stamping customers', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   const gate = read('entrypoints/lib/leadContextScan.ts');
-  expect(source).toContain("import { isChannelOrUiName, stripConversationWrapper } from '../lib/leadContextScan'");
-  expect(source).toContain('const stripped = stripConversationWrapper(raw).trim();');
-  expect(source).toContain('if (isChannelOrUiName(stripped)) return');
+  expect(source).toContain("import { cleanCustomerNameCandidate } from '../lib/leadContextScan'");
+  expect(source).toContain('return cleanCustomerNameCandidate(raw);');
+  expect(source).toContain('const name = cleanCustomerNameCandidate(rawName);');
   expect(gate).toContain("'brevmont labs'");
+  expect(gate).toContain("'archive'");
+  expect(gate).toContain('export function cleanCustomerNameCandidate');
+  expect(gate).toContain('.replace(/\\s*[·•-]\\s*(?:19|20)\\d{2}\\b.*$/i,');
   expect(gate).toContain('if (/^brevmont\\b/i.test(raw)) return true;');
 });
 
