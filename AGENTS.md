@@ -32,11 +32,13 @@ get re-introduced.
 
 ### Single ship path
 **One canonical Desktop folder on this Mac:** `/Users/yancygarcia/Desktop/brevmont-extension`.
+**One obvious visible copy:** `/Users/yancygarcia/Desktop/Brevmont-<version>-UNPACKED`.
 Every extension release, auth fix, build handoff, or "try this version"
-MUST run `npm run ship` so that Desktop folder is nuked and re-filled
-with the newest build. Do not say an extension change is done until
-`/Users/yancygarcia/Desktop/brevmont-extension/manifest.json` shows the
-new version. Do NOT load any other folder in `chrome://extensions`.
+MUST run `npm run ship` so both Desktop folders are nuked and re-filled
+with the newest build. Do not say an extension change is done until both
+`/Users/yancygarcia/Desktop/brevmont-extension/manifest.json` and the
+visible versioned Desktop folder's `manifest.json` show the new version.
+Do NOT load an older versioned folder in `chrome://extensions`.
 Do NOT keep `brevmont-extension-v1.13`, `brevmont-extension-old`,
 `brevmont-extension-backup` etc. on Desktop — they confuse which version
 is actually running. See Lab Note 2026-04-29.
