@@ -1575,7 +1575,131 @@ async function renderPanel(): Promise<void> {
   renderMyLeads(root).catch(() => {});
   renderAccountChip().catch(() => {});
   renderRadarStatus(root).catch(() => {});
+  renderOverdriveStatusPill(root).catch(() => {});
   wireIdentityReactivity();
+}
+
+// ─── Overdrive discoverability pill (2026-07-03) ──────────────────
+// The single biggest first-use finding: Yancy — who built Overdrive —
+// couldn't find the toggle. It was buried in Settings. This pill sits
+// at the top of every sidepanel view with the live master state and a
+// one-tap toggle, so a rep who never opened Settings still sees exactly
+// what autopilot is doing. Reads from /api/overdrive/settings and
+// updates on any OVERDRIVE_STATE_CHANGED broadcast (which the
+// backgroundController fires whenever the seq flips).
+async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
+  const el = root.querySelector('#o8-overdrive-pill') as HTMLElement | null;
+  const dot = root.querySelector('#o8-overdrive-pill-dot') as HTMLElement | null;
+  const title = root.querySelector('#o8-overdrive-pill-title') as HTMLElement | null;
+  const sub = root.querySelector('#o8-overdrive-pill-sub') as HTMLElement | null;
+  const btn = root.querySelector('#o8-overdrive-pill-toggle') as HTMLButtonElement | null;
+  if (!el || !dot || !title || !sub || !btn) return;
+
+  const paint = (state: {
+    enabled: boolean;
+    dealer_enabled: boolean;
+    prerequisites_met: boolean;
+    hours?: string;
+    hasFired?: boolean;
+  }): void => {
+    el.style.display = 'block';
+    if (!state.prerequisites_met) {
+      dot.style.background = '#94a3b8';
+      title.textContent = 'Overdrive: setup needed';
+      sub.textContent = 'Link Facebook + acknowledge disclosure in Settings';
+      btn.textContent = 'Open Settings';
+      btn.style.background = '#F3F4F6';
+      btn.style.color = '#0F1419';
+      return;
+    }
+    if (!state.dealer_enabled) {
+      dot.style.background = '#F59E0B';
+      title.textContent = 'Overdrive: off (dealership)';
+      sub.textContent = 'Your GM has Overdrive disabled at the store';
+      btn.style.display = 'none';
+      return;
+    }
+    btn.style.display = 'inline-block';
+    if (state.enabled) {
+      dot.style.background = '#10B981';
+      title.textContent = 'Overdrive: on';
+      sub.textContent = state.hasFired
+        ? `Auto-answers your Marketplace leads${state.hours ? ` — active ${state.hours}` : ''}`
+        : 'On and waiting. It will answer the next new Marketplace inquiry automatically.';
+      btn.textContent = 'Turn off';
+      btn.style.background = '#F3F4F6';
+      btn.style.color = '#0F1419';
+    } else {
+      dot.style.background = '#94a3b8';
+      title.textContent = 'Overdrive: off';
+      sub.textContent = 'Auto-answers your Marketplace leads';
+      btn.textContent = 'Turn on';
+      btn.style.background = '#0D6E6E';
+      btn.style.color = '#fff';
+    }
+  };
+
+  const loadAndPaint = async (): Promise<void> => {
+    try {
+      const { getOverdriveSettings } = await import('../lib/overdrive/apiClient');
+      const data = await getOverdriveSettings();
+      const linked = !!data.linked?.facebook;
+      const disclosureAcked = !!data.linked?.disclosure_ack_at;
+      const hasPhoto = !!data.linked?.rep_photo_url;
+      const enabled = !!data.settings?.enabled;
+      const dealerEnabled = !!data.dealership_enabled;
+      const start = data.settings?.active_hours_start ?? 7;
+      const end = data.settings?.active_hours_end ?? 22;
+      paint({
+        enabled,
+        dealer_enabled: dealerEnabled,
+        prerequisites_met: linked && disclosureAcked && hasPhoto,
+        hours: `${start}:00 – ${end}:00`,
+      });
+    } catch { /* keep hidden on error */ }
+  };
+
+  await loadAndPaint();
+
+  // Toggle handler. Confirm before flipping OFF so a stray tap doesn't
+  // kill autopilot mid-shift; frictionless ON.
+  btn.onclick = async () => {
+    try {
+      // If prerequisites missing, deep-link to the Overdrive setup panel
+      // by clicking the account chip's Settings entry programmatically.
+      // Simpler: switch tab to Settings if that's the button.
+      if (btn.textContent === 'Open Settings') {
+        const settingsBtn = root.querySelector('[data-tab="settings"]') as HTMLElement | null;
+        settingsBtn?.click();
+        return;
+      }
+      const isOn = btn.textContent === 'Turn off';
+      if (isOn && !confirm('Turn Overdrive off? You can turn it back on any time.')) return;
+      const { patchOverdriveSettings } = await import('../lib/overdrive/apiClient');
+      btn.disabled = true;
+      btn.textContent = 'Working…';
+      await patchOverdriveSettings({ enabled: !isOn } as any);
+      try { chrome.runtime.sendMessage({ type: 'OVERDRIVE_REFRESH_SETTINGS' }); } catch { /* noop */ }
+      await loadAndPaint();
+    } catch (err: any) {
+      alert(`Could not update Overdrive: ${err?.message || 'unknown error'}`);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  // Live sync via the runtime broadcast the background service worker
+  // fires on every toggle / pause / resume / takeover (1.16.47 W2-A3).
+  const wired = (window as any).__brevmontOverdrivePillListener;
+  if (!wired) {
+    (window as any).__brevmontOverdrivePillListener = true;
+    try {
+      chrome.runtime.onMessage.addListener((msg) => {
+        if (msg?.type === 'OVERDRIVE_STATE_CHANGED') { void loadAndPaint(); }
+        return false;
+      });
+    } catch { /* noop */ }
+  }
 }
 
 // ─── Reactive re-render on identity change (1.16.43) ────────────────

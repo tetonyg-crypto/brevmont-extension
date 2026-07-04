@@ -65,6 +65,22 @@ export function getPanelHTML(platform: Platform): string {
     <span id="o8-radar-status-text">Lead radar active</span>
   </span>
 </div>
+<!-- 2026-07-03 Overdrive discoverability: persistent status pill at
+     the top of every sidepanel view. Prior to this, Overdrive was
+     buried in Settings and Yancy — who built it — could not find the
+     toggle. This pill always shows the current master state and is a
+     one-tap toggle. renderOverdriveStatusPill() in main.ts drives the
+     visible text + toggle handler. -->
+<div id="o8-overdrive-pill" class="overdrive-pill" style="display:none;padding:8px 12px;font-size:11px;background:#fff;border-bottom:1px solid rgba(0,0,0,0.06);">
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span id="o8-overdrive-pill-dot" style="width:8px;height:8px;border-radius:50%;background:#94a3b8;flex-shrink:0;"></span>
+    <div style="flex:1;min-width:0;line-height:1.35;">
+      <div id="o8-overdrive-pill-title" style="font-weight:700;color:#0F1419;font-size:12px;">Overdrive: off</div>
+      <div id="o8-overdrive-pill-sub" style="color:rgba(15,20,25,0.55);font-size:10.5px;margin-top:1px;">Auto-answers your Marketplace leads</div>
+    </div>
+    <button id="o8-overdrive-pill-toggle" type="button" style="background:#0D6E6E;color:#fff;border:0;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;">Turn on</button>
+  </div>
+</div>
 <div id="o8-challenge-banner" class="challenge-banner" style="display:none"></div>
 <div id="o8-customer-stamp" class="customer-stamp" style="display:none"></div>
 <div id="o8-customer-picker" class="customer-picker" style="display:none"></div>

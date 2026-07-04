@@ -6,12 +6,24 @@
   <title>Brevmont</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    /* 2026-07-03 Bug 2 fix — My Leads and thread views wouldn't scroll
+       because body had overflow-x:hidden but no vertical overflow rule
+       AND no explicit height chain, so a tall #sp-root content column
+       just clipped at the visible viewport with no scrollbar affordance.
+       Chrome side panels don't auto-scroll their host document. Set the
+       full height chain html/body/#sp-root and let body scroll on Y. */
+    html, body { height: 100%; }
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       font-size: 13px;
       color: #1a202c;
       background: #fff;
       overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    #sp-root {
+      min-height: 100%;
     }
     /* Loading state — replaced by main.ts once panel boots */
     #sp-loading {
