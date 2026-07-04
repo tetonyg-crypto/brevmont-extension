@@ -37,6 +37,14 @@ const buffer: TraceEnvelope[] = [];
 let flushTimer: number | null = null;
 let cachedTraceId: string | null = null;
 
+function extensionVersion(): string {
+  try {
+    return chrome.runtime?.getManifest?.().version || '';
+  } catch {
+    return '';
+  }
+}
+
 function uuid(): string {
   const c = (globalThis as any).crypto;
   if (c && typeof c.randomUUID === 'function') return c.randomUUID();
@@ -71,6 +79,10 @@ export async function authTrace(event: AuthTraceEvent): Promise<void> {
       trace_id,
       client_ts: new Date().toISOString(),
       ...event,
+      payload: {
+        ...(event.payload || {}),
+        ext_version: extensionVersion(),
+      },
     });
     scheduleFlush();
   } catch { /* trace pipeline never breaks the extension */ }

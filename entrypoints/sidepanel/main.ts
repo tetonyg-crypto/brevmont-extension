@@ -43,10 +43,12 @@ interface PlatformContext {
 interface VersionStatus {
   locked?: boolean;
   deprecated?: boolean;
+  updateAvailable?: boolean;
   updateRequired?: boolean;
   forceUpdate?: boolean;
   message?: string | null;
   latest?: string | null;
+  currentVersion?: string | null;
   downloadUrl?: string | null;
 }
 
@@ -1271,20 +1273,73 @@ function showInviteGmModal(root: HTMLElement, usage?: GenerationUsage): void {
 
 function normalizeVersionStatus(raw: unknown): VersionStatus | null {
   if (!raw || typeof raw !== 'object') return null;
-  const value = raw as VersionStatus;
+  const value = raw as VersionStatus & Record<string, unknown>;
   const forceUpdate = Boolean(value.forceUpdate || value.locked);
-  const updateRequired = Boolean(value.updateRequired || value.deprecated || forceUpdate);
-  if (!updateRequired && !forceUpdate) return null;
+  const updateRequired = Boolean(value.updateRequired || value.update_required || value.required || value.deprecated || forceUpdate);
+  const updateAvailable = Boolean(value.updateAvailable || value.update_available || updateRequired || forceUpdate);
+  if (!updateAvailable && !updateRequired && !forceUpdate) return null;
+  const latest = String(value.latest || value.version || value.latestVersion || '').trim() || null;
+  const currentVersion = String(value.currentVersion || value.current_version || '').trim() || null;
+  const downloadUrl = String(value.downloadUrl || value.download_url || value.support_download_url || '').trim();
+  const updateMessage = String(value.message || value.update_message || '').trim();
   return {
     ...value,
+    updateAvailable,
     updateRequired,
     forceUpdate,
-    message: value.message || (forceUpdate ? 'Please update Brevmont to continue.' : 'A new version of Brevmont is available.'),
-    downloadUrl: value.downloadUrl || 'https://api.brevmont.com/api/extension-download',
+    latest,
+    currentVersion,
+    message: updateMessage || (forceUpdate ? 'Please update Brevmont to continue.' : `Update available: reload the extension${latest ? ` to v${latest}` : ''}.`),
+    downloadUrl: downloadUrl || 'https://api.brevmont.com/api/extension-download',
   };
 }
 
-async function getVersionStatus(): Promise<VersionStatus | null> {
+function currentExtensionVersion(): string {
+  try {
+    return chrome.runtime.getManifest().version || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+async function refreshVersionStatusFromApi(): Promise<VersionStatus | null> {
+  const currentVersion = currentExtensionVersion();
+  try {
+    const resp = await fetch(`https://api.brevmont.com/api/extension/version?current_version=${encodeURIComponent(currentVersion)}`, {
+      headers: { 'X-Extension-Version': currentVersion },
+    });
+    if (!resp.ok) return null;
+    const raw = await resp.json();
+    const normalized = normalizeVersionStatus({
+      ...raw,
+      currentVersion,
+      updateAvailable: Boolean(raw?.update_available),
+      updateRequired: Boolean(raw?.update_required || raw?.required),
+      forceUpdate: Boolean(raw?.force_update),
+      message: raw?.update_available
+        ? `Update available: reload the extension. Running v${currentVersion}, latest v${raw?.latest || raw?.version || 'current'}.`
+        : raw?.update_message,
+    });
+    await chrome.storage.local.set({
+      brevmont_version_status: normalized || {
+        updateAvailable: false,
+        updateRequired: false,
+        forceUpdate: false,
+        currentVersion,
+        latest: raw?.latest || raw?.version || null,
+      },
+    });
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
+async function getVersionStatus(refresh = true): Promise<VersionStatus | null> {
+  if (refresh) {
+    const live = await refreshVersionStatusFromApi();
+    if (live) return live;
+  }
   const data = await chrome.storage.local.get('brevmont_version_status');
   return normalizeVersionStatus(data.brevmont_version_status);
 }
@@ -1306,7 +1361,7 @@ async function applyVersionStatus(root: HTMLElement): Promise<void> {
   banner.className = `version-update-banner${status.forceUpdate ? ' force' : ''}`;
   banner.innerHTML = `
     ${status.forceUpdate ? '' : '<button class="version-update-close" type="button" aria-label="Dismiss">×</button>'}
-    <div class="version-update-title">${status.forceUpdate ? 'Update required' : 'Update available'}</div>
+    <div class="version-update-title">${status.forceUpdate ? 'Update required' : 'Update available: reload the extension'}</div>
     <div class="version-update-copy">${esc(status.message || '')}</div>
     <button id="o8-version-download" class="version-update-btn" type="button">Download latest${status.latest ? ` v${esc(String(status.latest))}` : ''}</button>
   `;
