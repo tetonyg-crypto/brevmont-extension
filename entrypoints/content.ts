@@ -2070,6 +2070,20 @@ export default defineContentScript({
               detectionMethod: clean?.raw_source || 'adapter',
             });
           } catch (err: any) {
+            // Skeptic-recheck fix (2026-07-03): on adapter scan
+            // failure, fire the dealer-kit DOM snapshot capture so we
+            // have forensic evidence to repair the selectors. Prior
+            // behavior returned just the error, leaving zero DOM
+            // context to diff against — the field-team would blame
+            // "brevmont broken" with no way to see WHY. Fire-and-forget
+            // so it never gates the error response.
+            try {
+              const { captureBundle } = await import('./lib/platforms/verificationHarness');
+              void captureBundle({
+                notes: `adapter_scan_failed:${err?.message || 'unknown'}`,
+                captureDom: true,
+              });
+            } catch { /* verification module lazy load may fail on non-adapter pages */ }
             sendResponse({ ok: false, error: err?.message || 'adapter_scan_failed' });
           }
         })();
