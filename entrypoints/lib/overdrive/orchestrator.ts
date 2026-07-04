@@ -42,8 +42,8 @@ import {
 } from './safetyEnvelope';
 import { overdriveSend } from './overdriveSend';
 import { overdriveAttachPhoto } from './overdriveAttachPhoto';
-import { requestOverdriveReply } from './apiClient';
-import type { OverdriveReplyResponse } from './apiClient';
+import { requestOverdriveReply, confirmOverdriveSend } from './apiClient';
+import type { OverdriveReplyResponse, OverdriveSendConfirmPayload } from './apiClient';
 import type { OverdriveStage, OverdriveThreadContext } from './types';
 
 export interface ThreadScrape {
@@ -275,6 +275,26 @@ export async function orchestrateReply(
 
   // Step 8: DOM-verified send
   const sendResult = await overdriveSend(reply.reply_text || '');
+
+  // Migration 310 write-through: server writes the terminal event
+  // (overdrive.reply_sent | overdrive.appointment_set |
+  // overdrive.photo_sent | overdrive.send_unverified) based on
+  // what we report here. Fire-and-forget — never gate return on
+  // the confirm response.
+  const confirmPayload: OverdriveSendConfirmPayload = {
+    conversation_key: scrape.conversation_key,
+    idempotency_key: reply.idempotency_key,
+    verified: !!(sendResult.ok && sendResult.verified),
+    method: sendResult.method || 'not_attempted',
+    latency_ms: Date.now() - startedAt,
+    attempts: sendResult.attempts || [],
+    ai_output: reply.reply_text || '',
+    next_stage: reply.next_stage,
+    ai_question_triggered: !!reply.ai_question_triggered,
+    attach_ok: attach?.ok || false,
+    attach_method: attach?.method || null,
+  };
+  confirmOverdriveSend(confirmPayload).catch(() => { /* fire-and-forget */ });
 
   if (!sendResult.ok || !sendResult.verified) {
     deps.emitEvent({

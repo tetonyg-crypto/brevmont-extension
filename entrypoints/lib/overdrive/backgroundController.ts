@@ -18,6 +18,7 @@
 
 import type { OrchestratorSettings, OrchestratorDeps, ThreadScrape } from './orchestrator';
 import { orchestrateReply, isHeroStage } from './orchestrator';
+import { reportOverdriveDetection } from './apiClient';
 import { radarCapture, radarSweepDone } from './radarClient';
 import { getOverdriveSettings } from './apiClient';
 
@@ -321,6 +322,25 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
     await overdriveLog({ event: 'scrape_failed', tab_id: tabId });
     return;
   }
+
+  // ── Hop 1 receipts (migration 310) ──────────────────────────
+  // Report every detection signal to the server BEFORE
+  // qualification / caps / send. Gives Yancy a complete timeline
+  // in event_log_v2 even when a thread is filtered out downstream.
+  // Fire-and-forget; never block orchestration on this network hop.
+  try {
+    const sigType = String(signal?.type || 'unknown');
+    const detectionSource =
+      sigType === 'mutation' || sigType === 'mutation_observer' ? 'mutation_observer' :
+      sigType === 'title' || sigType === 'title_watch' ? 'title_watch' :
+      sigType === 'alarm' || sigType === 'alarm_sweep' ? 'alarm_sweep' :
+      sigType === 'manual' ? 'manual' : sigType;
+    reportOverdriveDetection({
+      conversation_key: scrape.scrape.conversation_key,
+      inbound_hash: scrape.scrape.last_inbound_hash || '',
+      source: detectionSource,
+    }).catch(() => { /* fire-and-forget */ });
+  } catch { /* noop */ }
 
   // ── RADAR CAPTURE — always runs on scrape success ──────────
   // Fire the passive capture regardless of Overdrive eligibility so

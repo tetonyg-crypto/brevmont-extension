@@ -203,3 +203,51 @@ export async function requestOverdriveReply(
     // keeping the source of truth server-side avoids drift.
   });
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Migration 310: send-confirm write-through
+// ─────────────────────────────────────────────────────────────────
+// The extension MUST call confirmOverdriveSend after every
+// overdriveSend() attempt so the server can write the terminal
+// event (overdrive.reply_sent|appointment_set|photo_sent) instead
+// of trusting a pre-send optimistic write. On DOM verify failure,
+// pass verified: false — server writes overdrive.send_unverified.
+export interface OverdriveSendConfirmPayload {
+  conversation_key: string;
+  idempotency_key: string;
+  verified: boolean;
+  method: 'enter_key' | 'button_click' | 'react_fiber' | 'not_attempted' | string;
+  latency_ms: number;
+  attempts: Array<{ method: string; ok: boolean; error?: string }>;
+  ai_output: string;
+  next_stage: string;
+  ai_question_triggered: boolean;
+  attach_ok: boolean;
+  attach_method: string | null;
+}
+
+export async function confirmOverdriveSend(
+  payload: OverdriveSendConfirmPayload,
+): Promise<{ ok: boolean; event_type: string }> {
+  return overdriveFetch<{ ok: boolean; event_type: string }>(
+    '/api/overdrive/send-confirm',
+    { method: 'POST', body: JSON.stringify(payload) },
+  );
+}
+
+// Hop 1 receipts — fire-and-forget from the detector layer BEFORE
+// qualification / caps / send. Server writes overdrive.detected.
+export interface OverdriveDetectionPayload {
+  conversation_key: string;
+  inbound_hash: string;
+  source: 'mutation_observer' | 'title_watch' | 'alarm_sweep' | 'manual' | string;
+}
+
+export async function reportOverdriveDetection(
+  payload: OverdriveDetectionPayload,
+): Promise<{ ok: boolean }> {
+  return overdriveFetch<{ ok: boolean }>('/api/overdrive/detected', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
