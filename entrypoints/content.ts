@@ -1806,6 +1806,23 @@ export default defineContentScript({
         return true;
       }
 
+      if (msg.type === 'OVERDRIVE_DETECTOR_TICK') {
+        (async () => {
+          try {
+            if (!isFacebook || window !== window.top) {
+              sendResponse({ ok: false, error: 'not_facebook_top_frame' });
+              return;
+            }
+            const mod = await import('./lib/overdrive/overdriveDetector');
+            mod.overdriveDetectorAlarmTick();
+            sendResponse({ ok: true });
+          } catch (err: any) {
+            sendResponse({ ok: false, error: err?.message || 'detector_tick_failed' });
+          }
+        })();
+        return true;
+      }
+
       if (msg.type === 'OVERDRIVE_SCRAPE_THREAD') {
         (async () => {
           try {
@@ -1818,6 +1835,50 @@ export default defineContentScript({
             sendResponse({ ok: true, scrape });
           } catch (err: any) {
             sendResponse({ ok: false, error: err?.message || 'scrape_failed' });
+          }
+        })();
+        return true;
+      }
+
+      if (msg.type === 'OVERDRIVE_SEND_TEXT') {
+        (async () => {
+          try {
+            if (!isFacebook || window !== window.top) {
+              sendResponse({ ok: false, error: 'not_facebook_top_frame' });
+              return;
+            }
+            const text = String(msg.payload?.text || '');
+            if (!text) {
+              sendResponse({ ok: false, error: 'empty_text' });
+              return;
+            }
+            const mod = await import('./lib/overdrive/overdriveSend');
+            const result = await mod.overdriveSend(text);
+            sendResponse({ ok: true, result });
+          } catch (err: any) {
+            sendResponse({ ok: false, error: err?.message || 'send_failed' });
+          }
+        })();
+        return true;
+      }
+
+      if (msg.type === 'OVERDRIVE_ATTACH_PHOTO') {
+        (async () => {
+          try {
+            if (!isFacebook || window !== window.top) {
+              sendResponse({ ok: false, error: 'not_facebook_top_frame' });
+              return;
+            }
+            const photoDataUrl = String(msg.payload?.photoDataUrl || '');
+            if (!photoDataUrl) {
+              sendResponse({ ok: false, error: 'empty_photo' });
+              return;
+            }
+            const mod = await import('./lib/overdrive/overdriveAttachPhoto');
+            const result = await mod.overdriveAttachPhoto(photoDataUrl);
+            sendResponse({ ok: true, result });
+          } catch (err: any) {
+            sendResponse({ ok: false, error: err?.message || 'attach_failed' });
           }
         })();
         return true;

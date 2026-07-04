@@ -40,11 +40,9 @@ import {
   inActiveHours,
   repRecentlyTyped,
 } from './safetyEnvelope';
-import { overdriveSend } from './overdriveSend';
-import { overdriveAttachPhoto } from './overdriveAttachPhoto';
 import { requestOverdriveReply, confirmOverdriveSend } from './apiClient';
 import type { OverdriveReplyResponse, OverdriveSendConfirmPayload } from './apiClient';
-import type { OverdriveStage, OverdriveThreadContext } from './types';
+import type { OverdriveAttachResult, OverdriveSendResult, OverdriveStage, OverdriveThreadContext } from './types';
 
 export interface ThreadScrape {
   conversation_key: string;
@@ -90,6 +88,18 @@ export interface OrchestratorDeps {
    * exactly once. Optional so callers that don't wire it still work.
    */
   reacquireComposer?: () => Promise<boolean>;
+
+  /**
+   * Attempt the DOM send inside the target page. The orchestrator runs
+   * in the MV3 background worker, so it cannot touch Messenger's
+   * document directly.
+   */
+  sendText: (text: string) => Promise<OverdriveSendResult>;
+
+  /**
+   * Optional page-side attachment hook for AI-question selfie replies.
+   */
+  attachPhoto?: (photoDataUrl: string) => Promise<OverdriveAttachResult>;
 
   /**
    * Emit a structured event to the background worker for
@@ -516,13 +526,21 @@ async function orchestrateReplyInner(
   // Step 7: if AI-question, attach photo before send
   let attach: OrchestratorResult['attach'] | undefined;
   if (reply.ai_question_triggered && reply.photo_data_url) {
-    const attachResult = await overdriveAttachPhoto(reply.photo_data_url);
+    const attachResult = deps.attachPhoto
+      ? await deps.attachPhoto(reply.photo_data_url)
+      : {
+          ok: false,
+          method: 'not_attempted' as const,
+          latency_ms: 0,
+          error: 'attach_not_wired',
+          attempts: [],
+        };
     attach = { ok: attachResult.ok, method: attachResult.method };
     // If attach failed, we still send the text reply.
   }
 
   // Step 8: DOM-verified send
-  const sendResult = await overdriveSend(reply.reply_text || '');
+  const sendResult = await deps.sendText(reply.reply_text || '');
 
   // Migration 310 write-through: server writes the terminal event
   // (overdrive.reply_sent | overdrive.appointment_set |

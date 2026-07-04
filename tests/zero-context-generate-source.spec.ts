@@ -262,6 +262,21 @@ test('Overdrive blocks unsafe meta replies before injection and clears failed dr
   expect(sender).toContain("k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$')");
 });
 
+test('Overdrive autonomous send runs inside the Messenger tab, not the background worker', () => {
+  const orchestrator = read('entrypoints/lib/overdrive/orchestrator.ts');
+  const background = read('entrypoints/lib/overdrive/backgroundController.ts');
+  const content = read('entrypoints/content.ts');
+  expect(orchestrator).not.toContain("import { overdriveSend } from './overdriveSend'");
+  expect(orchestrator).not.toContain('const sendResult = await overdriveSend(');
+  expect(orchestrator).toContain('sendText: (text: string) => Promise<OverdriveSendResult>');
+  expect(orchestrator).toContain('const sendResult = await deps.sendText(reply.reply_text ||');
+  expect(background).toContain("type: 'OVERDRIVE_SEND_TEXT'");
+  expect(background).toContain('orchestrator_exception');
+  expect(content).toContain("msg.type === 'OVERDRIVE_SEND_TEXT'");
+  expect(content).toContain("await import('./lib/overdrive/overdriveSend')");
+  expect(content).toContain('const result = await mod.overdriveSend(text)');
+});
+
 test('Overdrive ignores Messenger system cards and debounces by inbound hash, not tab', () => {
   const bridge = read('entrypoints/lib/overdrive/contentBridge.ts');
   const facebook = read('entrypoints/lib/platforms/facebook.ts');
@@ -280,6 +295,20 @@ test('Overdrive ignores Messenger system cards and debounces by inbound hash, no
   expect(background).toContain('Let Messenger finish painting the latest bubble');
   expect(background).toContain('`${scrape.scrape.conversation_key}:${scrape.scrape.last_inbound_hash ||');
   expect(background).not.toContain('const debounceKey = `tab:${tabId}`');
+});
+
+test('Overdrive detector rearms with page-side ticks and watches Facebook text mutations', () => {
+  const background = read('entrypoints/lib/overdrive/backgroundController.ts');
+  const content = read('entrypoints/content.ts');
+  const detector = read('entrypoints/lib/overdrive/overdriveDetector.ts');
+  expect(background).not.toContain('if (state.perTabDetectorInstalled.has(tab.id)) continue;');
+  expect(background).toContain("type: 'OVERDRIVE_DETECTOR_TICK'");
+  expect(content).toContain("msg.type === 'OVERDRIVE_DETECTOR_TICK'");
+  expect(content).toContain("await import('./lib/overdrive/overdriveDetector')");
+  expect(detector).toContain('activeThreadTimer');
+  expect(detector).toContain("if (m.type === 'characterData')");
+  expect(detector).toContain('characterData: true');
+  expect(detector).toContain('overdriveDetectorAlarmTick');
 });
 
 test('Overdrive header dot paints from the same state as the pill', () => {

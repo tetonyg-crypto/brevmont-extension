@@ -38,6 +38,7 @@ interface DetectorState {
   callback: DetectionCallback | null;
   observers: MutationObserver[];
   titleTimer: number | null;
+  activeThreadTimer: number | null;
   lastTitle: string;
   lastActiveThreadContainer: Element | null;
 }
@@ -47,6 +48,7 @@ const state: DetectorState = {
   callback: null,
   observers: [],
   titleTimer: null,
+  activeThreadTimer: null,
   lastTitle: '',
   lastActiveThreadContainer: null,
 };
@@ -112,21 +114,46 @@ function installActiveThreadObserver(): MutationObserver | null {
   const main = document.querySelector('[role="main"]');
   if (!main) return null;
 
+  const queueSignal = () => {
+    if (state.activeThreadTimer !== null) {
+      clearTimeout(state.activeThreadTimer);
+    }
+    state.activeThreadTimer = window.setTimeout(() => {
+      state.activeThreadTimer = null;
+      emit({
+        type: 'mutation_active_thread',
+        detected_at: Date.now(),
+      });
+    }, 150);
+  };
+
   const obs = new MutationObserver((mutations) => {
-    let addedCount = 0;
+    let noteworthy = false;
     for (const m of mutations) {
       if (m.type === 'childList' && m.addedNodes.length > 0) {
-        addedCount += m.addedNodes.length;
+        noteworthy = true;
+        break;
+      }
+      if (m.type === 'characterData') {
+        noteworthy = true;
+        break;
+      }
+      if (m.type === 'attributes') {
+        noteworthy = true;
+        break;
       }
     }
-    if (addedCount === 0) return;
-    emit({
-      type: 'mutation_active_thread',
-      detected_at: Date.now(),
-    });
+    if (!noteworthy) return;
+    queueSignal();
   });
 
-  obs.observe(main, { childList: true, subtree: true });
+  obs.observe(main, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ['aria-label', 'data-visualcompletion', 'data-testid', 'class'],
+  });
   return obs;
 }
 
@@ -217,6 +244,10 @@ export function uninstall(): void {
     try { obs.disconnect(); } catch { /* noop */ }
   }
   state.observers = [];
+  if (state.activeThreadTimer !== null) {
+    clearTimeout(state.activeThreadTimer);
+    state.activeThreadTimer = null;
+  }
   uninstallTitleObserver();
   state.installed = false;
   state.callback = null;

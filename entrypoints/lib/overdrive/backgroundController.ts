@@ -16,7 +16,7 @@
  * All state is idempotent — installing twice is a no-op.
  */
 
-import type { OrchestratorSettings, OrchestratorDeps, ThreadScrape } from './orchestrator';
+import type { OrchestratorSettings, OrchestratorDeps, OrchestratorResult, ThreadScrape } from './orchestrator';
 import { orchestrateReply, isHeroStage, replayPendingConfirms } from './orchestrator';
 import { reportOverdriveDetection } from './apiClient';
 import { radarCapture, radarSweepDone } from './radarClient';
@@ -276,11 +276,19 @@ async function armDetectorOnAllFbTabs(): Promise<void> {
   const tabs = await findFacebookTabs();
   for (const tab of tabs) {
     if (!tab.id) continue;
-    if (state.perTabDetectorInstalled.has(tab.id)) continue;
     const ok = await sendToTab<{ ok: boolean }>(tab.id, { type: 'OVERDRIVE_INSTALL_DETECTOR' });
     if (ok?.ok) {
+      const firstInstall = !state.perTabDetectorInstalled.has(tab.id);
       state.perTabDetectorInstalled.add(tab.id);
-      await overdriveLog({ event: 'detector_installed', tab_id: tab.id, url: tab.url });
+      if (firstInstall) {
+        await overdriveLog({ event: 'detector_installed', tab_id: tab.id, url: tab.url });
+      }
+      // Page/content-script state can be replaced without the service
+      // worker seeing a tab lifecycle event. A light tick proves the
+      // detector callback is alive and gives Overdrive a catch-up scan.
+      void sendToTab(tab.id, { type: 'OVERDRIVE_DETECTOR_TICK' });
+    } else {
+      state.perTabDetectorInstalled.delete(tab.id);
     }
   }
 }
@@ -417,6 +425,35 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
       });
       return !!r?.ok;
     },
+    sendText: async (text: string) => {
+      const r = await sendToTab<{ ok: boolean; result?: any; error?: string }>(tabId, {
+        type: 'OVERDRIVE_SEND_TEXT',
+        payload: { text },
+      });
+      if (r?.result) return r.result;
+      return {
+        ok: false,
+        method: 'not_attempted',
+        verified: false,
+        latency_ms: 0,
+        error: r?.error || 'send_bridge_failed',
+        attempts: [],
+      };
+    },
+    attachPhoto: async (photoDataUrl: string) => {
+      const r = await sendToTab<{ ok: boolean; result?: any; error?: string }>(tabId, {
+        type: 'OVERDRIVE_ATTACH_PHOTO',
+        payload: { photoDataUrl },
+      });
+      if (r?.result) return r.result;
+      return {
+        ok: false,
+        method: 'not_attempted',
+        latency_ms: 0,
+        error: r?.error || 'attach_bridge_failed',
+        attempts: [],
+      };
+    },
     emitEvent: (event) => {
       void overdriveLog({ event: 'orchestrator_emit', ...event });
       // Fire chrome.notifications on escalation with fallback to badge.
@@ -436,7 +473,19 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
     getRepRepliesTodayCount,
   };
 
-  const result = await orchestrateReply(scrape.scrape, cached!.settings, deps);
+  let result: OrchestratorResult;
+  try {
+    result = await orchestrateReply(scrape.scrape, cached!.settings, deps);
+  } catch (err: any) {
+    await overdriveLog({
+      event: 'orchestrator_exception',
+      tab_id: tabId,
+      conversation_key: scrape.scrape.conversation_key,
+      error: err?.message || 'unknown',
+      stack: err?.stack || null,
+    });
+    return;
+  }
   if (result.attempted && result.send?.verified) {
     await bumpRepRepliesTodayCount();
   }
