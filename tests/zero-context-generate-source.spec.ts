@@ -199,10 +199,12 @@ test('Overdrive is rep-accessible unless manager settings explicitly disables it
 
   expect(client).toContain('dealership_disabled?: boolean');
   expect(panel).toContain('data.dealership_disabled === true');
-  expect(panel).toContain('linked && disclosureAcked && hasPhoto && !dealerBlocked');
+  expect(panel).toContain('linked && disclosureAcked && !dealerBlocked');
   expect(panel).not.toContain('Your GM has Overdrive disabled at the dealership');
   expect(panel).not.toContain('!data.dealership_enabled');
+  expect(panel).not.toContain('Upload thumbs-up selfie');
   expect(main).toContain('data.dealership_disabled === true');
+  expect(main).toContain('prerequisites_met: linked && disclosureAcked');
   expect(main).not.toContain('Your GM has Overdrive disabled at the store');
   expect(main).not.toContain("title.textContent = 'Overdrive: off (dealership)'");
 });
@@ -306,6 +308,9 @@ test('Overdrive detector rearms with page-side ticks and watches Facebook text m
   expect(content).toContain("msg.type === 'OVERDRIVE_DETECTOR_TICK'");
   expect(content).toContain("await import('./lib/overdrive/overdriveDetector')");
   expect(detector).toContain('activeThreadTimer');
+  expect(detector).toContain('mainWatchTimer');
+  expect(detector).toContain('replaceActiveThreadObserver');
+  expect(detector).toContain("conversation_hint: 'active_thread_rearmed'");
   expect(detector).toContain("if (m.type === 'characterData')");
   expect(detector).toContain('characterData: true');
   expect(detector).toContain('overdriveDetectorAlarmTick');

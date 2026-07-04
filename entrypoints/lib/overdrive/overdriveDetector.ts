@@ -38,7 +38,9 @@ interface DetectorState {
   callback: DetectionCallback | null;
   observers: MutationObserver[];
   titleTimer: number | null;
+  mainWatchTimer: number | null;
   activeThreadTimer: number | null;
+  activeThreadObserver: MutationObserver | null;
   lastTitle: string;
   lastActiveThreadContainer: Element | null;
 }
@@ -48,7 +50,9 @@ const state: DetectorState = {
   callback: null,
   observers: [],
   titleTimer: null,
+  mainWatchTimer: null,
   activeThreadTimer: null,
+  activeThreadObserver: null,
   lastTitle: '',
   lastActiveThreadContainer: null,
 };
@@ -113,6 +117,7 @@ function installConversationListObserver(): MutationObserver | null {
 function installActiveThreadObserver(): MutationObserver | null {
   const main = document.querySelector('[role="main"]');
   if (!main) return null;
+  state.lastActiveThreadContainer = main;
 
   const queueSignal = () => {
     if (state.activeThreadTimer !== null) {
@@ -154,7 +159,27 @@ function installActiveThreadObserver(): MutationObserver | null {
     attributes: true,
     attributeFilter: ['aria-label', 'data-visualcompletion', 'data-testid', 'class'],
   });
+  state.activeThreadObserver = obs;
   return obs;
+}
+
+function replaceActiveThreadObserver(): void {
+  const main = document.querySelector('[role="main"]');
+  if (!main || main === state.lastActiveThreadContainer) return;
+  if (state.activeThreadObserver) {
+    try { state.activeThreadObserver.disconnect(); } catch { /* noop */ }
+    state.observers = state.observers.filter((obs) => obs !== state.activeThreadObserver);
+    state.activeThreadObserver = null;
+  }
+  const next = installActiveThreadObserver();
+  if (next) {
+    state.observers.push(next);
+    emit({
+      type: 'mutation_active_thread',
+      detected_at: Date.now(),
+      conversation_hint: 'active_thread_rearmed',
+    });
+  }
 }
 
 /**
@@ -183,10 +208,24 @@ function installTitleObserver(): void {
   }, 1000);
 }
 
+function installMainWatchdog(): void {
+  if (state.mainWatchTimer !== null) return;
+  state.mainWatchTimer = window.setInterval(() => {
+    replaceActiveThreadObserver();
+  }, 750);
+}
+
 function uninstallTitleObserver(): void {
   if (state.titleTimer !== null) {
     clearInterval(state.titleTimer);
     state.titleTimer = null;
+  }
+}
+
+function uninstallMainWatchdog(): void {
+  if (state.mainWatchTimer !== null) {
+    clearInterval(state.mainWatchTimer);
+    state.mainWatchTimer = null;
   }
 }
 
@@ -200,6 +239,7 @@ function uninstallTitleObserver(): void {
  */
 export function overdriveDetectorAlarmTick(): void {
   if (!state.callback) return;
+  replaceActiveThreadObserver();
   // Emit an alarm signal so the caller can do a light re-scan even
   // if the observers didn't fire.
   emit({
@@ -233,6 +273,7 @@ export function install(callback: DetectionCallback): void {
   if (threadObs) state.observers.push(threadObs);
 
   installTitleObserver();
+  installMainWatchdog();
   state.installed = true;
 }
 
@@ -248,7 +289,10 @@ export function uninstall(): void {
     clearTimeout(state.activeThreadTimer);
     state.activeThreadTimer = null;
   }
+  state.activeThreadObserver = null;
+  state.lastActiveThreadContainer = null;
   uninstallTitleObserver();
+  uninstallMainWatchdog();
   state.installed = false;
   state.callback = null;
 }

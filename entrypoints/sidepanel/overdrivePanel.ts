@@ -2,7 +2,7 @@
  * Overdrive sidepanel UI — self-contained.
  *
  * Mounts into a caller-provided DOM node. Handles the full rep flow:
- *   Link Facebook → Disclosure → Photo → Toggle ON.
+ *   Link Facebook → Disclosure → Toggle ON.
  *
  * Vanilla TS to match sidepanel/main.ts style; no React.
  */
@@ -13,7 +13,6 @@ import {
   postLinkFacebook,
   postUnlinkFacebook,
   postDisclosureAck,
-  postRepPhoto,
   getThreadState,
   pauseThread,
   resumeThread,
@@ -213,15 +212,13 @@ function renderPanelHTML(data: OverdrivePanelState['data'], currentThread: Overd
   if (!data) return '';
   const linked = data.linked.facebook;
   const disclosureAcked = !!data.linked.disclosure_ack_at;
-  const hasPhoto = !!data.linked.rep_photo_url;
   const enabled = !!data.settings?.enabled;
   const dealerBlocked = data.dealership_disabled === true;
 
   const steps = [
     { key: 'link', label: 'Link Facebook', done: linked, current: !linked },
     { key: 'disclosure', label: 'Review + acknowledge', done: disclosureAcked, current: linked && !disclosureAcked },
-    { key: 'photo', label: 'Upload thumbs-up selfie', done: hasPhoto, current: linked && disclosureAcked && !hasPhoto },
-    { key: 'toggle', label: dealerBlocked ? 'Overdrive blocked by manager' : 'Turn Overdrive ON', done: enabled, current: linked && disclosureAcked && hasPhoto && !enabled && !dealerBlocked },
+    { key: 'toggle', label: dealerBlocked ? 'Overdrive blocked by manager' : 'Turn Overdrive ON', done: enabled, current: linked && disclosureAcked && !enabled && !dealerBlocked },
   ];
 
   const dealerBanner = dealerBlocked
@@ -249,7 +246,7 @@ function renderPanelHTML(data: OverdrivePanelState['data'], currentThread: Overd
 
   const toggleControl = enabled
     ? `<button class="overdrive-btn overdrive-btn-secondary" data-action="disable">Turn Overdrive OFF</button>`
-    : linked && disclosureAcked && hasPhoto && !dealerBlocked
+    : linked && disclosureAcked && !dealerBlocked
       ? `<button class="overdrive-btn overdrive-btn-primary" data-action="enable">Turn Overdrive ON</button>`
       : '';
 
@@ -277,9 +274,6 @@ function renderActionForStep(key: string, data: OverdrivePanelState['data']): st
   }
   if (key === 'disclosure') {
     return `<button class="overdrive-btn overdrive-btn-primary" data-action="show-disclosure">Read + Acknowledge</button>`;
-  }
-  if (key === 'photo') {
-    return `<label class="overdrive-btn overdrive-btn-primary"><input type="file" accept="image/*" data-action="photo-file" style="display:none">Upload Thumbs-Up Selfie</label>`;
   }
   return '';
 }
@@ -342,15 +336,6 @@ function wireEvents(container: HTMLElement, state: OverdrivePanelState, paint: (
   container.querySelector('[data-action="show-disclosure"]')?.addEventListener('click', () => {
     showDisclosureModal(container, reload);
   });
-
-  const photoInput = container.querySelector('[data-action="photo-file"]') as HTMLInputElement | null;
-  if (photoInput) {
-    photoInput.addEventListener('change', async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-      await runPhotoUploadFlow(file, container, reload);
-    });
-  }
 
   container.querySelector('[data-action="enable"]')?.addEventListener('click', async () => {
     try {
@@ -499,26 +484,6 @@ function showDisclosureModal(container: HTMLElement, reload: () => Promise<void>
       alert(`Could not save acknowledgement: ${err?.message || 'unknown'}`);
     }
   });
-}
-
-async function runPhotoUploadFlow(file: File, container: HTMLElement, reload: () => Promise<void>): Promise<void> {
-  if (file.size > 512 * 1024) {
-    alert(`Photo too large (${Math.round(file.size / 1024)} KB). Please pick something under 512 KB.`);
-    return;
-  }
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result || ''));
-    r.onerror = () => reject(r.error || new Error('read_failed'));
-    r.readAsDataURL(file);
-  });
-  try {
-    await postRepPhoto(dataUrl);
-    try { chrome.runtime.sendMessage({ type: 'OVERDRIVE_REFRESH_SETTINGS' }); } catch { /* noop */ }
-    await reload();
-  } catch (err: any) {
-    alert(`Photo upload failed: ${err?.message || 'unknown'}`);
-  }
 }
 
 const STYLES = `

@@ -2201,7 +2201,6 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       const data = await getOverdriveSettings();
       const linked = !!data.linked?.facebook;
       const disclosureAcked = !!data.linked?.disclosure_ack_at;
-      const hasPhoto = !!data.linked?.rep_photo_url;
       const enabled = !!data.settings?.enabled;
       const dealerDisabled = data.dealership_disabled === true;
       const dealerEnabled = !dealerDisabled;
@@ -2209,7 +2208,7 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
         enabled,
         dealer_enabled: dealerEnabled,
         dealer_disabled: dealerDisabled,
-        prerequisites_met: linked && disclosureAcked && hasPhoto,
+        prerequisites_met: linked && disclosureAcked,
       });
     } catch { /* keep hidden on error */ }
   };
