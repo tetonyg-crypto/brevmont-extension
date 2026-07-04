@@ -59,12 +59,25 @@ function findSendButton(): HTMLElement | null {
     'div[aria-label="Send"][role="button"]',
     'button[aria-label="Send"]',
     'div[role="button"][aria-label*="Send" i]',
+    '[role="button"][aria-label*="Press Enter" i]',
+    '[aria-label*="Press Enter" i]',
+    '[role="button"][aria-label*="send a message" i]',
     // Marketplace/Messenger sometimes uses "Press Enter to send" tooltip.
     '[data-visualcompletion="loading-state"]:not(:empty) + div[role="button"][aria-label*="Send" i]',
   ];
   for (const sel of candidates) {
     const el = document.querySelector(sel) as HTMLElement | null;
     if (el) return el;
+  }
+  const roleButtons = Array.from(document.querySelectorAll('[role="button"], button')) as HTMLElement[];
+  for (const btn of roleButtons) {
+    const label = [
+      btn.getAttribute('aria-label') || '',
+      btn.getAttribute('data-testid') || '',
+      btn.innerText || '',
+      Array.from(btn.querySelectorAll('[aria-label]')).map((el) => el.getAttribute('aria-label') || '').join(' '),
+    ].join(' ');
+    if (/\b(send|press enter)\b/i.test(label)) return btn;
   }
   return null;
 }
@@ -166,16 +179,34 @@ async function attemptButtonClick(composer: HTMLElement | null, sentText: string
 async function attemptReactFiber(composer: HTMLElement | null, sentText: string): Promise<boolean> {
   const btn = findSendButton();
   if (!btn) return false;
-  const propsKey = Object.keys(btn).find((k) => k.startsWith('__reactProps$'));
-  if (!propsKey) return false;
-  const props = (btn as any)[propsKey];
-  if (typeof props?.onClick !== 'function') return false;
+  const nodes: HTMLElement[] = [
+    btn,
+    ...Array.from(btn.querySelectorAll('*')).slice(0, 30) as HTMLElement[],
+  ];
+  let parent = btn.parentElement;
+  for (let i = 0; parent && i < 4; i += 1) {
+    nodes.push(parent);
+    parent = parent.parentElement;
+  }
+  let clickHandler: Function | null = null;
+  let handlerNode: HTMLElement | null = null;
+  for (const node of nodes) {
+    const propsKey = Object.keys(node).find((k) => k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$'));
+    const props = propsKey ? (node as any)[propsKey] : null;
+    const candidate = props?.onClick || props?.onPress || props?.onMouseDown;
+    if (typeof candidate === 'function') {
+      clickHandler = candidate;
+      handlerNode = node;
+      break;
+    }
+  }
+  if (!clickHandler || !handlerNode) return false;
   try {
     // Fabricate a plausible React SyntheticEvent shape.
     const syntheticEvent = {
       type: 'click',
-      target: btn,
-      currentTarget: btn,
+      target: handlerNode,
+      currentTarget: handlerNode,
       preventDefault() {},
       stopPropagation() {},
       persist() {},
@@ -185,7 +216,7 @@ async function attemptReactFiber(composer: HTMLElement | null, sentText: string)
       cancelable: true,
       button: 0,
     };
-    props.onClick(syntheticEvent);
+    clickHandler(syntheticEvent);
   } catch (err) {
     return false;
   }

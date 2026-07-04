@@ -49,11 +49,73 @@ function readThreadHeaderText(): string {
   }
 }
 
+type MessageDirection = 'inbound' | 'outbound' | 'unknown';
+
+function collectAriaText(root: Element): string {
+  const labels: string[] = [];
+  const own = root.getAttribute('aria-label');
+  if (own) labels.push(own);
+  root.querySelectorAll('[aria-label]').forEach((el) => {
+    const label = el.getAttribute('aria-label');
+    if (label) labels.push(label);
+  });
+  return labels.join(' ');
+}
+
+function isColorLight(value: string): boolean {
+  const m = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (!m) return false;
+  const [, r, g, b] = m.map(Number);
+  return r >= 225 && g >= 225 && b >= 225;
+}
+
+function isColorDarkBubble(value: string): boolean {
+  const m = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([.\d]+))?/i);
+  if (!m) return false;
+  const r = Number(m[1]);
+  const g = Number(m[2]);
+  const b = Number(m[3]);
+  const a = m[4] == null ? 1 : Number(m[4]);
+  if (a < 0.4) return false;
+  // Outbound Messenger bubbles are usually blue/purple with white text.
+  // Inbound bubbles are light gray with dark text. Avoid exact brand
+  // colors because Facebook rotates themes.
+  return (r + g + b) / 3 < 190;
+}
+
+function visualDirection(row: Element, main: Element): MessageDirection {
+  try {
+    const mainRect = (main as HTMLElement).getBoundingClientRect();
+    const rowRect = (row as HTMLElement).getBoundingClientRect();
+    const rowCenter = rowRect.left + rowRect.width / 2;
+    const rightSide = rowCenter > mainRect.left + mainRect.width * 0.56;
+    const leftSide = rowCenter < mainRect.left + mainRect.width * 0.44;
+    const styled = Array.from(row.querySelectorAll('div, span')).slice(0, 80) as HTMLElement[];
+    const outboundColor = styled.some((el) => {
+      const s = window.getComputedStyle(el);
+      return isColorLight(s.color) && isColorDarkBubble(s.backgroundColor);
+    });
+    if (outboundColor && rightSide) return 'outbound';
+    if (leftSide && !outboundColor) return 'inbound';
+  } catch { /* geometry can fail in detached nodes */ }
+  return 'unknown';
+}
+
+function determineMessageDirection(row: Element, main: Element): MessageDirection {
+  const aria = collectAriaText(row);
+  if (/\b(?:you sent|sent by you|you replied|you:|outgoing|message sent)\b/i.test(aria)) return 'outbound';
+  if (/\b(?:sent by|profile picture of|from)\b/i.test(aria) && !/\byou\b/i.test(aria)) return 'inbound';
+  return visualDirection(row, main);
+}
+
+function cleanMessageText(value: string): string {
+  return String(value || '')
+    .replace(/\b(?:message sent|delivered|seen|read|sending)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function readRecentMessages(): { history: string[]; lastInbound: string } {
-  // Best-effort: iterate the message list bubbles inside [role="main"].
-  // We rely on the ordering — outbound bubbles have role="row" with an
-  // aria-label containing "You sent" or class markers; inbound don't.
-  // Facebook rotates class names, so we prefer role + aria-label.
   const history: string[] = [];
   let lastInbound = '';
   try {
@@ -64,13 +126,13 @@ function readRecentMessages(): { history: string[]; lastInbound: string } {
       main.querySelectorAll('[role="row"], [data-scope="messages_table"]')
     ).slice(-30);
     for (const c of candidates) {
-      const text = (c as HTMLElement).innerText?.replace(/\s+/g, ' ').trim();
+      const text = cleanMessageText((c as HTMLElement).innerText || '');
       if (!text || text.length < 2) continue;
-      history.push(text.slice(0, 500));
-      // Naive inbound detection: outbound rows usually have "You sent"
-      // in an aria-label somewhere in the subtree.
-      const outboundHint = !!c.querySelector('[aria-label*="You sent" i]');
-      if (!outboundHint) lastInbound = text.slice(0, 2000);
+      const direction = determineMessageDirection(c, main);
+      if (direction === 'unknown') continue;
+      const labelled = `${direction === 'outbound' ? 'Rep' : 'Customer'}: ${text.slice(0, 460)}`;
+      history.push(labelled);
+      if (direction === 'inbound') lastInbound = text.slice(0, 2000);
     }
   } catch { /* noop */ }
   return { history: history.slice(-15), lastInbound };

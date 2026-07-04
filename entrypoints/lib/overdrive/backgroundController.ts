@@ -423,6 +423,13 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
       });
       return !!r?.ok;
     },
+    clearInjectedText: async (text: string) => {
+      const r = await sendToTab<{ ok: boolean }>(tabId, {
+        type: 'OVERDRIVE_CLEAR_INJECTED_TEXT',
+        payload: { text },
+      });
+      return !!r?.ok;
+    },
     reacquireComposer: async () => {
       const r = await sendToTab<{ ok: boolean }>(tabId, {
         type: 'OVERDRIVE_REACQUIRE_COMPOSER',

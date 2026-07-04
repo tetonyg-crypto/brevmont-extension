@@ -76,6 +76,13 @@ export interface OrchestratorDeps {
   injectText: (text: string) => Promise<boolean>;
 
   /**
+   * Clear the composer only when it still contains the Overdrive draft
+   * we wrote. Used after unsafe-output blocks and send verification
+   * failures so a bad autonomous draft never sits in the rep's box.
+   */
+  clearInjectedText?: (text: string) => Promise<boolean>;
+
+  /**
    * Reacquire the composer after a first-inject miss. Marketplace's
    * inline composer collapses on scroll or when a sub-panel opens; a
    * single scrollIntoView + re-query catches this. Returns true when
@@ -99,6 +106,28 @@ export interface OrchestratorDeps {
    * Cached in chrome.storage.local by the background worker.
    */
   getRepRepliesTodayCount: () => Promise<number>;
+}
+
+const UNSAFE_OVERDRIVE_REPLY_PATTERNS: Array<{ reason: string; re: RegExp }> = [
+  { reason: 'clarifying_meta', re: /\bi\s+need\s+to\s+clarify\b/i },
+  { reason: 'clarifying_meta', re: /\b(?:need|needs)\s+(?:more|a bit more)?\s*context\b/i },
+  { reason: 'self_reference', re: /\b(?:my|own)\s+previous\s+reply\b/i },
+  { reason: 'self_reference', re: /\bprevious\s+(?:reply|message)\s+that\s+got\s+echoed\b/i },
+  { reason: 'self_reference', re: /\bechoed\s+back\b/i },
+  { reason: 'thread_meta', re: /\byou(?:'ve| have)\s+asked\s+twice\b/i },
+  { reason: 'thread_meta', re: /\balready\s+given\s+you\s+(?:two|2)\s+time\s+slots\b/i },
+  { reason: 'internal_label', re: /\b(?:TEXT|EMAIL|CRM NOTE)\b[\s:]/ },
+  { reason: 'ai_meta', re: /\b(?:as an ai|i am an ai|i'm an ai|language model|assistant)\b/i },
+];
+
+export function unsafeOverdriveReplyReason(text: string): string | null {
+  const body = String(text || '').trim();
+  if (!body) return 'empty_reply';
+  if (body.length > 520) return 'too_long';
+  for (const pattern of UNSAFE_OVERDRIVE_REPLY_PATTERNS) {
+    if (pattern.re.test(body)) return pattern.reason;
+  }
+  return null;
 }
 
 // ─── Persist-and-replay send-confirm pipeline (1.16.53 Bug B ext) ──
@@ -251,6 +280,18 @@ async function orchestrateReplyInner(
   deps: OrchestratorDeps,
   startedAt: number,
 ): Promise<OrchestratorResult> {
+  if (!String(scrape.last_inbound_text || '').trim()) {
+    deps.emitEvent({
+      type: 'overdrive.skipped',
+      conversation_key: scrape.conversation_key,
+      payload: { reason: 'no_confident_inbound' },
+    });
+    return {
+      attempted: false,
+      skipped_reason: 'no_confident_inbound',
+      latency_ms: Date.now() - startedAt,
+    };
+  }
 
   // Step 1: qualification
   const qualification = qualifyThread({
@@ -379,6 +420,31 @@ async function orchestrateReplyInner(
     };
   }
 
+  const unsafeReason = unsafeOverdriveReplyReason(reply.reply_text || '');
+  if (unsafeReason) {
+    try { await deps.clearInjectedText?.(reply.reply_text || ''); } catch { /* noop */ }
+    await recordReplyOutcome(scrape.conversation_key, {
+      stage: 'escalated',
+      last_inbound_hash: scrape.last_inbound_hash,
+      escalated_reason: `unsafe_reply:${unsafeReason}`,
+    });
+    deps.emitEvent({
+      type: 'overdrive.escalated',
+      conversation_key: scrape.conversation_key,
+      payload: {
+        reason: `unsafe_reply:${unsafeReason}`,
+        stage: 'escalated',
+      },
+    });
+    return {
+      attempted: true,
+      skipped_reason: `unsafe_reply:${unsafeReason}`,
+      qualification,
+      reply,
+      latency_ms: Date.now() - startedAt,
+    };
+  }
+
   // Step 4: pre-send jitter
   const delay = buildSafetyDelay(reply.reply_text || '');
   await delay.waitBeforeInject();
@@ -402,6 +468,7 @@ async function orchestrateReplyInner(
     }
   }
   if (!injectOk) {
+    try { await deps.clearInjectedText?.(reply.reply_text || ''); } catch { /* noop */ }
     deps.emitEvent({
       type: 'overdrive.send_unverified',
       conversation_key: scrape.conversation_key,
@@ -505,6 +572,7 @@ async function orchestrateReplyInner(
   }
 
   if (!sendResult.ok || !sendResult.verified) {
+    try { await deps.clearInjectedText?.(reply.reply_text || ''); } catch { /* noop */ }
     deps.emitEvent({
       type: 'overdrive.send_unverified',
       conversation_key: scrape.conversation_key,

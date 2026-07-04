@@ -1944,6 +1944,42 @@ export default defineContentScript({
         return true;
       }
 
+      if (msg.type === 'OVERDRIVE_CLEAR_INJECTED_TEXT') {
+        (async () => {
+          try {
+            if (!isFacebook || window !== window.top) {
+              sendResponse({ ok: false, error: 'not_facebook_top_frame' });
+              return;
+            }
+            const expected = String(msg.payload?.text || '').trim();
+            const box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement | null;
+            if (!box) {
+              sendResponse({ ok: true, cleared: false, reason: 'composer_not_found' });
+              return;
+            }
+            const current = String((box as HTMLElement).innerText || box.textContent || '').replace(/\s+/g, ' ').trim();
+            if (!current) {
+              sendResponse({ ok: true, cleared: false, reason: 'already_empty' });
+              return;
+            }
+            const expectedNeedle = expected.slice(0, Math.max(24, Math.min(80, expected.length)));
+            const currentNeedle = current.slice(0, Math.max(24, Math.min(80, current.length)));
+            const matchesDraft = expected
+              ? current.includes(expectedNeedle) || expected.includes(currentNeedle)
+              : false;
+            if (!matchesDraft) {
+              sendResponse({ ok: false, cleared: false, reason: 'composer_mismatch' });
+              return;
+            }
+            safeInjectText(box, '');
+            sendResponse({ ok: true, cleared: true });
+          } catch (err: any) {
+            sendResponse({ ok: false, error: err?.message || 'clear_injected_text_failed' });
+          }
+        })();
+        return true;
+      }
+
       if (msg.type === 'OVERDRIVE_REACQUIRE_COMPOSER') {
         // 1.16.53 Bug A retry — scroll the composer back into view then
         // wait 300ms for Marketplace's inline composer to re-render. Ack

@@ -210,6 +210,28 @@ test('appointment saves create rep reminders through the same alarm path', () =>
   expect(background).toContain('brevmont-check-alerts');
 });
 
+test('Overdrive blocks unsafe meta replies before injection and clears failed drafts', () => {
+  const orchestrator = read('entrypoints/lib/overdrive/orchestrator.ts');
+  const background = read('entrypoints/lib/overdrive/backgroundController.ts');
+  const content = read('entrypoints/content.ts');
+  const bridge = read('entrypoints/lib/overdrive/contentBridge.ts');
+  const sender = read('entrypoints/lib/overdrive/overdriveSend.ts');
+
+  expect(orchestrator).toContain('UNSAFE_OVERDRIVE_REPLY_PATTERNS');
+  expect(orchestrator).toContain('unsafeOverdriveReplyReason');
+  expect(orchestrator).toContain('no_confident_inbound');
+  expect(orchestrator).toContain('unsafe_reply:${unsafeReason}');
+  expect(orchestrator).toContain('await deps.clearInjectedText?.(reply.reply_text || \'\')');
+  expect(background).toContain("type: 'OVERDRIVE_CLEAR_INJECTED_TEXT'");
+  expect(content).toContain("msg.type === 'OVERDRIVE_CLEAR_INJECTED_TEXT'");
+  expect(content).toContain('composer_mismatch');
+  expect(bridge).toContain("type MessageDirection = 'inbound' | 'outbound' | 'unknown'");
+  expect(bridge).toContain("`${direction === 'outbound' ? 'Rep' : 'Customer'}:");
+  expect(bridge).toContain("if (direction === 'unknown') continue;");
+  expect(sender).toContain('[aria-label*="Press Enter" i]');
+  expect(sender).toContain("k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$')");
+});
+
 test('Overdrive header dot paints from the same state as the pill', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   const css = read('entrypoints/lib/panelCSS.ts');
