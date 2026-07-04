@@ -2,19 +2,19 @@
 /**
  * scripts/ship.mjs
  *
- * One command = build + Desktop sync + ZIP + API public sync.
+ * One command = build + Desktop sync + stale Desktop cleanup + ZIP + API public sync.
  *
  *   npm run ship
  *
  * Replaces the multi-step shuffle that's caused version chaos. The ONLY
- * canonical Desktop folder is ~/Desktop/brevmont-extension on macOS
- * (C:\Users\Yancy\Desktop\brevmont-extension on the retired Windows PC).
- * Every ship pass nukes and re-fills that folder so it can never be
- * stale relative to the build.
+ * Desktop folder Yancy should load is the visible versioned folder:
+ * ~/Desktop/Brevmont-<version>-UNPACKED on macOS.
+ * Every ship pass deletes stale Brevmont extension Desktop builds and
+ * re-fills the current versioned folder.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, rmSync, cpSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, cpSync, readFileSync, writeFileSync, statSync, readdirSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -28,9 +28,9 @@ const IS_WINDOWS = process.platform === 'win32';
 const HOME = homedir();
 const pkg = JSON.parse(readFileSync(resolve(REPO_ROOT, 'package.json'), 'utf8'));
 const VERSION = pkg.version;
-const DESKTOP_FOLDER = IS_WINDOWS
-  ? 'C:\\Users\\Yancy\\Desktop\\brevmont-extension'
-  : join(HOME, 'Desktop', 'brevmont-extension');
+const DESKTOP_DIR = IS_WINDOWS
+  ? 'C:\\Users\\Yancy\\Desktop'
+  : join(HOME, 'Desktop');
 const DESKTOP_VERSIONED_FOLDER = IS_WINDOWS
   ? `C:\\Users\\Yancy\\Desktop\\Brevmont-${VERSION}-UNPACKED`
   : join(HOME, 'Desktop', `Brevmont-${VERSION}-UNPACKED`);
@@ -85,6 +85,27 @@ function readJsonIfExists(filePath) {
   } catch (error) {
     console.error(`[ship] Could not parse ${filePath}: ${error.message}`);
     process.exit(1);
+  }
+}
+
+function isStaleDesktopExtensionBuild(entryName) {
+  if (entryName === `Brevmont-${VERSION}-UNPACKED`) return false;
+  return (
+    /^Brevmont-\d+\.\d+\.\d+-UNPACKED$/i.test(entryName) ||
+    /^brevmont-extension$/i.test(entryName) ||
+    /^brevmont-extension-\d+\.\d+\.\d+-chrome-web-store\.zip$/i.test(entryName) ||
+    /^!?BREVMONT-.*UPLOAD-TO-CWS\.zip$/i.test(entryName) ||
+    /^UPLOAD-TO-CWS\.zip$/i.test(entryName)
+  );
+}
+
+function cleanDesktopExtensionBuilds() {
+  if (!existsSync(DESKTOP_DIR)) return;
+  for (const entry of readdirSync(DESKTOP_DIR)) {
+    if (!isStaleDesktopExtensionBuild(entry)) continue;
+    const target = join(DESKTOP_DIR, entry);
+    console.log(`[ship] Removing stale Desktop extension artifact -> ${target}`);
+    rmSync(target, { recursive: true, force: true });
   }
 }
 
@@ -195,14 +216,8 @@ assertVersionCanShip({
 log('1/6', `Building wxt -> .output/chrome-mv3 (target version: v${VERSION})`);
 run('npx', ['wxt', 'build']);
 
-log('2/6', `Syncing build -> ${DESKTOP_FOLDER}`);
-if (existsSync(DESKTOP_FOLDER)) {
-  rmSync(DESKTOP_FOLDER, { recursive: true, force: true });
-}
-mkdirSync(DESKTOP_FOLDER, { recursive: true });
-cpSync(BUILD_DIR, DESKTOP_FOLDER, { recursive: true });
-
-console.log(`[ship] Syncing visible versioned Desktop copy -> ${DESKTOP_VERSIONED_FOLDER}`);
+log('2/6', `Cleaning stale Desktop builds and syncing -> ${DESKTOP_VERSIONED_FOLDER}`);
+cleanDesktopExtensionBuilds();
 if (existsSync(DESKTOP_VERSIONED_FOLDER)) {
   rmSync(DESKTOP_VERSIONED_FOLDER, { recursive: true, force: true });
 }
@@ -216,18 +231,10 @@ writeFileSync(
     'Load this folder in chrome://extensions:',
     DESKTOP_VERSIONED_FOLDER,
     '',
-    'Canonical source-of-truth folder:',
-    DESKTOP_FOLDER,
-    '',
   ].join('\n')
 );
 
 log('3/6', `Verifying Desktop manifest matches v${VERSION}`);
-const desktopManifest = JSON.parse(readFileSync(join(DESKTOP_FOLDER, 'manifest.json'), 'utf8'));
-if (desktopManifest.version !== VERSION) {
-  console.error(`[ship] manifest version drift: package.json=${VERSION} desktop=${desktopManifest.version}`);
-  process.exit(1);
-}
 const desktopVersionedManifest = JSON.parse(readFileSync(join(DESKTOP_VERSIONED_FOLDER, 'manifest.json'), 'utf8'));
 if (desktopVersionedManifest.version !== VERSION) {
   console.error(`[ship] versioned Desktop manifest drift: package.json=${VERSION} desktop=${desktopVersionedManifest.version}`);
@@ -257,13 +264,12 @@ cpSync(MANIFEST_PATH, API_PUBLIC_MANIFEST);
 verifyLiveManifest(buildManifest);
 
 console.log(`\n[ship] DONE. v${VERSION} is live at:
-  Desktop folder: ${DESKTOP_FOLDER}
-  Desktop visible: ${DESKTOP_VERSIONED_FOLDER}
-  Desktop marker:  ${DESKTOP_MARKER}
+  Desktop folder: ${DESKTOP_VERSIONED_FOLDER}
+  Desktop marker: ${DESKTOP_MARKER}
   Zip (repo):     ${ZIP_PATH}
   Zip (API):      ${API_PUBLIC_ZIP}
   Manifest:       ${API_PUBLIC_MANIFEST}
 
-Founder: chrome://extensions → reload Brevmont (or remove + Load Unpacked from the visible Desktop folder).
+Founder: chrome://extensions → remove old Brevmont loads, then Load Unpacked from the Desktop folder above.
 Watch Telegram for "🔌 Brevmont extension installed/update: v${VERSION}".
 `);

@@ -31,17 +31,18 @@ get re-introduced.
 ## Required patterns
 
 ### Single ship path
-**One canonical Desktop folder on this Mac:** `/Users/yancygarcia/Desktop/brevmont-extension`.
-**One obvious visible copy:** `/Users/yancygarcia/Desktop/Brevmont-<version>-UNPACKED`.
+**One Desktop folder on this Mac:** `/Users/yancygarcia/Desktop/Brevmont-<version>-UNPACKED`.
 Every extension release, auth fix, build handoff, or "try this version"
-MUST run `npm run ship` so both Desktop folders are nuked and re-filled
-with the newest build. Do not say an extension change is done until both
-`/Users/yancygarcia/Desktop/brevmont-extension/manifest.json` and the
-visible versioned Desktop folder's `manifest.json` show the new version.
-Do NOT load an older versioned folder in `chrome://extensions`.
+MUST run `npm run ship` so stale Desktop builds/zips are deleted and
+the current versioned folder is re-filled with the newest build. Do not
+say an extension change is done until the versioned Desktop folder's
+`manifest.json` shows the new version. Do NOT load an older versioned
+folder in `chrome://extensions`.
 Do NOT keep `brevmont-extension-v1.13`, `brevmont-extension-old`,
-`brevmont-extension-backup` etc. on Desktop — they confuse which version
-is actually running. See Lab Note 2026-04-29.
+`brevmont-extension-backup`, old `Brevmont-<version>-UNPACKED` folders,
+old `brevmont-extension-<version>-chrome-web-store.zip` files, or the
+lowercase `brevmont-extension` folder on Desktop — they confuse which
+version is actually running. See Lab Note 2026-04-29.
 
 ### Version stamping
 Every event posted by the extension MUST include `ext_version` in
@@ -67,9 +68,10 @@ worked; the heartbeat is how the API logs version distribution.
 
 ## Hard "Do Not" List
 - DO NOT remove the `npm run ship` script or replace it with manual steps
-- DO NOT load any extension folder other than the canonical Desktop path
-- DO NOT finish or report an extension fix until the canonical Desktop
-  folder has been refreshed and manifest-verified
+- DO NOT load any extension folder other than the current versioned
+  Desktop path
+- DO NOT finish or report an extension fix until the current versioned
+  Desktop folder has been refreshed and manifest-verified
 - DO NOT add new fetch calls bypassing `honestEvents.logEvent` for events
 - DO NOT bump version in manifest.json directly — bump `package.json`
   and let WXT wire it through (per `scripts/ship.mjs` flow)
