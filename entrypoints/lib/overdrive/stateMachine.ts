@@ -20,6 +20,7 @@
  */
 
 import type { OverdriveStage } from './types';
+import { isSoloTestMode } from './safetyEnvelope';
 
 const STORAGE_KEY_PREFIX = 'overdrive_thread:';
 
@@ -143,7 +144,11 @@ export function shouldReply(input: ShouldReplyInput): ShouldReplyResult {
   if (state.paused) {
     return { should: false, reason: `thread_paused:${state.paused_reason || 'unknown'}` };
   }
-  if (rep_currently_typing_in_thread) {
+  // Solo test mode (1.16.53) — demo escape hatch. When the rep flips
+  // Solo test mode ON from the sidepanel pill, we skip the
+  // rep_actively_typing guard entirely so a single person can play
+  // both buyer and rep for a demo without standing us down.
+  if (rep_currently_typing_in_thread && !isSoloTestMode()) {
     return { should: false, reason: 'rep_actively_typing' };
   }
   if (state.last_inbound_hash === last_inbound_hash) {

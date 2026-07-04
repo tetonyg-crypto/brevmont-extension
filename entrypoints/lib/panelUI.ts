@@ -80,6 +80,13 @@ export function getPanelHTML(platform: Platform): string {
     </div>
     <button id="o8-overdrive-pill-toggle" type="button" style="background:#0D6E6E;color:#fff;border:0;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;">Turn on</button>
   </div>
+  <label id="o8-overdrive-solo-row" style="display:flex;align-items:flex-start;gap:6px;margin-top:6px;padding-left:16px;cursor:pointer;">
+    <input id="o8-overdrive-solo-toggle" type="checkbox" style="margin-top:2px;flex-shrink:0;" />
+    <span style="line-height:1.3;">
+      <span style="font-weight:600;color:#0F1419;font-size:11px;">Solo test mode</span>
+      <span style="display:block;color:rgba(15,20,25,0.55);font-size:10px;margin-top:1px;">For demos where you are both the rep and the buyer</span>
+    </span>
+  </label>
 </div>
 <div id="o8-challenge-banner" class="challenge-banner" style="display:none"></div>
 <div id="o8-customer-stamp" class="customer-stamp" style="display:none"></div>

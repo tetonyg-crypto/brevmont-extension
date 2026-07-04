@@ -1593,7 +1593,35 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
   const title = root.querySelector('#o8-overdrive-pill-title') as HTMLElement | null;
   const sub = root.querySelector('#o8-overdrive-pill-sub') as HTMLElement | null;
   const btn = root.querySelector('#o8-overdrive-pill-toggle') as HTMLButtonElement | null;
+  const soloToggle = root.querySelector('#o8-overdrive-solo-toggle') as HTMLInputElement | null;
   if (!el || !dot || !title || !sub || !btn) return;
+
+  // Solo test mode — persist to chrome.storage.local and broadcast so
+  // the background service worker + safetyEnvelope pick it up. When on,
+  // shouldReply() ignores rep_actively_typing and the pre-send jitter +
+  // typing sim collapse to 500ms each so a demo fires in under 2s.
+  if (soloToggle) {
+    try {
+      const stored = await chrome.storage.local.get(['overdrive_solo_test_mode']);
+      soloToggle.checked = !!stored?.overdrive_solo_test_mode;
+    } catch { /* noop */ }
+    soloToggle.onchange = async () => {
+      const enabled = !!soloToggle.checked;
+      try {
+        await chrome.storage.local.set({ overdrive_solo_test_mode: enabled });
+      } catch { /* noop */ }
+      // Broadcast so the background controller reconfigures safetyEnvelope
+      // + any content-script instances in Facebook tabs immediately.
+      try {
+        chrome.runtime.sendMessage({
+          type: 'OVERDRIVE_SOLO_TEST_MODE_CHANGED',
+          enabled,
+        }).catch(() => {});
+      } catch { /* noop */ }
+      // Repaint immediately so the amber tint + subtitle switch reflect the toggle.
+      await loadAndPaint();
+    };
+  }
 
   const paint = (state: {
     enabled: boolean;
@@ -1601,8 +1629,19 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
     prerequisites_met: boolean;
     hours?: string;
     hasFired?: boolean;
+    solo_test_mode?: boolean;
   }): void => {
     el.style.display = 'block';
+    // 1.16.53: Solo test mode gets an amber-tinted pill so it's obvious
+    // this is a demo-only state, not the normal live-floor pill. Amber
+    // (not red — red is reserved for errors).
+    if (state.solo_test_mode) {
+      el.style.background = '#FFF7ED';
+      el.style.borderBottom = '1px solid #FDBA74';
+    } else {
+      el.style.background = '#fff';
+      el.style.borderBottom = '1px solid rgba(0,0,0,0.06)';
+    }
     if (!state.prerequisites_met) {
       dot.style.background = '#94a3b8';
       title.textContent = 'Overdrive: setup needed';
@@ -1621,11 +1660,17 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
     }
     btn.style.display = 'inline-block';
     if (state.enabled) {
-      dot.style.background = '#10B981';
-      title.textContent = 'Overdrive: on';
-      sub.textContent = state.hasFired
-        ? `Auto-answers your Marketplace leads${state.hours ? ` — active ${state.hours}` : ''}`
-        : 'On and waiting. It will answer the next new Marketplace inquiry automatically.';
+      dot.style.background = state.solo_test_mode ? '#F59E0B' : '#10B981';
+      title.textContent = state.solo_test_mode
+        ? 'Overdrive: on · Solo test mode'
+        : 'Overdrive: on';
+      sub.style.fontWeight = state.solo_test_mode ? '600' : 'normal';
+      sub.style.color = state.solo_test_mode ? '#9A3412' : 'rgba(15,20,25,0.55)';
+      sub.textContent = state.solo_test_mode
+        ? 'Solo test mode active — 500ms delays, standby off. For demos, not live floor use.'
+        : (state.hasFired
+          ? `Auto-answers your Marketplace leads${state.hours ? ` — active ${state.hours}` : ''}`
+          : 'On and waiting. It will answer the next new Marketplace inquiry automatically.');
       btn.textContent = 'Turn off';
       btn.style.background = '#F3F4F6';
       btn.style.color = '#0F1419';
@@ -1650,11 +1695,17 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       const dealerEnabled = !!data.dealership_enabled;
       const start = data.settings?.active_hours_start ?? 7;
       const end = data.settings?.active_hours_end ?? 22;
+      let soloMode = false;
+      try {
+        const s = await chrome.storage.local.get(['overdrive_solo_test_mode']);
+        soloMode = !!s?.overdrive_solo_test_mode;
+      } catch { /* noop */ }
       paint({
         enabled,
         dealer_enabled: dealerEnabled,
         prerequisites_met: linked && disclosureAcked && hasPhoto,
         hours: `${start}:00 – ${end}:00`,
+        solo_test_mode: soloMode,
       });
     } catch { /* keep hidden on error */ }
   };

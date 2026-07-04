@@ -17,10 +17,39 @@
  */
 
 import type { OrchestratorSettings, OrchestratorDeps, ThreadScrape } from './orchestrator';
-import { orchestrateReply, isHeroStage } from './orchestrator';
+import { orchestrateReply, isHeroStage, replayPendingConfirms } from './orchestrator';
 import { reportOverdriveDetection } from './apiClient';
 import { radarCapture, radarSweepDone } from './radarClient';
 import { getOverdriveSettings } from './apiClient';
+import { configureSoloTestMode } from './safetyEnvelope';
+
+const SOLO_TEST_MODE_KEY = 'overdrive_solo_test_mode';
+
+async function loadSoloTestModeFromStorage(): Promise<boolean> {
+  try {
+    const stored = await chrome.storage.local.get([SOLO_TEST_MODE_KEY]);
+    return !!stored?.[SOLO_TEST_MODE_KEY];
+  } catch {
+    return false;
+  }
+}
+
+async function broadcastSoloTestModeToTabs(enabled: boolean): Promise<void> {
+  const tabs = await new Promise<chrome.tabs.Tab[]>((resolve) => {
+    try {
+      chrome.tabs.query({ url: ['*://*.facebook.com/*', '*://*.messenger.com/*'] }, (t) => resolve(t || []));
+    } catch { resolve([]); }
+  });
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      chrome.tabs.sendMessage(tab.id, { type: 'OVERDRIVE_SOLO_TEST_MODE_SET', enabled }, () => {
+        // Consume runtime.lastError; some tabs may not have the content script.
+        void chrome.runtime.lastError;
+      });
+    } catch { /* noop */ }
+  }
+}
 
 const KEEPALIVE_ALARM = 'overdrive-keepalive';
 const RADAR_SWEEP_ALARM = 'radar-catchup-sweep';
@@ -394,6 +423,12 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
       });
       return !!r?.ok;
     },
+    reacquireComposer: async () => {
+      const r = await sendToTab<{ ok: boolean }>(tabId, {
+        type: 'OVERDRIVE_REACQUIRE_COMPOSER',
+      });
+      return !!r?.ok;
+    },
     emitEvent: (event) => {
       void overdriveLog({ event: 'orchestrator_emit', ...event });
       // Fire chrome.notifications on escalation with fallback to badge.
@@ -468,6 +503,19 @@ export async function installOverdriveController(): Promise<void> {
   // Kick off settings load and eager keepalive.
   void loadSettingsFresh();
 
+  // 1.16.53: seed safetyEnvelope's solo-test-mode module state from
+  // persisted storage on install so the flag survives service-worker
+  // restarts. The sidepanel writes to the same storage key when the
+  // rep toggles it.
+  void loadSoloTestModeFromStorage().then((enabled) => {
+    configureSoloTestMode(enabled);
+    void broadcastSoloTestModeToTabs(enabled);
+  });
+
+  // 1.16.53: replay any pending send-confirms that survived a worker
+  // teardown. Runs on install/startup and on every keepalive alarm.
+  void replayPendingConfirms();
+
   // chrome.runtime.onStartup — open FB tab if keep_facebook_open.
   try {
     chrome.runtime.onStartup?.addListener(() => {
@@ -535,6 +583,9 @@ export async function installOverdriveController(): Promise<void> {
         if (overdriveGoLightIsGreen(cached) || radarEligible) {
           await armDetectorOnAllFbTabs();
         }
+        // Replay any pending send-confirms that survived a worker
+        // teardown mid-fetch. Server dedupes by idempotency_key.
+        void replayPendingConfirms();
         return;
       }
       if (alarm.name === RADAR_SWEEP_ALARM) {
@@ -581,6 +632,22 @@ export async function installOverdriveController(): Promise<void> {
         void handleDetectionSignal(tabId, m.signal || { type: 'unknown' });
         sendResponse({ ok: true });
         return false;
+      }
+
+      if (m.type === 'OVERDRIVE_SOLO_TEST_MODE_CHANGED') {
+        // Sidepanel toggle — persist, reconfigure safetyEnvelope in the
+        // background worker, and broadcast to all Facebook tabs so
+        // their content-script safetyEnvelope module state matches.
+        const enabled = !!(m as any).enabled;
+        (async () => {
+          try {
+            await chrome.storage.local.set({ [SOLO_TEST_MODE_KEY]: enabled });
+          } catch { /* noop */ }
+          configureSoloTestMode(enabled);
+          await broadcastSoloTestModeToTabs(enabled);
+          sendResponse({ ok: true });
+        })();
+        return true;
       }
 
       if (m.type === 'OVERDRIVE_REFRESH_SETTINGS') {

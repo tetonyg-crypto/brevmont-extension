@@ -76,6 +76,15 @@ export interface OrchestratorDeps {
   injectText: (text: string) => Promise<boolean>;
 
   /**
+   * Reacquire the composer after a first-inject miss. Marketplace's
+   * inline composer collapses on scroll or when a sub-panel opens; a
+   * single scrollIntoView + re-query catches this. Returns true when
+   * the composer is now reachable so the orchestrator can retry inject
+   * exactly once. Optional so callers that don't wire it still work.
+   */
+  reacquireComposer?: () => Promise<boolean>;
+
+  /**
    * Emit a structured event to the background worker for
    * event_log_v2 forwarding + chrome.notifications.
    */
@@ -92,6 +101,73 @@ export interface OrchestratorDeps {
   getRepRepliesTodayCount: () => Promise<number>;
 }
 
+// ─── Persist-and-replay send-confirm pipeline (1.16.53 Bug B ext) ──
+// Before every confirmOverdriveSend fetch, we stash the payload under
+// chrome.storage.local.overdrive_pending_confirms[idempotency_key]. On
+// success we delete it. On worker wake (background alarm tick, startup,
+// or install), we scan the map and re-fire anything < 10min old.
+const PENDING_CONFIRMS_KEY = 'overdrive_pending_confirms';
+const PENDING_MAX_AGE_MS = 10 * 60 * 1000;
+
+interface PendingConfirmEntry {
+  queued_at: number;
+  payload: OverdriveSendConfirmPayload;
+}
+
+async function stashPendingConfirm(payload: OverdriveSendConfirmPayload): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get([PENDING_CONFIRMS_KEY]);
+    const map = (stored?.[PENDING_CONFIRMS_KEY] as Record<string, PendingConfirmEntry>) || {};
+    map[payload.idempotency_key] = { queued_at: Date.now(), payload };
+    await chrome.storage.local.set({ [PENDING_CONFIRMS_KEY]: map });
+  } catch { /* storage full, non-fatal */ }
+}
+
+async function clearPendingConfirm(idempotencyKey: string): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get([PENDING_CONFIRMS_KEY]);
+    const map = (stored?.[PENDING_CONFIRMS_KEY] as Record<string, PendingConfirmEntry>) || {};
+    if (map[idempotencyKey]) {
+      delete map[idempotencyKey];
+      await chrome.storage.local.set({ [PENDING_CONFIRMS_KEY]: map });
+    }
+  } catch { /* noop */ }
+}
+
+/**
+ * Replay any pending confirms that survived a worker suspension.
+ * Called by backgroundController on startup, install, and on the
+ * keepalive alarm tick. Idempotent — the server dedupes by
+ * idempotency_key so re-fires are safe. Drops entries older than
+ * PENDING_MAX_AGE_MS since the server's lookup window is 5min and
+ * older entries won't resolve to a reply row.
+ */
+export async function replayPendingConfirms(): Promise<{ replayed: number; dropped: number }> {
+  let replayed = 0;
+  let dropped = 0;
+  try {
+    const stored = await chrome.storage.local.get([PENDING_CONFIRMS_KEY]);
+    const map = (stored?.[PENDING_CONFIRMS_KEY] as Record<string, PendingConfirmEntry>) || {};
+    const now = Date.now();
+    const nextMap: Record<string, PendingConfirmEntry> = {};
+    for (const [key, entry] of Object.entries(map)) {
+      if (now - entry.queued_at > PENDING_MAX_AGE_MS) {
+        dropped += 1;
+        continue;
+      }
+      const result = await raceWithTimeout(confirmOverdriveSend(entry.payload), 3000, 'confirm_replay');
+      if (result.ok) {
+        replayed += 1;
+      } else {
+        // Keep the entry so a later tick can retry.
+        nextMap[key] = entry;
+      }
+    }
+    await chrome.storage.local.set({ [PENDING_CONFIRMS_KEY]: nextMap });
+  } catch { /* noop */ }
+  return { replayed, dropped };
+}
+
 export interface OrchestratorResult {
   attempted: boolean;
   skipped_reason?: string;
@@ -100,6 +176,51 @@ export interface OrchestratorResult {
   send?: { ok: boolean; method: string; verified: boolean };
   attach?: { ok: boolean; method: string };
   latency_ms: number;
+}
+
+/**
+ * Await a fetch-like Promise with a hard timeout. MV3 service workers
+ * can be torn down mid-fetch. If the confirm-POST is fire-and-forget
+ * the terminal event is lost silently. Await with a 3s ceiling so the
+ * orchestrator returns cleanly either way and we can log the timeout.
+ */
+async function raceWithTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<{ ok: true; value: T } | { ok: false; reason: string }> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const timeout = new Promise<{ ok: false; reason: string }>((resolve) => {
+      timer = setTimeout(() => resolve({ ok: false, reason: `${label}_timeout_${ms}ms` }), ms);
+    });
+    const race = await Promise.race<{ ok: true; value: T } | { ok: false; reason: string }>([
+      p.then((value) => ({ ok: true as const, value })).catch((err) => ({ ok: false as const, reason: `${label}_error:${err?.message || 'unknown'}` })),
+      timeout,
+    ]);
+    return race;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Keep the MV3 service worker alive during the orchestrator's pre-send
+ * sleep window (jitter + typing time can total ~18s). Calling any
+ * chrome API on a 20s interval resets the idle-kill timer. Returns a
+ * cancel function the orchestrator MUST call in a finally block.
+ */
+function startServiceWorkerKeepalive(): () => void {
+  let cancelled = false;
+  const tick = (): void => {
+    if (cancelled) return;
+    try {
+      chrome.runtime?.getPlatformInfo?.(() => { /* noop — the call itself is the keepalive */ });
+    } catch { /* noop */ }
+  };
+  // Initial tick then every 20s.
+  tick();
+  const handle = setInterval(tick, 20_000);
+  return () => {
+    cancelled = true;
+    clearInterval(handle);
+  };
 }
 
 /**
@@ -113,6 +234,23 @@ export async function orchestrateReply(
   deps: OrchestratorDeps
 ): Promise<OrchestratorResult> {
   const startedAt = Date.now();
+  // Keep the MV3 service worker alive across the pre-send jitter +
+  // typing sleep windows. Cancelled in the finally block below so the
+  // interval doesn't leak.
+  const stopKeepalive = startServiceWorkerKeepalive();
+  try {
+  return await orchestrateReplyInner(scrape, settings, deps, startedAt);
+  } finally {
+    stopKeepalive();
+  }
+}
+
+async function orchestrateReplyInner(
+  scrape: ThreadScrape,
+  settings: OrchestratorSettings,
+  deps: OrchestratorDeps,
+  startedAt: number,
+): Promise<OrchestratorResult> {
 
   // Step 1: qualification
   const qualification = qualifyThread({
@@ -246,16 +384,60 @@ export async function orchestrateReply(
   await delay.waitBeforeInject();
 
   // Step 5: inject text
-  const injectOk = await deps.injectText(reply.reply_text || '');
+  let injectOk = await deps.injectText(reply.reply_text || '');
+  let injectMethodTag: string = 'inject_failed';
+  if (!injectOk) {
+    // Bug A fix (1.16.53) — one-shot reacquire retry. The Marketplace
+    // inline composer collapses on scroll or when a sub-panel opens; a
+    // single scroll-into-view + re-query lands a second inject attempt
+    // in most cases.
+    if (deps.reacquireComposer) {
+      try {
+        const reacquireOk = await deps.reacquireComposer();
+        if (reacquireOk) {
+          injectOk = await deps.injectText(reply.reply_text || '');
+          if (!injectOk) injectMethodTag = 'inject_failed_after_reacquire';
+        }
+      } catch { /* noop — treat as failed */ }
+    }
+  }
   if (!injectOk) {
     deps.emitEvent({
       type: 'overdrive.send_unverified',
       conversation_key: scrape.conversation_key,
-      payload: { reason: 'inject_failed', stage: reply.next_stage },
+      payload: { reason: injectMethodTag, stage: reply.next_stage },
     });
+    // Bug A fix (1.16.53): the inject_failed early-return used to
+    // return without posting confirmOverdriveSend, so the server saw
+    // reply_generated but never send_unverified. Fire the confirm here
+    // with verified=false so the terminal event lands in event_log_v2.
+    // Stash the payload FIRST so a worker teardown mid-fetch leaves a
+    // record for replay on the next wake.
+    const injectFailPayload: OverdriveSendConfirmPayload = {
+      conversation_key: scrape.conversation_key,
+      idempotency_key: reply.idempotency_key,
+      verified: false,
+      method: injectMethodTag,
+      latency_ms: Date.now() - startedAt,
+      attempts: [],
+      ai_output: reply.reply_text || '',
+      next_stage: reply.next_stage,
+      ai_question_triggered: !!reply.ai_question_triggered,
+      attach_ok: false,
+      attach_method: null,
+    };
+    await stashPendingConfirm(injectFailPayload);
+    const injectFailConfirm = await raceWithTimeout(
+      confirmOverdriveSend(injectFailPayload),
+      3000,
+      'confirm_inject_failed',
+    );
+    if (injectFailConfirm.ok) {
+      await clearPendingConfirm(reply.idempotency_key);
+    }
     return {
       attempted: true,
-      skipped_reason: 'inject_failed',
+      skipped_reason: injectMethodTag,
       qualification,
       reply,
       latency_ms: Date.now() - startedAt,
@@ -294,7 +476,33 @@ export async function orchestrateReply(
     attach_ok: attach?.ok || false,
     attach_method: attach?.method || null,
   };
-  confirmOverdriveSend(confirmPayload).catch(() => { /* fire-and-forget */ });
+  // Bug B fix (1.16.53): stash the payload to chrome.storage.local
+  // BEFORE the fetch so a worker teardown mid-fetch leaves a record
+  // the next-wake replay pass will re-fire. Await the fetch with a
+  // 3s ceiling; on success clear the pending entry. On timeout, emit
+  // a local event AND leave the pending entry so replay picks it up.
+  await stashPendingConfirm(confirmPayload);
+  const confirmResult = await raceWithTimeout(
+    confirmOverdriveSend(confirmPayload),
+    3000,
+    'confirm_send',
+  );
+  if (confirmResult.ok) {
+    await clearPendingConfirm(reply.idempotency_key);
+  } else {
+    try {
+      deps.emitEvent({
+        type: 'overdrive.send_unverified',
+        conversation_key: scrape.conversation_key,
+        payload: {
+          reason: 'send_confirm_timeout',
+          detail: confirmResult.reason,
+          idempotency_key: reply.idempotency_key,
+          confirm_payload: confirmPayload,
+        },
+      });
+    } catch { /* noop */ }
+  }
 
   if (!sendResult.ok || !sendResult.verified) {
     deps.emitEvent({

@@ -19,6 +19,7 @@ import { addBreadcrumb } from '../lib/breadcrumbs';
 import { extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface, isChannelOrUiName } from './lib/leadContextScan';
 import { detectCustomerFromPage } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
+import { withInjectInFlight as overdriveWithInjectInFlight, configureSoloTestMode as overdriveConfigureSoloTestMode } from './lib/overdrive/safetyEnvelope';
 
 type Platform = 'vinsolutions' | 'gmail' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'google-messages' | 'cargurus' | 'carsdotcom' | 'autotrader' | 'dealersocket' | 'elead' | 'unknown';
 
@@ -587,6 +588,11 @@ export default defineContentScript({
     }
 
     function safeInjectText(target: HTMLElement, text: string) {
+      // 1.16.53 Bug C belt-and-suspenders: wrap the whole safeInjectText
+      // dispatch pipeline in withInjectInFlight so the rep-input watcher
+      // ignores every synthetic event our injector generates, even if a
+      // browser somehow flags one isTrusted.
+      overdriveWithInjectInFlight(() => {
       target.focus();
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
         const proto = Object.getPrototypeOf(target);
@@ -688,6 +694,7 @@ export default defineContentScript({
       }
       target.dispatchEvent(new Event('change', { bubbles: true }));
       target.dispatchEvent(new Event('blur', { bubbles: true }));
+      }); // end overdriveWithInjectInFlight
     }
 
     function stripEmailMarkdownPreserveLines(value: unknown): string {
@@ -1931,6 +1938,50 @@ export default defineContentScript({
           }
         })();
         return true;
+      }
+
+      if (msg.type === 'OVERDRIVE_REACQUIRE_COMPOSER') {
+        // 1.16.53 Bug A retry — scroll the composer back into view then
+        // wait 300ms for Marketplace's inline composer to re-render. Ack
+        // whether the composer is now reachable. Orchestrator then
+        // retries injectText once.
+        (async () => {
+          try {
+            if (!isFacebook || window !== window.top) {
+              sendResponse({ ok: false, error: 'not_facebook_top_frame' });
+              return;
+            }
+            let box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement | null;
+            if (box) {
+              try { box.scrollIntoView({ block: 'end', inline: 'nearest' }); } catch { /* noop */ }
+            }
+            await new Promise((r) => setTimeout(r, 300));
+            box = document.querySelector('div[role="textbox"][contenteditable="true"]') as HTMLElement | null;
+            if (!box) {
+              sendResponse({ ok: false, error: 'composer_not_found_after_reacquire' });
+              return;
+            }
+            try { box.focus(); } catch { /* noop */ }
+            sendResponse({ ok: true });
+          } catch (err: any) {
+            sendResponse({ ok: false, error: err?.message || 'reacquire_failed' });
+          }
+        })();
+        return true;
+      }
+
+      if (msg.type === 'OVERDRIVE_SOLO_TEST_MODE_SET') {
+        // 1.16.53: sidepanel toggle broadcasts here so the content-script
+        // safetyEnvelope module state stays in sync. Same module is
+        // shared with stateMachine.shouldReply and with the pre-send
+        // jitter / typing sim.
+        try {
+          overdriveConfigureSoloTestMode(!!msg.enabled);
+          sendResponse({ ok: true });
+        } catch (err: any) {
+          sendResponse({ ok: false, error: err?.message || 'configure_failed' });
+        }
+        return false;
       }
 
       if (msg.type === 'OVERDRIVE_SCRAPE_FB_PROFILE') {
