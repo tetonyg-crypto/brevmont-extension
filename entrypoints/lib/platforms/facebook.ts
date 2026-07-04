@@ -19,6 +19,7 @@ import type {
 } from './types';
 import { extractVehicleHint } from './shared';
 import { stripConversationWrapper } from '../leadContextScan';
+import { cleanMessengerMessageText, isMessengerSystemCardText } from '../messengerSystemText';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
@@ -80,8 +81,9 @@ function scrapeThread(): ThreadContext {
     if (main) {
       const rows = Array.from(main.querySelectorAll('[role="row"], [data-scope="messages_table"]')).slice(-40);
       for (const row of rows) {
-        const text = (row as HTMLElement).innerText?.replace(/\s+/g, ' ').trim();
+        const text = cleanMessengerMessageText((row as HTMLElement).innerText || '');
         if (!text || text.length < 2) continue;
+        if (isMessengerSystemCardText(text)) continue;
         const outboundHint = !!row.querySelector('[aria-label*="You sent" i]');
         const direction = outboundHint ? 'outbound' : 'inbound';
         messages.push({ text: text.slice(0, 600), direction });

@@ -32,6 +32,7 @@ import {
 } from '../../lib/accessState';
 import { sanitizeCustomerFacingOutput } from '../lib/outputContract';
 import { cleanCustomerNameCandidate } from '../lib/leadContextScan';
+import { isMessengerSystemCardText } from '../lib/messengerSystemText';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Platform =
@@ -798,7 +799,7 @@ async function collectContextReplyPageText(): Promise<string> {
 }
 
 async function scanVisibleTextFallback(root: HTMLElement): Promise<AutoThreadScan | null> {
-  const pageText = await collectContextReplyPageText();
+  const pageText = cleanThreadRawText(await collectContextReplyPageText());
   const lastInbound = lastReadableThreadLine(pageText);
   if (!pageText && !lastInbound) return null;
   const scan: AutoThreadScan = {
@@ -872,8 +873,17 @@ function lastReadableThreadLine(rawText: unknown): string {
   const lines = String(rawText || '')
     .split(/\n+/)
     .map((line) => stripThreadDecorators(line))
-    .filter((line) => line.length > 3);
+    .filter((line) => line.length > 3)
+    .filter((line) => !isMessengerSystemCardText(line));
   return lines.length ? lines[lines.length - 1] : '';
+}
+
+function firstNonSystemThreadText(...candidates: unknown[]): string {
+  for (const candidate of candidates) {
+    const text = stripThreadDecorators(candidate);
+    if (text && !isMessengerSystemCardText(text)) return text;
+  }
+  return '';
 }
 
 function buildThreadMessages(value: any): AutoThreadScan['threadContext']['messages'] {
@@ -882,20 +892,29 @@ function buildThreadMessages(value: any): AutoThreadScan['threadContext']['messa
     text: stripThreadDecorators(message?.text || message?.body || message),
     direction: typeof message?.direction === 'string' ? message.direction : 'unknown',
     ts: typeof message?.ts === 'number' ? message.ts : undefined,
-  })).filter((message) => message.text.length > 0);
+  })).filter((message) => message.text.length > 0 && !isMessengerSystemCardText(message.text));
+}
+
+function cleanThreadRawText(rawText: unknown): string {
+  return String(rawText || '')
+    .split(/\n+/)
+    .map((line) => stripThreadDecorators(line))
+    .filter((line) => line.length > 0 && !isMessengerSystemCardText(line))
+    .join('\n')
+    .slice(0, 5000);
 }
 
 function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): AutoThreadScan | null {
   if (!ctx || typeof ctx !== 'object') return null;
   const thread = ctx.thread || {};
   const messages = buildThreadMessages(thread.messages);
-  const rawText = cleanContextText(thread.raw_text || ctx.raw_text || ctx.source_raw_text || '', 5000);
+  const rawText = cleanContextText(cleanThreadRawText(thread.raw_text || ctx.raw_text || ctx.source_raw_text || ''), 5000);
   const isDeterministicGmailThread = (ctx.platform || currentPlatform.platform) === 'gmail' && messages.length > 0;
-  const lastInbound = stripThreadDecorators(
-    thread.last_inbound_text ||
-    messages.slice().reverse().find((message) => message.direction === 'inbound')?.text ||
-    (isDeterministicGmailThread ? '' : messages[messages.length - 1]?.text) ||
-    (isDeterministicGmailThread ? '' : lastReadableThreadLine(rawText))
+  const lastInbound = firstNonSystemThreadText(
+    thread.last_inbound_text,
+    messages.slice().reverse().find((message) => message.direction === 'inbound')?.text,
+    isDeterministicGmailThread ? '' : messages[messages.length - 1]?.text,
+    isDeterministicGmailThread ? '' : lastReadableThreadLine(rawText)
   );
   const headerText = stripThreadDecorators(thread.header_text || ctx.context?.subject_line || ctx.context?.listing_title || '');
   if (!rawText && !lastInbound && !headerText) return null;

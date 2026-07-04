@@ -264,11 +264,19 @@ test('Overdrive blocks unsafe meta replies before injection and clears failed dr
 
 test('Overdrive ignores Messenger system cards and debounces by inbound hash, not tab', () => {
   const bridge = read('entrypoints/lib/overdrive/contentBridge.ts');
+  const facebook = read('entrypoints/lib/platforms/facebook.ts');
+  const sidepanel = read('entrypoints/sidepanel/main.ts');
+  const shared = read('entrypoints/lib/messengerSystemText.ts');
   const background = read('entrypoints/lib/overdrive/backgroundController.ts');
-  expect(bridge).toContain('function isMessengerSystemCardText');
-  expect(bridge).toContain('you can now rate each other');
-  expect(bridge).toContain('people may rate one another based on their interactions or transactions');
+  expect(shared).toContain("lower.includes('you can now rate each other')");
+  expect(shared).toContain("lower.includes('people may rate one another based on their interactions or transactions')");
+  expect(bridge).toContain("from '../messengerSystemText'");
+  expect(facebook).toContain("from '../messengerSystemText'");
   expect(bridge).toContain('if (isMessengerSystemCardText(text)) continue;');
+  expect(facebook).toContain('if (isMessengerSystemCardText(text)) continue;');
+  expect(sidepanel).toContain('function firstNonSystemThreadText');
+  expect(sidepanel).toContain('function cleanThreadRawText');
+  expect(sidepanel).toContain('!isMessengerSystemCardText(line)');
   expect(background).toContain('Let Messenger finish painting the latest bubble');
   expect(background).toContain('`${scrape.scrape.conversation_key}:${scrape.scrape.last_inbound_hash ||');
   expect(background).not.toContain('const debounceKey = `tab:${tabId}`');
@@ -437,8 +445,9 @@ test('honest event platform names stay aligned with adapter surfaces', () => {
 test('Gmail auto-scan does not invent last inbound from outbound or raw text fallback', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   expect(source).toContain("const isDeterministicGmailThread = (ctx.platform || currentPlatform.platform) === 'gmail' && messages.length > 0");
-  expect(source).toContain("(isDeterministicGmailThread ? '' : messages[messages.length - 1]?.text)");
-  expect(source).toContain("(isDeterministicGmailThread ? '' : lastReadableThreadLine(rawText))");
+  expect(source).toContain("isDeterministicGmailThread ? '' : messages[messages.length - 1]?.text");
+  expect(source).toContain("isDeterministicGmailThread ? '' : lastReadableThreadLine(rawText)");
+  expect(source).toContain('firstNonSystemThreadText(');
 });
 
 test('auto-scan keeps the textbox as optional steer and preserves honest fallback', () => {

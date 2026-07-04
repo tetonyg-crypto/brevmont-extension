@@ -16,6 +16,7 @@ import { install as installDetector, isInstalled } from './overdriveDetector';
 import type { DetectionSignal } from './types';
 import { installRepInputWatcher, markRepInput } from './safetyEnvelope';
 import type { ThreadScrape } from './orchestrator';
+import { cleanMessengerMessageText, isMessengerSystemCardText } from '../messengerSystemText';
 
 let detectorForwardingSet = false;
 
@@ -109,20 +110,7 @@ function determineMessageDirection(row: Element, main: Element): MessageDirectio
 }
 
 function cleanMessageText(value: string): string {
-  return String(value || '')
-    .replace(/\b(?:message sent|delivered|seen|read|sending)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function isMessengerSystemCardText(value: string): boolean {
-  const text = String(value || '').replace(/\s+/g, ' ').trim();
-  if (!text) return true;
-  if (/^you can now rate each other\b/i.test(text)) return true;
-  if (/\bpeople may rate one another based on their interactions or transactions\b/i.test(text)) return true;
-  if (/\brate\s+[^.]{1,80}$/i.test(text) && /\bpeople may rate one another\b/i.test(text)) return true;
-  if (/^(?:marketplace|sold\s*[-–]|see details|more options)$/i.test(text)) return true;
-  return false;
+  return cleanMessengerMessageText(value);
 }
 
 function readRecentMessages(): { history: string[]; lastInbound: string } {
