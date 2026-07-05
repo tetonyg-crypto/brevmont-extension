@@ -2,11 +2,11 @@
  * Speed + safety envelope — jitter and typing simulation. Called by
  * the background worker between detection and send.
  *
- * Spec targets (§v2 Phase 2):
- *   - Detection → sent under 15s
- *   - Randomized 3-10s pre-send jitter
- *   - Typing-time simulation: ~1s per 15 chars, capped at 8s
- *   - Never literally 0s every time
+ * Spec targets:
+ *   - Detection → sent quickly enough that reps can see Overdrive work.
+ *   - Small non-zero jitter so the pipeline never fires at literal 0ms.
+ *   - Keep the delay short to avoid MV3 worker teardown between
+ *     reply generation and DOM send.
  */
 
 /** Random integer inclusive of [min, max]. */
@@ -25,11 +25,11 @@ export function sleep(ms: number): Promise<void> {
  * native auto-replies are near-instant, but reps take a beat).
  */
 export function computePreSendJitterMs(): number {
-  // Triangular distribution around 5.5s with min=3, max=10.
+  // Triangular distribution around 1.5s with min=0.8s, max=2.2s.
   const u1 = Math.random();
   const u2 = Math.random();
   const combined = (u1 + u2) / 2;
-  return Math.max(3000, Math.min(10_000, Math.round(3000 + combined * 7000)));
+  return Math.max(800, Math.min(2200, Math.round(800 + combined * 1400)));
 }
 
 /**
@@ -39,8 +39,8 @@ export function computePreSendJitterMs(): number {
  */
 export function computeTypingMs(messageText: string): number {
   const chars = String(messageText || '').length;
-  const base = Math.min(8000, Math.max(1500, Math.round((chars / 15) * 1000)));
-  const jitter = 1 + (Math.random() - 0.5) * 0.4; // 0.8x - 1.2x
+  const base = Math.min(1800, Math.max(400, Math.round((chars / 80) * 1000)));
+  const jitter = 1 + (Math.random() - 0.5) * 0.3; // 0.85x - 1.15x
   return Math.round(base * jitter);
 }
 

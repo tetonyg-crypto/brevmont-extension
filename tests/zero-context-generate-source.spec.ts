@@ -40,11 +40,15 @@ test('manual Generate reads output chips after forced scan applies surface defau
 test('manual Generate protects direct vehicle-condition questions from generic follow-up drift', () => {
   const background = read('entrypoints/background.ts');
   expect(background).toContain('function isVehicleConditionQuestionText');
+  expect(background).toContain('function isFinanceQuestionText');
   expect(background).toContain('DIRECT CUSTOMER QUESTION OVERRIDE');
   expect(background).toContain('The latest customer message asks about vehicle condition');
+  expect(background).toContain('The latest customer message asks about financing, credit, down payment, payment estimates, or co-signers');
   expect(background).toContain('Do not write a generic availability follow-up');
   expect(background).toContain('looksLikeGenericAvailabilityFollowup(sections.text)');
   expect(background).toContain('sections.text = vehicleConditionFallbackReply()');
+  expect(background).toContain('looksLikeGenericFollowupForDirectQuestion(sections.text, latestInbound)');
+  expect(background).toContain('sections.text = financeFallbackReply(latestInbound)');
 });
 
 test('output chips are exclusive mode selectors before generation', () => {
@@ -259,7 +263,9 @@ test('Overdrive blocks unsafe meta replies before injection and clears failed dr
   expect(content).toContain('composer_mismatch');
   expect(bridge).toContain("type MessageDirection = 'inbound' | 'outbound' | 'unknown'");
   expect(bridge).toContain("`${direction === 'outbound' ? 'Rep' : 'Customer'}:");
-  expect(bridge).toContain("if (direction === 'unknown') continue;");
+  expect(bridge).toContain("if (direction === 'unknown') {");
+  expect(bridge).toContain('history.push(`Customer: ${text.slice(0, 460)}`)');
+  expect(bridge).toContain('lastInbound = text.slice(0, 2000)');
   expect(sender).toContain('[aria-label*="Press Enter" i]');
   expect(sender).toContain("k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$')");
 });
@@ -287,9 +293,12 @@ test('Overdrive ignores Messenger system cards and debounces by inbound hash, no
   const background = read('entrypoints/lib/overdrive/backgroundController.ts');
   expect(shared).toContain("lower.includes('you can now rate each other')");
   expect(shared).toContain("lower.includes('people may rate one another based on their interactions or transactions')");
+  expect(shared).toContain('is typing');
   expect(bridge).toContain("from '../messengerSystemText'");
   expect(facebook).toContain("from '../messengerSystemText'");
   expect(bridge).toContain('if (isMessengerSystemCardText(text)) continue;');
+  expect(bridge).toContain('history.push(`Customer: ${text.slice(0, 460)}`)');
+  expect(bridge).toContain('lastReadableInboundFromHistory(history)');
   expect(facebook).toContain('if (isMessengerSystemCardText(text)) continue;');
   expect(sidepanel).toContain('function firstNonSystemThreadText');
   expect(sidepanel).toContain('function cleanThreadRawText');

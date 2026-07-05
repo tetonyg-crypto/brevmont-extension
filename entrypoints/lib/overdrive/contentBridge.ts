@@ -113,6 +113,16 @@ function cleanMessageText(value: string): string {
   return cleanMessengerMessageText(value);
 }
 
+function lastReadableInboundFromHistory(history: string[]): string {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const line = history[index] || '';
+    const match = line.match(/^Customer:\s*(.+)$/i);
+    const text = cleanMessageText(match ? match[1] : line);
+    if (text && !isMessengerSystemCardText(text)) return text.slice(0, 2000);
+  }
+  return '';
+}
+
 function readRecentMessages(): { history: string[]; lastInbound: string } {
   const history: string[] = [];
   let lastInbound = '';
@@ -128,12 +138,17 @@ function readRecentMessages(): { history: string[]; lastInbound: string } {
       if (!text || text.length < 2) continue;
       if (isMessengerSystemCardText(text)) continue;
       const direction = determineMessageDirection(c, main);
-      if (direction === 'unknown') continue;
+      if (direction === 'unknown') {
+        history.push(`Customer: ${text.slice(0, 460)}`);
+        lastInbound = text.slice(0, 2000);
+        continue;
+      }
       const labelled = `${direction === 'outbound' ? 'Rep' : 'Customer'}: ${text.slice(0, 460)}`;
       history.push(labelled);
       if (direction === 'inbound') lastInbound = text.slice(0, 2000);
     }
   } catch { /* noop */ }
+  if (!lastInbound) lastInbound = lastReadableInboundFromHistory(history);
   return { history: history.slice(-15), lastInbound };
 }
 

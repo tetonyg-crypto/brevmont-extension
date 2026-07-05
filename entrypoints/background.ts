@@ -3032,6 +3032,9 @@ async function handleGenerate(payload: {
     if (isVehicleConditionQuestionText(latestInbound) && sections?.text && looksLikeGenericAvailabilityFollowup(sections.text)) {
       sections.text = vehicleConditionFallbackReply();
     }
+    if (isFinanceQuestionText(latestInbound) && sections?.text && looksLikeGenericFollowupForDirectQuestion(sections.text, latestInbound)) {
+      sections.text = financeFallbackReply(latestInbound);
+    }
     return { text: result.text, sections, guard_metrics: result.guard_metrics || null };
   } catch (err: any) {
     const m = String(err?.message || err);
@@ -3709,6 +3712,12 @@ function isVehicleConditionQuestionText(value: unknown): boolean {
     /\b(?:how|what|is|was|does|any|tell|condition|shape)\b/.test(text);
 }
 
+function isFinanceQuestionText(value: unknown): boolean {
+  const text = String(value || '').toLowerCase();
+  if (!text) return false;
+  return /\b(?:co\s*-?\s*sign(?:er|ers)?|cosign(?:er|ers)?|credit score|down payment|monthly payment|payments?|finance|financing|approve|approval|pre[-\s]?approval)\b/.test(text);
+}
+
 function directVehicleConditionInstruction(lastInbound: string): string {
   if (!isVehicleConditionQuestionText(lastInbound)) return '';
   return [
@@ -3716,6 +3725,17 @@ function directVehicleConditionInstruction(lastInbound: string): string {
     'The latest customer message asks about vehicle condition. Answer that question first.',
     'Do not write a generic availability follow-up. Do not ask if it is still on their list.',
     'If exact condition, accident history, title status, mileage, or inspection details are not in the scanned thread or CRM context, do not invent them. Say you do not want to overstate condition over text, then invite them to see it in person.',
+    '',
+  ].join('\n');
+}
+
+function directFinanceInstruction(lastInbound: string): string {
+  if (!isFinanceQuestionText(lastInbound)) return '';
+  return [
+    'DIRECT CUSTOMER QUESTION OVERRIDE:',
+    'The latest customer message asks about financing, credit, down payment, payment estimates, or co-signers. Answer that question first.',
+    'Do not write a generic availability follow-up. Do not ask if it is still on their list.',
+    'Stay compliant: do not promise approval, exact payments, APR, terms, or qualification. Say the dealership can work the numbers with a credit application and the right deal structure, and move toward a visit or quick call.',
     '',
   ].join('\n');
 }
@@ -3728,8 +3748,25 @@ function looksLikeGenericAvailabilityFollowup(value: unknown): boolean {
   return generic && !conditionAnswered;
 }
 
+function looksLikeGenericFollowupForDirectQuestion(value: unknown, latestInbound: unknown): boolean {
+  const text = String(value || '').toLowerCase();
+  if (!text) return false;
+  if (!isVehicleConditionQuestionText(latestInbound) && !isFinanceQuestionText(latestInbound)) return false;
+  const generic = /\b(?:follow up|still on your list|still interested|availability and next steps|considering at|clear next step|talk through availability)\b/.test(text);
+  const directAnswer = /\b(?:condition|shape|clean|damage|accident|title|rust|dents?|scratches|inspect|see it in person|overstate|co-?sign|cosign|credit|down|payment|finance|approval|application|numbers)\b/.test(text);
+  return generic && !directAnswer;
+}
+
 function vehicleConditionFallbackReply(): string {
   return "It looks clean from what I can see, but I don't want to overstate condition over text. Best move is to see it in person so I can walk you around it. Can you come by today or tomorrow?";
+}
+
+function financeFallbackReply(latestInbound: unknown): string {
+  const text = String(latestInbound || '').toLowerCase();
+  if (/\b(?:co\s*-?\s*sign|cosign)\b/.test(text)) {
+    return "Yes, a co-signer can help in a lot of situations. The best move is to run the structure with both applicants so we can see real options instead of guessing. Can you come by today or tomorrow?";
+  }
+  return "A 600 score and money down can be workable, but I do not want to guess at payments over text. We would need to run the credit application and structure the deal to give you real numbers. Can you come by today or tomorrow?";
 }
 
 function buildUserMessage(payload: any, repName: string, dealership: string, repContext: string = ''): string {
@@ -3780,6 +3817,7 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
     if (history) msg += `Visible history:\n${history}\n`;
     msg += 'Use the scanned thread as the primary source of truth. Answer the latest customer message directly, keep the customer name clean, and do not invent vehicle specs, prices, availability, or financing terms not present in the vehicle/dealership context.\n\n';
     msg += directVehicleConditionInstruction(lastInbound);
+    msg += directFinanceInstruction(lastInbound);
   }
 
   if (noVehicleDetected) {
