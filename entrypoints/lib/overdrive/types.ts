@@ -18,6 +18,15 @@ export interface OverdriveThreadContext {
   last_inbound_hash: string;
   last_inbound_text: string;
   thread_history: string[];
+  typed_messages?: Array<{
+    text: string;
+    role: 'customer' | 'rep' | 'unknown';
+    direction: 'inbound' | 'outbound' | 'unknown';
+    hash?: string;
+    confidence?: number;
+  }>;
+  scanned_at?: number;
+  message_count?: number;
   listing?: {
     title?: string | null;
     url?: string | null;

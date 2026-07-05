@@ -19,7 +19,7 @@ import type {
 } from './types';
 import { extractVehicleHint } from './shared';
 import { stripConversationWrapper } from '../leadContextScan';
-import { cleanMessengerMessageText, isMessengerSystemCardText } from '../messengerSystemText';
+import { extractFacebookTranscript } from '../facebookTranscript';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
@@ -74,36 +74,26 @@ function readHeaderText(): string {
 }
 
 function scrapeThread(): ThreadContext {
-  const messages: ThreadContext['messages'] = [];
-  let last_inbound_text = '';
-  try {
-    const main = document.querySelector('[role="main"]');
-    if (main) {
-      const rows = Array.from(main.querySelectorAll('[role="row"], [data-scope="messages_table"]')).slice(-40);
-      for (const row of rows) {
-        const text = cleanMessengerMessageText((row as HTMLElement).innerText || '');
-        if (!text || text.length < 2) continue;
-        if (isMessengerSystemCardText(text)) continue;
-        const outboundHint = !!row.querySelector('[aria-label*="You sent" i]');
-        const direction = outboundHint ? 'outbound' : 'inbound';
-        messages.push({ text: text.slice(0, 600), direction });
-        if (direction === 'inbound') last_inbound_text = text.slice(0, 2000);
-      }
-    }
-  } catch {
-    /* noop */
-  }
+  const transcript = extractFacebookTranscript(document);
+  const header = readHeaderText();
+  const context = extractContext();
   const raw_text = [
-    readHeaderText(),
-    ...messages.map((m) => `[${m.direction}] ${m.text}`),
+    transcript.raw_text,
   ].filter(Boolean).join('\n').slice(0, 5000);
   return {
     conversation_key: conversationKey(),
     raw_text,
-    messages: messages.slice(-25),
-    last_inbound_text,
-    header_text: readHeaderText(),
+    messages: transcript.messages.slice(-25),
+    last_inbound_text: transcript.last_inbound_text,
+    header_text: header,
     url: window.location.href,
+    scanned_at: transcript.scanned_at,
+    last_inbound_hash: transcript.last_inbound_hash,
+    message_count: transcript.message_count,
+    listing: {
+      title: context.listing_title || context.vehicle || header || null,
+      sold: /\bsold\b/i.test(header || ''),
+    },
   };
 }
 

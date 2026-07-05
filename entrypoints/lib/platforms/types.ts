@@ -43,13 +43,30 @@ export interface ThreadContext {
   /** Full-thread visible text, oldest → newest. Bounded ~5000 chars. */
   raw_text: string;
   /** Individual messages if we can distinguish them, oldest → newest. */
-  messages: Array<{ text: string; direction: 'inbound' | 'outbound' | 'unknown'; ts?: number }>;
+  messages: Array<{
+    text: string;
+    direction: 'inbound' | 'outbound' | 'unknown';
+    role?: 'customer' | 'rep' | 'unknown';
+    ts?: number;
+    source_selector?: string;
+    extraction_method?: string;
+    confidence?: number;
+    is_system?: boolean;
+    hash?: string;
+  }>;
   /** The most recent inbound message text, verbatim. */
   last_inbound_text: string;
   /** Header/subject line if the surface has one (e.g. Gmail subject, Marketplace listing title). */
   header_text: string;
   /** Full URL of the surface. */
   url: string;
+  scanned_at?: number;
+  last_inbound_hash?: string;
+  message_count?: number;
+  listing?: {
+    title?: string | null;
+    sold?: boolean | null;
+  } | null;
 }
 
 /**

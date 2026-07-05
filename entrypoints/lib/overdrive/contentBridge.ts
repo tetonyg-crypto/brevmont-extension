@@ -16,7 +16,7 @@ import { install as installDetector, isInstalled } from './overdriveDetector';
 import type { DetectionSignal } from './types';
 import { installRepInputWatcher, markRepInput } from './safetyEnvelope';
 import type { ThreadScrape } from './orchestrator';
-import { cleanMessengerMessageText, isMessengerSystemCardText } from '../messengerSystemText';
+import { extractFacebookTranscript, facebookTranscriptHash } from '../facebookTranscript';
 
 let detectorForwardingSet = false;
 
@@ -50,111 +50,48 @@ function readThreadHeaderText(): string {
   }
 }
 
-type MessageDirection = 'inbound' | 'outbound' | 'unknown';
-
-function collectAriaText(root: Element): string {
-  const labels: string[] = [];
-  const own = root.getAttribute('aria-label');
-  if (own) labels.push(own);
-  root.querySelectorAll('[aria-label]').forEach((el) => {
-    const label = el.getAttribute('aria-label');
-    if (label) labels.push(label);
-  });
-  return labels.join(' ');
-}
-
-function isColorLight(value: string): boolean {
-  const m = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
-  if (!m) return false;
-  const [, r, g, b] = m.map(Number);
-  return r >= 225 && g >= 225 && b >= 225;
-}
-
-function isColorDarkBubble(value: string): boolean {
-  const m = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([.\d]+))?/i);
-  if (!m) return false;
-  const r = Number(m[1]);
-  const g = Number(m[2]);
-  const b = Number(m[3]);
-  const a = m[4] == null ? 1 : Number(m[4]);
-  if (a < 0.4) return false;
-  // Outbound Messenger bubbles are usually blue/purple with white text.
-  // Inbound bubbles are light gray with dark text. Avoid exact brand
-  // colors because Facebook rotates themes.
-  return (r + g + b) / 3 < 190;
-}
-
-function visualDirection(row: Element, main: Element): MessageDirection {
-  try {
-    const mainRect = (main as HTMLElement).getBoundingClientRect();
-    const rowRect = (row as HTMLElement).getBoundingClientRect();
-    const rowCenter = rowRect.left + rowRect.width / 2;
-    const rightSide = rowCenter > mainRect.left + mainRect.width * 0.56;
-    const leftSide = rowCenter < mainRect.left + mainRect.width * 0.44;
-    const styled = Array.from(row.querySelectorAll('div, span')).slice(0, 80) as HTMLElement[];
-    const outboundColor = styled.some((el) => {
-      const s = window.getComputedStyle(el);
-      return isColorLight(s.color) && isColorDarkBubble(s.backgroundColor);
-    });
-    if (outboundColor && rightSide) return 'outbound';
-    if (leftSide && !outboundColor) return 'inbound';
-  } catch { /* geometry can fail in detached nodes */ }
-  return 'unknown';
-}
-
-function determineMessageDirection(row: Element, main: Element): MessageDirection {
-  const aria = collectAriaText(row);
-  if (/\b(?:you sent|sent by you|you replied|you:|outgoing|message sent)\b/i.test(aria)) return 'outbound';
-  if (/\b(?:sent by|profile picture of|from)\b/i.test(aria) && !/\byou\b/i.test(aria)) return 'inbound';
-  return visualDirection(row, main);
-}
-
-function cleanMessageText(value: string): string {
-  return cleanMessengerMessageText(value);
-}
-
 function lastReadableInboundFromHistory(history: string[]): string {
   for (let index = history.length - 1; index >= 0; index -= 1) {
     const line = history[index] || '';
     const match = line.match(/^Customer:\s*(.+)$/i);
-    const text = cleanMessageText(match ? match[1] : line);
-    if (text && !isMessengerSystemCardText(text)) return text.slice(0, 2000);
+    const text = String(match ? match[1] : line).replace(/\s+/g, ' ').trim();
+    if (text) return text.slice(0, 2000);
   }
   return '';
 }
 
 export function __overdriveTest_cleanMessageText(value: string): string {
-  return cleanMessageText(value);
+  return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
-function readRecentMessages(): { history: string[]; lastInbound: string } {
-  const history: string[] = [];
-  let lastInbound = '';
-  try {
-    const main = document.querySelector('[role="main"]');
-    if (!main) return { history: [], lastInbound: '' };
-    // Grab role="row" bubbles OR generic message containers.
-    const candidates = Array.from(
-      main.querySelectorAll('[role="row"], [data-scope="messages_table"]')
-    ).slice(-30);
-    for (const c of candidates) {
-      const text = cleanMessageText((c as HTMLElement).innerText || '');
-      if (!text || text.length < 2) continue;
-      if (isMessengerSystemCardText(text)) continue;
-      const direction = determineMessageDirection(c, main);
-      if (direction === 'unknown') {
-        // Ambiguous Messenger DOM should never trigger autonomous
-        // output. Missing a reply is recoverable; replying to our own
-        // outbound or a Facebook card is not.
-        continue;
-      }
-      const labelled = `${direction === 'outbound' ? 'Rep' : 'Customer'}: ${text.slice(0, 460)}`;
-      history.push(labelled);
-      if (direction === 'inbound') lastInbound = text.slice(0, 2000);
-    }
-  } catch { /* noop */ }
+function readRecentMessages(): {
+  history: string[];
+  lastInbound: string;
+  typedMessages: NonNullable<ThreadScrape['typed_messages']>;
+  scannedAt: number;
+  messageCount: number;
+  lastInboundHash: string;
+} {
+  const transcript = extractFacebookTranscript(document);
+  const history = transcript.messages
+    .slice(-15)
+    .map((message) => `${message.role === 'rep' ? 'Rep' : 'Customer'}: ${message.text.slice(0, 460)}`);
+  let lastInbound = transcript.last_inbound_text;
   if (!lastInbound) lastInbound = lastReadableInboundFromHistory(history);
-  return { history: history.slice(-15), lastInbound };
+  return {
+    history,
+    lastInbound,
+    typedMessages: transcript.messages.map((message) => ({
+      text: message.text,
+      role: message.role,
+      direction: message.direction,
+      hash: message.hash,
+      confidence: message.confidence,
+    })),
+    scannedAt: transcript.scanned_at,
+    messageCount: transcript.message_count,
+    lastInboundHash: transcript.last_inbound_hash || facebookTranscriptHash(lastInbound),
+  };
 }
 
 async function sha256Hex(input: string): Promise<string> {
@@ -192,17 +129,20 @@ function detectRepCurrentlyTyping(): boolean {
 export async function scrapeActiveThread(): Promise<ThreadScrape> {
   const header = readThreadHeaderText();
   const url = window.location.href;
-  const { history, lastInbound } = readRecentMessages();
+  const { history, lastInbound, typedMessages, scannedAt, messageCount, lastInboundHash } = readRecentMessages();
   const conversation_key = computeConversationKey();
-  const last_inbound_hash = await sha256Hex(lastInbound || `${conversation_key}::empty`);
+  const last_inbound_hash = lastInboundHash || await sha256Hex(lastInbound || `${conversation_key}::empty`);
   const rep_currently_typing = detectRepCurrentlyTyping();
   return {
     conversation_key,
     header_text: header,
     url,
     recent_messages: history,
+    typed_messages: typedMessages,
     last_inbound_text: lastInbound,
     last_inbound_hash,
+    scanned_at: scannedAt,
+    message_count: messageCount,
     rep_currently_typing,
     existing_stamp: null,
   };

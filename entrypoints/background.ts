@@ -3375,108 +3375,87 @@ async function pollForResult(jobId: string, maxWait = GENERATION_POLL_TIMEOUT_MS
   throw new Error('Generation timed out. Please try again.');
 }
 
-// --- Coach via /v1/generate ---
-// Routes through the same generateViaProxy pipeline that powers the main
-// Generate button. The proxy's system prompt handles automotive coaching
-// context; we just wrap the objection in an instruction prefix.
+async function callHardToolEndpoint(
+  path: '/api/v1/coach' | '/api/v1/ask',
+  body: Record<string, any>,
+): Promise<string> {
+  await assertNotRevoked();
+  const base = (await getResolvedApiUrl()).replace(/\/$/, '');
+  const resp = await signedFetch(`${base}${path}`, body);
+  await handleRevocationResponse(resp);
+  if (resp.status === 401 || resp.status === 403) {
+    const errBody = await resp.clone().json().catch(() => ({}));
+    const accessState = classifyAccessError(resp.status, errBody);
+    if (accessState) {
+      throw new Error(accessBlockedMessage(accessState, errBody?.message || errBody?.error_message || null));
+    }
+  }
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw new Error(data?.message || data?.error || `tool_${resp.status}`);
+  }
+  const text = String(data.response || data.content || '').trim();
+  if (!text) throw new Error('Empty tool response. Please try again.');
+  return text;
+}
+
+// --- Coach via hard tool route ---
+// Coach is internal rep guidance. It must never pass through /v1/generate,
+// which can produce customer-facing Message/Email/CRM Note copy.
 async function handleCoach(payload: { situation: string; vehicleContext?: string; platform?: string; leadContext?: Record<string, any> }) {
-  const settings = await browser.storage.local.get(['rep_auth_token']);
   const dealerToken = await resolveDealerToken();
   const { repName, dealership, contextBlock } = await buildRepContext();
   if (!dealerToken) throw new Error('No license key found. Complete onboarding at brevmont.com.');
 
-  let repAuthToken: string = (settings.rep_auth_token as string | undefined) || '';
-  if (!repAuthToken) {
-    try {
-      const local = await browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token']);
-      repAuthToken = (local.rep_auth_token as string | undefined)
-        || (local.brevmont_rep_auth_token as string | undefined)
-        || '';
-    } catch {}
-  }
-
   const leadMeta = toolLeadMetadata(payload, payload.platform);
   const vehicleCtx = (payload.vehicleContext || leadMeta.vehicle) ? `\nVehicle context: ${payload.vehicleContext || leadMeta.vehicle}` : '';
   const customerCtx = leadMeta.customer_name ? `\nCustomer: ${leadMeta.customer_name}` : '';
-  const coachMessage = `[COACHING MODE — Do NOT generate customer-facing copy. Instead, coach the sales rep on how to handle this situation.]
-
-Rep: ${repName}
-Dealership: ${dealership}
-${contextBlock}${customerCtx}${vehicleCtx}
-
-The customer said: "${payload.situation}"
-
-Answer like a veteran floor manager talking to a rep between ups. No bullets. No academic framing. No "it usually means." Keep it direct, punchy, and practical.
-
-Give them exactly what to do next and one line they can say back.
-
-Keep it to 3-5 short sentences.`;
-
-  const apiBase = await getResolvedApiUrl();
-  const result = await generateViaProxy(
-    dealerToken,
-    coachMessage,
-    'coach',
-    { ...leadMeta, rep_name: repName, workflow_type: 'coach_me', stream_target: 'coach' },
-    repAuthToken,
-    undefined,
-    apiBase
-  );
-  await logToolEvent('coach_me', payload.situation || '', result.text, {
+  const result = await callHardToolEndpoint('/api/v1/coach', {
+    mode: 'coach_me',
+    objection: payload.situation || '',
+    input: payload.situation || '',
+    context: `Rep: ${repName}\nDealership: ${dealership}\n${contextBlock}${customerCtx}${vehicleCtx}`.trim(),
+    platform: payload.platform || 'unknown',
+    leadContext: payload.leadContext || null,
+    ...leadMeta,
+    rep_name: repName,
+    workflow_type: 'coach_me',
+  });
+  await logToolEvent('coach_me', payload.situation || '', result, {
     ...leadMeta,
     objection_category: objectionCategoryFromText(payload.situation),
     parsed_vehicle: payload.vehicleContext || leadMeta.vehicle || null,
   });
-  return { coaching: result.text };
+  return { coaching: result };
 }
 
-// --- Ask Anything (Command Mode) via /v1/generate ---
+// --- Ask Anything via hard tool route ---
 async function handleCommand(payload: { command: string; currentUrl?: string; vehicleContext?: string; platform?: string; leadContext?: Record<string, any> }) {
-  const settings = await browser.storage.local.get(['rep_auth_token']);
   const dealerToken = await resolveDealerToken();
   const { repName, dealership, contextBlock } = await buildRepContext();
   if (!dealerToken) throw new Error('No license key found. Complete onboarding at brevmont.com.');
 
-  let repAuthToken: string = (settings.rep_auth_token as string | undefined) || '';
-  if (!repAuthToken) {
-    try {
-      const local = await browser.storage.local.get(['rep_auth_token', 'brevmont_rep_auth_token']);
-      repAuthToken = (local.rep_auth_token as string | undefined)
-        || (local.brevmont_rep_auth_token as string | undefined)
-        || '';
-    } catch {}
-  }
-
   const leadMeta = toolLeadMetadata(payload, payload.platform);
   const vehicleCtx = (payload.vehicleContext || leadMeta.vehicle) ? `\nVehicle context: ${payload.vehicleContext || leadMeta.vehicle}` : '';
   const customerCtx = leadMeta.customer_name ? `\nCustomer: ${leadMeta.customer_name}` : '';
-
-  const cmdMessage = `[ASK ANYTHING MODE - INTERNAL SALES ANSWER ONLY. Do NOT generate customer-facing copy or follow-up content.]
-
-Rep: ${repName}
-Dealership: ${dealership}
-${contextBlock}${customerCtx}${vehicleCtx}
-
-Question/Request: "${payload.command}"
-
-Answer the rep's exact question fast. Never output TEXT, EMAIL, CRM NOTE, subject lines, signatures, or sendable messages. Do not ask "do you mean" or clarifying questions; if a detail is missing, state a reasonable assumption and answer with that assumption. Keep it concise (2-4 sentences). If it is a payment/math question, show the rough calculation and the assumption.`;
-
-  const apiBase = await getResolvedApiUrl();
-  const result = await generateViaProxy(
-    dealerToken,
-    cmdMessage,
-    'command',
-    { ...leadMeta, rep_name: repName, workflow_type: 'ask_anything', stream_target: 'command' },
-    repAuthToken,
-    undefined,
-    apiBase
-  );
-  await logToolEvent('ask_anything', payload.command || '', result.text, {
+  const result = await callHardToolEndpoint('/api/v1/ask', {
+    mode: 'ask_anything',
+    question: payload.command || '',
+    input: payload.command || '',
+    context: `Rep: ${repName}\nDealership: ${dealership}\n${contextBlock}${customerCtx}${vehicleCtx}`.trim(),
+    platform: payload.platform || 'unknown',
+    current_url: payload.currentUrl || null,
+    leadContext: payload.leadContext || null,
+    ...leadMeta,
+    rep_name: repName,
+    workflow_type: 'ask_anything',
+  });
+  await logToolEvent('ask_anything', payload.command || '', result, {
     ...leadMeta,
     parsed_vehicle: payload.vehicleContext || leadMeta.vehicle || null,
     current_url: payload.currentUrl || null,
   });
-  return { parsed: { action: 'answer', content: result.text }, text: result.text };
+  return { parsed: { action: 'answer', content: result }, text: result };
 }
 
 // ===== CONTEXT REPLY (screenshot vision) =====

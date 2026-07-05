@@ -50,8 +50,11 @@ export interface ThreadScrape {
   header_text: string;
   url: string;
   recent_messages: string[]; // oldest → newest
+  typed_messages?: OverdriveThreadContext['typed_messages'];
   last_inbound_text: string;
   last_inbound_hash: string;
+  scanned_at?: number;
+  message_count?: number;
   rep_currently_typing: boolean;
   existing_stamp?: { source_platform?: string; vehicle_interest?: string | null } | null;
 }
@@ -406,6 +409,9 @@ async function orchestrateReplyInner(
     last_inbound_hash: scrape.last_inbound_hash,
     last_inbound_text: scrape.last_inbound_text,
     thread_history: scrape.recent_messages,
+    typed_messages: scrape.typed_messages || [],
+    scanned_at: scrape.scanned_at,
+    message_count: scrape.message_count,
     listing: qualification.vehicle_hint
       ? {
           title: qualification.listing_title_hint || null,

@@ -103,13 +103,19 @@ interface AutoThreadScan {
   detectionMethod?: string | null;
   contextFingerprint?: string | null;
   threadFingerprint?: string | null;
+  scannedAt?: number | null;
+  lastInboundHash?: string | null;
+  messageCount?: number | null;
   threadContext: {
     conversation_key?: string | null;
     raw_text: string;
-    messages: Array<{ text: string; direction?: string; ts?: number }>;
+    messages: Array<{ text: string; direction?: string; role?: string; ts?: number; hash?: string; confidence?: number }>;
     last_inbound_text: string;
+    last_inbound_hash?: string | null;
     header_text?: string | null;
     url?: string | null;
+    scanned_at?: number | null;
+    message_count?: number | null;
   };
 }
 
@@ -813,13 +819,19 @@ async function scanVisibleTextFallback(root: HTMLElement): Promise<AutoThreadSca
     detectionMethod: 'visible_text_fallback',
     contextFingerprint: null,
     threadFingerprint: null,
+    scannedAt: Date.now(),
+    lastInboundHash: null,
+    messageCount: 0,
     threadContext: {
       conversation_key: currentPlatform.url || null,
       raw_text: pageText,
       messages: [],
       last_inbound_text: lastInbound || pageText,
+      last_inbound_hash: null,
       header_text: null,
       url: currentPlatform.url || null,
+      scanned_at: Date.now(),
+      message_count: 0,
     },
   };
   autoThreadScan = scan;
@@ -891,7 +903,10 @@ function buildThreadMessages(value: any): AutoThreadScan['threadContext']['messa
   return value.slice(-30).map((message: any) => ({
     text: stripThreadDecorators(message?.text || message?.body || message),
     direction: typeof message?.direction === 'string' ? message.direction : 'unknown',
+    role: typeof message?.role === 'string' ? message.role : undefined,
     ts: typeof message?.ts === 'number' ? message.ts : undefined,
+    hash: typeof message?.hash === 'string' ? message.hash : undefined,
+    confidence: typeof message?.confidence === 'number' ? message.confidence : undefined,
   })).filter((message) => message.text.length > 0 && !isMessengerSystemCardText(message.text));
 }
 
@@ -909,12 +924,12 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
   const thread = ctx.thread || {};
   const messages = buildThreadMessages(thread.messages);
   const rawText = cleanContextText(cleanThreadRawText(thread.raw_text || ctx.raw_text || ctx.source_raw_text || ''), 5000);
-  const isDeterministicGmailThread = (ctx.platform || currentPlatform.platform) === 'gmail' && messages.length > 0;
+  const isDeterministicThread = ['gmail', 'facebook'].includes(String(ctx.platform || currentPlatform.platform)) && messages.length > 0;
   const lastInbound = firstNonSystemThreadText(
     thread.last_inbound_text,
-    messages.slice().reverse().find((message) => message.direction === 'inbound')?.text,
-    isDeterministicGmailThread ? '' : messages[messages.length - 1]?.text,
-    isDeterministicGmailThread ? '' : lastReadableThreadLine(rawText)
+    messages.slice().reverse().find((message) => message.direction === 'inbound' || message.role === 'customer')?.text,
+    isDeterministicThread ? '' : messages[messages.length - 1]?.text,
+    isDeterministicThread ? '' : lastReadableThreadLine(rawText)
   );
   const headerText = stripThreadDecorators(thread.header_text || ctx.context?.subject_line || ctx.context?.listing_title || '');
   if (!rawText && !lastInbound && !headerText) return null;
@@ -941,13 +956,19 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
     detectionMethod: ctx.detectionMethod || ctx.detection_method || null,
     contextFingerprint: ctx.context_fingerprint || null,
     threadFingerprint: ctx.thread_fingerprint || ctx.context_fingerprint || null,
+    scannedAt: Number(thread.scanned_at || ctx.scanned_at || Date.now()) || Date.now(),
+    lastInboundHash: thread.last_inbound_hash || ctx.last_inbound_hash || null,
+    messageCount: Number(thread.message_count ?? ctx.message_count ?? messages.length) || messages.length,
     threadContext: {
       conversation_key: thread.conversation_key || ctx.thread_fingerprint || ctx.context_fingerprint || null,
       raw_text: rawText || [headerText, ...messages.map((message) => `[${message.direction || 'unknown'}] ${message.text}`)].filter(Boolean).join('\n').slice(0, 5000),
       messages,
-      last_inbound_text: lastInbound || (isDeterministicGmailThread ? '' : lastReadableThreadLine(rawText)),
+      last_inbound_text: lastInbound || (isDeterministicThread ? '' : lastReadableThreadLine(rawText)),
+      last_inbound_hash: thread.last_inbound_hash || ctx.last_inbound_hash || null,
       header_text: headerText || null,
       url: thread.url || currentPlatform.url || null,
+      scanned_at: Number(thread.scanned_at || ctx.scanned_at || Date.now()) || Date.now(),
+      message_count: Number(thread.message_count ?? ctx.message_count ?? messages.length) || messages.length,
     },
   };
 }
@@ -974,12 +995,16 @@ function leadContextFromAutoThreadScan(scan: AutoThreadScan | null): any {
     detection_method: scan.detectionMethod || (scan.source === 'adapter' ? 'adapter_auto_scan' : 'legacy_auto_scan'),
     context_fingerprint: scan.contextFingerprint || null,
     thread_fingerprint: scan.threadFingerprint || scan.contextFingerprint || null,
+    scanned_at: scan.scannedAt || scan.threadContext.scanned_at || null,
+    last_inbound_hash: scan.lastInboundHash || scan.threadContext.last_inbound_hash || null,
+    message_count: scan.messageCount ?? scan.threadContext.message_count ?? null,
   };
 }
 
 function getUsableAutoThreadScan(): AutoThreadScan | null {
   if (!autoThreadScan || autoThreadScanStatus !== 'ready') return null;
   if (autoThreadScanUrl && currentPlatform.url && autoThreadScanUrl !== currentPlatform.url) return null;
+  if (Date.now() - Number(autoThreadScan.scannedAt || autoThreadScan.threadContext?.scanned_at || 0) > 15000) return null;
   const lastInbound = autoThreadScan.threadContext?.last_inbound_text || '';
   const rawText = autoThreadScan.threadContext?.raw_text || '';
   return lastInbound || rawText ? autoThreadScan : null;
@@ -1040,7 +1065,7 @@ function renderAutoThreadScan(root: HTMLElement): void {
 
 async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<AutoThreadScan | null> {
   await refreshPlatform();
-  if (!force && autoThreadScanUrl === currentPlatform.url && autoThreadScanStatus === 'ready' && autoThreadScan) {
+  if (!force && autoThreadScanUrl === currentPlatform.url && autoThreadScanStatus === 'ready' && autoThreadScan && getUsableAutoThreadScan()) {
     renderAutoThreadScan(root);
     return autoThreadScan;
   }
@@ -3722,6 +3747,9 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     surface_kind: scan?.surface_kind || leadContext.surface_kind || null,
     conversation_key: scan?.threadContext?.conversation_key || null,
     last_inbound_text: scan?.threadContext?.last_inbound_text || null,
+    last_inbound_hash: scan?.lastInboundHash || scan?.threadContext?.last_inbound_hash || null,
+    scan_scanned_at: scan?.scannedAt || scan?.threadContext?.scanned_at || null,
+    scan_message_count: scan?.messageCount ?? scan?.threadContext?.message_count ?? null,
     scan_source: scan?.source || null,
   };
 
