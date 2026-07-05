@@ -184,6 +184,8 @@ export async function resumeThread(conversation_key: string): Promise<{ thread: 
 
 export interface OverdriveReplyResponse {
   idempotency_key: string;
+  turn_id?: string;
+  send_token?: string;
   reply_text: string;
   next_stage: string;
   escalate: boolean;
@@ -216,6 +218,8 @@ export async function requestOverdriveReply(
 export interface OverdriveSendConfirmPayload {
   conversation_key: string;
   idempotency_key: string;
+  turn_id?: string;
+  send_token?: string;
   verified: boolean;
   method: 'enter_key' | 'button_click' | 'react_fiber' | 'not_attempted' | string;
   latency_ms: number;

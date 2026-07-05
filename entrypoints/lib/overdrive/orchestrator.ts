@@ -493,6 +493,8 @@ async function orchestrateReplyInner(
     const injectFailPayload: OverdriveSendConfirmPayload = {
       conversation_key: scrape.conversation_key,
       idempotency_key: reply.idempotency_key,
+      turn_id: reply.turn_id,
+      send_token: reply.send_token,
       verified: false,
       method: injectMethodTag,
       latency_ms: Date.now() - startedAt,
@@ -551,6 +553,8 @@ async function orchestrateReplyInner(
   const confirmPayload: OverdriveSendConfirmPayload = {
     conversation_key: scrape.conversation_key,
     idempotency_key: reply.idempotency_key,
+    turn_id: reply.turn_id,
+    send_token: reply.send_token,
     verified: !!(sendResult.ok && sendResult.verified),
     method: sendResult.method || 'not_attempted',
     latency_ms: Date.now() - startedAt,
