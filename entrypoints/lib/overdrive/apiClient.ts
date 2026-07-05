@@ -252,3 +252,23 @@ export async function reportOverdriveDetection(
     body: JSON.stringify(payload),
   });
 }
+
+// Production-visible stop receipts. The detector can fire before local
+// go-light/cap/duplicate checks, so every client-side pre-reply stop must
+// write a server row or the timeline becomes "detected then silence".
+export interface OverdriveBlockedPayload {
+  conversation_key: string;
+  inbound_hash?: string | null;
+  source: 'eligibility_gate' | 'orchestrator_skip' | 'orchestrator_exception' | string;
+  reason: string;
+  details?: Record<string, unknown>;
+}
+
+export async function reportOverdriveBlocked(
+  payload: OverdriveBlockedPayload,
+): Promise<{ ok: boolean }> {
+  return overdriveFetch<{ ok: boolean }>('/api/overdrive/blocked', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

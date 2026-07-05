@@ -18,7 +18,7 @@
 
 import type { OrchestratorSettings, OrchestratorDeps, OrchestratorResult, ThreadScrape } from './orchestrator';
 import { orchestrateReply, isHeroStage, replayPendingConfirms } from './orchestrator';
-import { reportOverdriveDetection } from './apiClient';
+import { reportOverdriveBlocked, reportOverdriveDetection } from './apiClient';
 import { radarCapture, radarSweepDone } from './radarClient';
 import { getOverdriveSettings } from './apiClient';
 
@@ -401,6 +401,18 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
 
   // If Overdrive isn't green, we stop here — radar has already logged.
   if (!overdriveEligible) {
+    reportOverdriveBlocked({
+      conversation_key: scrape.scrape.conversation_key,
+      inbound_hash: scrape.scrape.last_inbound_hash || null,
+      source: 'eligibility_gate',
+      reason: 'overdrive_go_light_not_green',
+      details: {
+        master_enabled: !!cached?.master_enabled,
+        dealership_enabled: !!cached?.dealership_enabled,
+        linked: !!cached?.linked,
+        disclosure_acked: !!cached?.disclosure_acked,
+      },
+    }).catch(() => { /* fire-and-forget */ });
     return;
   }
 
@@ -456,6 +468,16 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
     },
     emitEvent: (event) => {
       void overdriveLog({ event: 'orchestrator_emit', ...event });
+      if (event.type === 'overdrive.skipped') {
+        const payload = (event.payload || {}) as any;
+        reportOverdriveBlocked({
+          conversation_key: event.conversation_key,
+          inbound_hash: scrape.scrape.last_inbound_hash || null,
+          source: 'orchestrator_skip',
+          reason: String(payload.reason || 'unknown'),
+          details: payload,
+        }).catch(() => { /* fire-and-forget */ });
+      }
       // Fire chrome.notifications on escalation with fallback to badge.
       if (event.type === 'overdrive.escalated') {
         fireEscalationNotification(event.conversation_key, event.payload as any);
@@ -484,6 +506,12 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
       error: err?.message || 'unknown',
       stack: err?.stack || null,
     });
+    reportOverdriveBlocked({
+      conversation_key: scrape.scrape.conversation_key,
+      inbound_hash: scrape.scrape.last_inbound_hash || null,
+      source: 'orchestrator_exception',
+      reason: err?.message || 'unknown',
+    }).catch(() => { /* fire-and-forget */ });
     return;
   }
   if (result.attempted && result.send?.verified) {

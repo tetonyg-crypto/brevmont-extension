@@ -145,7 +145,7 @@ export function shouldReply(input: ShouldReplyInput): ShouldReplyResult {
   if (rep_currently_typing_in_thread) {
     return { should: false, reason: 'rep_actively_typing' };
   }
-  if (state.last_inbound_hash === last_inbound_hash) {
+  if (state.last_inbound_hash === last_inbound_hash && state.last_reply_at) {
     return { should: false, reason: 'duplicate_inbound_hash' };
   }
   // Cap: 1 auto-reply per thread per 60 seconds

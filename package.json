@@ -1,6 +1,6 @@
 {
   "name": "brevmont-extension",
-  "version": "1.16.76",
+  "version": "1.16.77",
   "description": "Brevmont Chrome Extension - AI Sales Co-Pilot",
   "main": "index.js",
   "scripts": {
