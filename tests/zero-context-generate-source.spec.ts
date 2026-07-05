@@ -264,8 +264,9 @@ test('Overdrive blocks unsafe meta replies before injection and clears failed dr
   expect(bridge).toContain("type MessageDirection = 'inbound' | 'outbound' | 'unknown'");
   expect(bridge).toContain("`${direction === 'outbound' ? 'Rep' : 'Customer'}:");
   expect(bridge).toContain("if (direction === 'unknown') {");
-  expect(bridge).toContain('history.push(`Customer: ${text.slice(0, 460)}`)');
-  expect(bridge).toContain('lastInbound = text.slice(0, 2000)');
+  expect(bridge).toContain('Ambiguous Messenger DOM should never trigger autonomous');
+  expect(bridge).toContain('continue;');
+  expect(bridge).not.toContain('lastInbound = text.slice(0, 2000);\\n        continue;');
   expect(sender).toContain('[aria-label*="Press Enter" i]');
   expect(sender).toContain("k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$')");
 });
@@ -297,7 +298,7 @@ test('Overdrive ignores Messenger system cards and debounces by inbound hash, no
   expect(bridge).toContain("from '../messengerSystemText'");
   expect(facebook).toContain("from '../messengerSystemText'");
   expect(bridge).toContain('if (isMessengerSystemCardText(text)) continue;');
-  expect(bridge).toContain('history.push(`Customer: ${text.slice(0, 460)}`)');
+  expect(bridge).not.toContain('history.push(`Customer: ${text.slice(0, 460)}`);\\n        lastInbound = text.slice(0, 2000);');
   expect(bridge).toContain('lastReadableInboundFromHistory(history)');
   expect(facebook).toContain('if (isMessengerSystemCardText(text)) continue;');
   expect(sidepanel).toContain('function firstNonSystemThreadText');
@@ -306,6 +307,17 @@ test('Overdrive ignores Messenger system cards and debounces by inbound hash, no
   expect(background).toContain('Let Messenger finish painting the latest bubble');
   expect(background).toContain('`${scrape.scrape.conversation_key}:${scrape.scrape.last_inbound_hash ||');
   expect(background).not.toContain('const debounceKey = `tab:${tabId}`');
+});
+
+test('Overdrive suppresses self-echo when Facebook re-renders our own autonomous reply', () => {
+  const stateMachine = read('entrypoints/lib/overdrive/stateMachine.ts');
+  const orchestrator = read('entrypoints/lib/overdrive/orchestrator.ts');
+  expect(stateMachine).toContain('last_reply_text_norm');
+  expect(stateMachine).toContain('normalizeOverdriveEchoText');
+  expect(stateMachine).toContain("reason: 'own_reply_echo'");
+  expect(stateMachine).toContain('inboundNorm === state.last_reply_text_norm');
+  expect(orchestrator).toContain('last_inbound_text: scrape.last_inbound_text');
+  expect(orchestrator).toContain("reply_text: reply.reply_text || ''");
 });
 
 test('Overdrive detector rearms with page-side ticks and watches Facebook text mutations', () => {

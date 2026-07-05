@@ -29,6 +29,7 @@ export interface LocalThreadState {
   last_inbound_hash: string | null;
   last_inbound_at: number | null;
   last_reply_at: number | null;
+  last_reply_text_norm: string | null;
   replies_today: number;
   replies_today_reset_ymd: string; // YYYY-MM-DD, rep local
   paused: boolean;
@@ -66,6 +67,7 @@ export async function readThreadState(conversation_key: string): Promise<LocalTh
     const data = await chrome.storage.local.get([key]);
     const state = (data?.[key] as LocalThreadState | undefined) || null;
     if (!state) return null;
+    if (typeof state.last_reply_text_norm === 'undefined') state.last_reply_text_norm = null;
     // Rotate replies_today counter if we crossed a day boundary.
     if (state.replies_today_reset_ymd !== todayYmd()) {
       state.replies_today = 0;
@@ -94,6 +96,7 @@ export function emptyState(conversation_key: string): LocalThreadState {
     last_inbound_hash: null,
     last_inbound_at: null,
     last_reply_at: null,
+    last_reply_text_norm: null,
     replies_today: 0,
     replies_today_reset_ymd: todayYmd(),
     paused: false,
@@ -118,6 +121,7 @@ export function isTerminal(stage: OverdriveStage): boolean {
 export interface ShouldReplyInput {
   state: LocalThreadState;
   last_inbound_hash: string;
+  last_inbound_text?: string;
   now: number;
   caps: {
     per_thread_per_minute: number;
@@ -133,8 +137,18 @@ export interface ShouldReplyResult {
   reason: string;
 }
 
+export function normalizeOverdriveEchoText(value: unknown): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[^\p{L}\p{N}'"$%]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function shouldReply(input: ShouldReplyInput): ShouldReplyResult {
-  const { state, last_inbound_hash, now, caps, rep_replies_today, rep_currently_typing_in_thread } = input;
+  const { state, last_inbound_hash, last_inbound_text, now, caps, rep_replies_today, rep_currently_typing_in_thread } = input;
 
   if (isTerminal(state.stage)) {
     return { should: false, reason: `terminal_stage:${state.stage}` };
@@ -147,6 +161,10 @@ export function shouldReply(input: ShouldReplyInput): ShouldReplyResult {
   }
   if (state.last_inbound_hash === last_inbound_hash && state.last_reply_at) {
     return { should: false, reason: 'duplicate_inbound_hash' };
+  }
+  const inboundNorm = normalizeOverdriveEchoText(last_inbound_text);
+  if (inboundNorm && state.last_reply_text_norm && inboundNorm === state.last_reply_text_norm) {
+    return { should: false, reason: 'own_reply_echo' };
   }
   // Cap: 1 auto-reply per thread per 60 seconds
   if (state.last_reply_at && now - state.last_reply_at < 60_000) {
@@ -175,6 +193,7 @@ export async function recordReplyOutcome(
     escalated_reason?: string | null;
     ai_question_triggered?: boolean;
     verified?: boolean;
+    reply_text?: string | null;
     listing_title?: string;
     vehicle_year?: number;
     vehicle_make?: string;
@@ -197,6 +216,9 @@ export async function recordReplyOutcome(
       existing.escalated_at = now;
       existing.escalation_reason = 'ai_question_second_ask';
     }
+  }
+  if (patch.reply_text) {
+    existing.last_reply_text_norm = normalizeOverdriveEchoText(patch.reply_text);
   }
   if (patch.verified) {
     existing.last_reply_at = now;

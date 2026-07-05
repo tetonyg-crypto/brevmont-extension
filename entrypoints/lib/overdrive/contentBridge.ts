@@ -123,6 +123,10 @@ function lastReadableInboundFromHistory(history: string[]): string {
   return '';
 }
 
+export function __overdriveTest_cleanMessageText(value: string): string {
+  return cleanMessageText(value);
+}
+
 function readRecentMessages(): { history: string[]; lastInbound: string } {
   const history: string[] = [];
   let lastInbound = '';
@@ -139,8 +143,9 @@ function readRecentMessages(): { history: string[]; lastInbound: string } {
       if (isMessengerSystemCardText(text)) continue;
       const direction = determineMessageDirection(c, main);
       if (direction === 'unknown') {
-        history.push(`Customer: ${text.slice(0, 460)}`);
-        lastInbound = text.slice(0, 2000);
+        // Ambiguous Messenger DOM should never trigger autonomous
+        // output. Missing a reply is recoverable; replying to our own
+        // outbound or a Facebook card is not.
         continue;
       }
       const labelled = `${direction === 'outbound' ? 'Rep' : 'Customer'}: ${text.slice(0, 460)}`;

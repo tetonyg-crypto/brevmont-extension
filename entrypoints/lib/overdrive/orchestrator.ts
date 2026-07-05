@@ -338,6 +338,7 @@ async function orchestrateReplyInner(
   const decision = shouldReply({
     state,
     last_inbound_hash: scrape.last_inbound_hash,
+    last_inbound_text: scrape.last_inbound_text,
     now,
     caps: {
       per_thread_per_minute: settings.cap_per_thread_per_minute,
@@ -604,6 +605,7 @@ async function orchestrateReplyInner(
     await recordReplyOutcome(scrape.conversation_key, {
       last_inbound_hash: scrape.last_inbound_hash,
       verified: false,
+      reply_text: reply.reply_text || '',
     });
     return {
       attempted: true,
@@ -621,6 +623,7 @@ async function orchestrateReplyInner(
     stage: reply.next_stage as OverdriveStage,
     last_inbound_hash: scrape.last_inbound_hash,
     verified: true,
+    reply_text: reply.reply_text || '',
     ai_question_triggered: reply.ai_question_triggered,
     listing_title: ctx.listing?.title || undefined,
     vehicle_year: ctx.listing?.year || undefined,
