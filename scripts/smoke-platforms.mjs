@@ -192,6 +192,10 @@ function leadContextForScan(scan, kind) {
   };
 }
 
+function threadContextForScan(scan) {
+  return scan?.thread || scan?.threadContext || scan?.thread_context || null;
+}
+
 async function seedStorage(extPage, session) {
   const storage = {
     profile_onboarded: true,
@@ -276,6 +280,7 @@ async function main() {
         ? Boolean((scan.customerName || scan.name || scan.raw_text || scan.rawText || '').toString().length > 0)
         : routeDef.kind === 'random' ? true : false;
       const leadContext = leadContextForScan(scan, routeDef.kind);
+      const threadContext = threadContextForScan(scan);
       const outputType = outputTypeForScan(scan, routeDef.kind);
 
       const generate = routeDef.kind === 'random'
@@ -285,7 +290,7 @@ async function main() {
             payload: {
               type: outputType,
               repInput: '',
-              threadContext: scan?.thread || null,
+              threadContext,
               platform: routeDef.kind,
               leadContext,
               systemHints: { noVehicleDetected: !leadContext.vehicle },
@@ -296,8 +301,8 @@ async function main() {
                 zero_context_generate: true,
                 adapter_id: scan?.adapter_id || null,
                 surface_kind: scan?.capabilities?.surface_kind || null,
-                conversation_key: scan?.thread?.conversation_key || null,
-                last_inbound_text: scan?.thread?.last_inbound_text || null,
+                conversation_key: threadContext?.conversation_key || null,
+                last_inbound_text: threadContext?.last_inbound_text || null,
               },
             },
           });

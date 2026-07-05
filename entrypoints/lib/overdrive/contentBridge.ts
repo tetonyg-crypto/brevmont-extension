@@ -17,8 +17,11 @@ import type { DetectionSignal } from './types';
 import { installRepInputWatcher, markRepInput } from './safetyEnvelope';
 import type { ThreadScrape } from './orchestrator';
 import { extractFacebookTranscript, facebookTranscriptHash } from '../facebookTranscript';
+import { isMessengerSystemCardText } from '../messengerSystemText';
 
 let detectorForwardingSet = false;
+
+type MessageDirection = 'inbound' | 'outbound' | 'unknown';
 
 function computeConversationKey(): string {
   // Prefer the Marketplace/Messenger thread URL segment — stable across
@@ -73,21 +76,32 @@ function readRecentMessages(): {
   lastInboundHash: string;
 } {
   const transcript = extractFacebookTranscript(document);
-  const history = transcript.messages
-    .slice(-15)
-    .map((message) => `${message.role === 'rep' ? 'Rep' : 'Customer'}: ${message.text.slice(0, 460)}`);
+  const history: string[] = [];
+  const typedMessages: NonNullable<ThreadScrape['typed_messages']> = [];
+  for (const message of transcript.messages.slice(-15)) {
+    const text = __overdriveTest_cleanMessageText(message.text);
+    if (isMessengerSystemCardText(text)) continue;
+    const direction = (message.direction || 'unknown') as MessageDirection;
+    if (direction === 'unknown') {
+      // Ambiguous Messenger DOM should never trigger autonomous replies.
+      continue;
+    }
+    history.push(`${direction === 'outbound' ? 'Rep' : 'Customer'}: ${text.slice(0, 460)}`);
+    typedMessages.push({
+      text,
+      role: message.role,
+      direction,
+      hash: message.hash,
+      confidence: message.confidence,
+    });
+  }
   let lastInbound = transcript.last_inbound_text;
+  if (isMessengerSystemCardText(lastInbound)) lastInbound = '';
   if (!lastInbound) lastInbound = lastReadableInboundFromHistory(history);
   return {
     history,
     lastInbound,
-    typedMessages: transcript.messages.map((message) => ({
-      text: message.text,
-      role: message.role,
-      direction: message.direction,
-      hash: message.hash,
-      confidence: message.confidence,
-    })),
+    typedMessages,
     scannedAt: transcript.scanned_at,
     messageCount: transcript.message_count,
     lastInboundHash: transcript.last_inbound_hash || facebookTranscriptHash(lastInbound),

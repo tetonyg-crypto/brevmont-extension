@@ -88,10 +88,28 @@ function readJsonIfExists(filePath) {
   }
 }
 
+function assertVerificationBridge(manifest, label) {
+  const scripts = Array.isArray(manifest?.content_scripts) ? manifest.content_scripts : [];
+  const bridge = scripts.find((entry) => {
+    const js = Array.isArray(entry?.js) ? entry.js : [];
+    return js.includes('content-scripts/verification-bridge.js');
+  });
+  if (!bridge) {
+    console.error(`[ship] ${label} is missing content-scripts/verification-bridge.js.`);
+    console.error('[ship] Refusing to ship because live capture tooling would be blind on the loaded page.');
+    process.exit(1);
+  }
+  if (bridge.world !== 'MAIN') {
+    console.error(`[ship] ${label} verification bridge must run in MAIN world, got ${bridge.world || 'default isolated world'}.`);
+    process.exit(1);
+  }
+}
+
 function isStaleDesktopExtensionBuild(entryName) {
   if (entryName === `Brevmont-${VERSION}-UNPACKED`) return false;
   return (
     /^Brevmont-\d+\.\d+\.\d+-UNPACKED$/i.test(entryName) ||
+    /^Brevmont-\d+\.\d+\.\d+\.zip$/i.test(entryName) ||
     /^brevmont-extension$/i.test(entryName) ||
     /^brevmont-extension-\d+\.\d+\.\d+-chrome-web-store\.zip$/i.test(entryName) ||
     /^!?BREVMONT-.*UPLOAD-TO-CWS\.zip$/i.test(entryName) ||
@@ -240,6 +258,7 @@ if (desktopVersionedManifest.version !== VERSION) {
   console.error(`[ship] versioned Desktop manifest drift: package.json=${VERSION} desktop=${desktopVersionedManifest.version}`);
   process.exit(1);
 }
+assertVerificationBridge(desktopVersionedManifest, 'Desktop manifest');
 
 log('4/6', `Zipping -> ${ZIP_PATH}`);
 rmSync(ZIP_PATH, { force: true });

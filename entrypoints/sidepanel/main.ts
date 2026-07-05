@@ -924,12 +924,13 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
   const thread = ctx.thread || {};
   const messages = buildThreadMessages(thread.messages);
   const rawText = cleanContextText(cleanThreadRawText(thread.raw_text || ctx.raw_text || ctx.source_raw_text || ''), 5000);
-  const isDeterministicThread = ['gmail', 'facebook'].includes(String(ctx.platform || currentPlatform.platform)) && messages.length > 0;
+  const isDeterministicGmailThread = (ctx.platform || currentPlatform.platform) === 'gmail' && messages.length > 0;
+  const isDeterministicThread = isDeterministicGmailThread || (ctx.platform || currentPlatform.platform) === 'facebook' && messages.length > 0;
   const lastInbound = firstNonSystemThreadText(
     thread.last_inbound_text,
     messages.slice().reverse().find((message) => message.direction === 'inbound' || message.role === 'customer')?.text,
-    isDeterministicThread ? '' : messages[messages.length - 1]?.text,
-    isDeterministicThread ? '' : lastReadableThreadLine(rawText)
+    isDeterministicGmailThread ? '' : messages[messages.length - 1]?.text,
+    isDeterministicGmailThread ? '' : lastReadableThreadLine(rawText)
   );
   const headerText = stripThreadDecorators(thread.header_text || ctx.context?.subject_line || ctx.context?.listing_title || '');
   if (!rawText && !lastInbound && !headerText) return null;
@@ -3788,6 +3789,8 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       updateUsageCounter(root);
     } else if (response?.queued) {
       showToast(root, response.message || 'Saved. Will sync when online.');
+    } else if (response?.hold || response?.error === 'grounding_hold') {
+      showGenerationHold(root, response);
     } else if (response?.error) {
       showGenerationError(root, GENERATION_FAILURE_MESSAGE);
     } else {
@@ -3848,6 +3851,34 @@ function showGenerationError(root: HTMLElement, message = GENERATION_FAILURE_MES
     </div>
   `;
   const retry = outputs.querySelector('#o8-error-regen') as HTMLButtonElement | null;
+  if (retry) retry.onclick = () => doGenerate(root);
+}
+
+function plainGenerationHoldReason(response: any): string {
+  const code = String(response?.blocked_reason || response?.reason || '').trim();
+  if (code === 'generic_or_missing_specific_context') {
+    return 'Brevmont held this draft because it could not clearly connect the reply to the latest customer message.';
+  }
+  if (code === 'missing_latest_customer_turn') {
+    return 'Brevmont held this draft because no latest customer message was detected on this thread.';
+  }
+  return 'Brevmont held this draft because the conversation context was not trustworthy enough to send.';
+}
+
+function showGenerationHold(root: HTMLElement, response: any): void {
+  const outputs = root.querySelector('#o8-outputs') as HTMLElement | null;
+  if (!outputs) return;
+  const message = plainGenerationHoldReason(response);
+  outputs.innerHTML = `
+    <div class="out-card out-card-hold">
+      <div class="out-label">Held for review</div>
+      <div class="out-error-copy">${esc(message)}</div>
+      <div class="out-actions">
+        <button class="out-action out-regen" id="o8-hold-regen" type="button">Scan again</button>
+      </div>
+    </div>
+  `;
+  const retry = outputs.querySelector('#o8-hold-regen') as HTMLButtonElement | null;
   if (retry) retry.onclick = () => doGenerate(root);
 }
 

@@ -29,6 +29,7 @@ const MESSAGE_CONTAINER_SELECTOR = [
   '[data-scope="messages_table"]',
   '[data-testid*="message" i]',
   '[data-testid*="messenger" i]',
+  '[aria-label*=" by "][aria-label*=":"]',
 ].join(', ');
 
 function weakHash(value: string): string {
@@ -61,6 +62,37 @@ function attrText(el: Element): string {
     }
   });
   return parts.join(' ');
+}
+
+export function parseMessengerMessageAriaLabel(value: unknown): {
+  ok: boolean;
+  speaker: string;
+  text: string;
+  direction: FacebookTranscriptDirection;
+  method: string;
+  confidence: number;
+} {
+  const aria = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!aria) return { ok: false, speaker: '', text: '', direction: 'unknown', method: 'aria_message_row', confidence: 0 };
+  if (!/\bby\s+[^:]{1,80}:/i.test(aria)) {
+    return { ok: false, speaker: '', text: '', direction: 'unknown', method: 'aria_message_row', confidence: 0 };
+  }
+  const match = aria.match(/\bby\s+([^:]{1,80}):\s*([\s\S]+)$/i);
+  if (!match) return { ok: false, speaker: '', text: '', direction: 'unknown', method: 'aria_message_row', confidence: 0 };
+  const speaker = match[1].replace(/\s+/g, ' ').trim();
+  const text = cleanMessengerMessageText(match[2]);
+  if (!speaker || !text || isMessengerSystemCardText(text)) {
+    return { ok: false, speaker, text: '', direction: 'unknown', method: 'aria_message_row', confidence: 0 };
+  }
+  const direction = /^you$/i.test(speaker) ? 'outbound' : 'inbound';
+  return {
+    ok: true,
+    speaker,
+    text,
+    direction,
+    method: direction === 'outbound' ? 'aria_by_you' : 'aria_by_contact',
+    confidence: 0.98,
+  };
 }
 
 function isLikelySystemElement(el: Element, text: string): boolean {
@@ -102,6 +134,10 @@ function visualDirection(el: Element, main: Element): { direction: FacebookTrans
 }
 
 function structuralDirection(el: Element, main: Element): { direction: FacebookTranscriptDirection; method: string; confidence: number } {
+  const ariaParsed = parseMessengerMessageAriaLabel(el.getAttribute('aria-label'));
+  if (ariaParsed.ok) {
+    return { direction: ariaParsed.direction, method: ariaParsed.method, confidence: ariaParsed.confidence };
+  }
   const attrs = attrText(el);
   if (/\b(?:outgoing|outbound|message_out|sent by you|you sent|you replied)\b/i.test(attrs)) {
     return { direction: 'outbound', method: 'structural_outbound_attr', confidence: 0.96 };
@@ -140,13 +176,18 @@ export function extractFacebookTranscript(root: ParentNode = document): Facebook
   const seen = new Set<string>();
   const candidates = Array.from((main as Element).querySelectorAll(MESSAGE_CONTAINER_SELECTOR)).slice(-80);
   for (const candidate of candidates) {
-    const text = cleanMessengerMessageText((candidate as HTMLElement).innerText || '');
-    if (!text || isLikelySystemElement(candidate, text) || !hasBubbleShape(candidate)) continue;
+    const ariaParsed = parseMessengerMessageAriaLabel(candidate.getAttribute('aria-label'));
+    const text = ariaParsed.ok
+      ? ariaParsed.text
+      : cleanMessengerMessageText((candidate as HTMLElement).innerText || '');
+    if (!text || isLikelySystemElement(candidate, text) || (!ariaParsed.ok && !hasBubbleShape(candidate))) continue;
     const normalized = text.replace(/\s+/g, ' ').trim();
     const key = `${normalized}:${sourceSelector(candidate)}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const directionResult = structuralDirection(candidate, main as Element);
+    const directionResult = ariaParsed.ok
+      ? { direction: ariaParsed.direction, method: ariaParsed.method, confidence: ariaParsed.confidence }
+      : structuralDirection(candidate, main as Element);
     const direction = directionResult.direction;
     const role: FacebookTranscriptRole = direction === 'inbound' ? 'customer' : direction === 'outbound' ? 'rep' : 'unknown';
     messages.push({

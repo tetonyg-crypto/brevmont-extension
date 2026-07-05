@@ -3024,6 +3024,9 @@ async function handleGenerate(payload: {
       idemKey,
       apiBase
     );
+    if ((result as any)?.hold || (result as any)?.error === 'grounding_hold') {
+      return result;
+    }
     const sections = parseGenerationSections(result.text, payload.type);
     const latestInbound =
       payload.metadata?.last_inbound_text ||
@@ -3298,6 +3301,17 @@ async function generateViaProxy(
   }
   if (!resp.ok) {
     const errBody = await resp.json().catch(() => ({ error: 'Unknown error' }));
+    if (resp.status === 422 && errBody?.error === 'grounding_hold') {
+      return {
+        text: '',
+        error: 'grounding_hold',
+        hold: true,
+        message: errBody.message || 'Brevmont held this draft because it could not trust the latest customer context.',
+        blocked_reason: errBody.blocked_reason || 'generic_or_missing_specific_context',
+        generation_id: errBody.generation_id || generationId,
+        retryable: true,
+      };
+    }
     if (resp.status >= 500) throw new Error(`HTTP_${resp.status}`);
     throw new Error(errBody.error || `Proxy error: ${resp.status}`);
   }
@@ -3438,11 +3452,16 @@ async function handleCommand(payload: { command: string; currentUrl?: string; ve
   const leadMeta = toolLeadMetadata(payload, payload.platform);
   const vehicleCtx = (payload.vehicleContext || leadMeta.vehicle) ? `\nVehicle context: ${payload.vehicleContext || leadMeta.vehicle}` : '';
   const customerCtx = leadMeta.customer_name ? `\nCustomer: ${leadMeta.customer_name}` : '';
+  const askAnythingGuard = [
+    'ASK ANYTHING MODE - INTERNAL SALES ANSWER ONLY',
+    'Never output TEXT, EMAIL, CRM NOTE, or customer-facing follow-up copy.',
+    'Do not ask "do you mean" or clarifying questions; answer the rep directly with the best practical guidance from the available context.',
+  ].join('\n');
   const result = await callHardToolEndpoint('/api/v1/ask', {
     mode: 'ask_anything',
     question: payload.command || '',
     input: payload.command || '',
-    context: `Rep: ${repName}\nDealership: ${dealership}\n${contextBlock}${customerCtx}${vehicleCtx}`.trim(),
+    context: `${askAnythingGuard}\nRep: ${repName}\nDealership: ${dealership}\n${contextBlock}${customerCtx}${vehicleCtx}`.trim(),
     platform: payload.platform || 'unknown',
     current_url: payload.currentUrl || null,
     leadContext: payload.leadContext || null,

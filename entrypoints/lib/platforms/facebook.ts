@@ -20,6 +20,7 @@ import type {
 import { extractVehicleHint } from './shared';
 import { stripConversationWrapper } from '../leadContextScan';
 import { extractFacebookTranscript } from '../facebookTranscript';
+import { isMessengerSystemCardText } from '../messengerSystemText';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
@@ -77,9 +78,12 @@ function scrapeThread(): ThreadContext {
   const transcript = extractFacebookTranscript(document);
   const header = readHeaderText();
   const context = extractContext();
-  const raw_text = [
-    transcript.raw_text,
-  ].filter(Boolean).join('\n').slice(0, 5000);
+  const rawLines: string[] = [];
+  for (const text of [transcript.raw_text].filter(Boolean).join('\n').split(/\n+/)) {
+    if (isMessengerSystemCardText(text)) continue;
+    rawLines.push(text);
+  }
+  const raw_text = rawLines.join('\n').slice(0, 5000);
   return {
     conversation_key: conversationKey(),
     raw_text,
