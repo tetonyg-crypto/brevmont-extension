@@ -996,6 +996,7 @@ function renderAutoThreadScan(root: HTMLElement): void {
   const input = root.querySelector('#o8-input') as HTMLTextAreaElement | null;
   const firstUse = root.querySelector('#o8-first-use') as HTMLElement | null;
   if (!el) return;
+  renderOverdriveHeartbeatStrip(root).catch(() => {});
 
   if (input && !input.value.trim()) {
     input.placeholder = autoThreadScanStatus === 'ready'
@@ -1333,6 +1334,7 @@ function renderCustomerStamp(root: HTMLElement): void {
     `;
     stamp.querySelector('#o8-customer-change')?.addEventListener('click', () => openCustomerPicker(root));
     stamp.querySelector('#o8-customer-clear')?.addEventListener('click', () => clearPinnedCustomer(root));
+    renderOverdriveHeartbeatStrip(root).catch(() => {});
     return;
   }
 
@@ -1342,6 +1344,7 @@ function renderCustomerStamp(root: HTMLElement): void {
     if (!name) {
       stamp.style.display = 'none';
       stamp.innerHTML = '';
+      renderOverdriveHeartbeatStrip(root).catch(() => {});
       return;
     }
     stamp.style.display = 'block';
@@ -1371,11 +1374,184 @@ function renderCustomerStamp(root: HTMLElement): void {
       pendingCustomerSuggestion = null;
       renderCustomerStamp(root);
     });
+    renderOverdriveHeartbeatStrip(root).catch(() => {});
     return;
   }
 
   stamp.style.display = 'none';
   stamp.innerHTML = '';
+  renderOverdriveHeartbeatStrip(root).catch(() => {});
+}
+
+async function resolveOverdriveHeartbeatConversationKey(): Promise<string | null> {
+  const scanKey = autoThreadScan?.threadContext?.conversation_key || autoThreadScan?.threadFingerprint || autoThreadScan?.contextFingerprint || null;
+  if (scanKey) return String(scanKey).slice(0, 200);
+  const pinnedKey = pinnedCustomer?.threadFingerprint || pinnedCustomer?.contextFingerprint || null;
+  if (pinnedKey) return String(pinnedKey).slice(0, 200);
+  try {
+    const resp = await sendToContent({ type: 'OVERDRIVE_ACTIVE_CONVERSATION_KEY' });
+    if (resp?.conversation_key) return String(resp.conversation_key).slice(0, 200);
+  } catch { /* noop */ }
+  return null;
+}
+
+function heartbeatToneForDecision(decision: string, reason: string): 'quiet' | 'active' | 'warning' | 'attention' {
+  if (decision === 'pending_send') return 'active';
+  if (decision === 'sent' || decision === 'armed_waiting') return 'quiet';
+  if (/escalated|human|send_blocked|unverified/i.test(reason)) return 'attention';
+  return 'warning';
+}
+
+function renderHeartbeatRecovery(decision: any): string {
+  const recovery = Array.isArray(decision?.recovery) ? decision.recovery : [];
+  if (recovery.includes('take_over') || recovery.includes('send_now')) {
+    return `
+      <span class="overdrive-heartbeat-actions">
+        <button class="overdrive-heartbeat-action" data-heartbeat-action="take-over" type="button">Take over</button>
+        <button class="overdrive-heartbeat-action" data-heartbeat-action="send-now" type="button">Send now</button>
+      </span>
+    `;
+  }
+  if (recovery.includes('resume')) {
+    return '<button class="overdrive-heartbeat-action" data-heartbeat-action="resume" type="button">Resume</button>';
+  }
+  if (recovery.includes('open_draft') && decision?.draft) {
+    return '<button class="overdrive-heartbeat-action" data-heartbeat-action="open-draft" type="button">Open draft</button>';
+  }
+  if (recovery.includes('reply_anyway')) {
+    return '<button class="overdrive-heartbeat-action" data-heartbeat-action="check-again" type="button">Check again</button>';
+  }
+  return '';
+}
+
+async function queuePendingOverdriveAction(idempotencyKey: string, action: 'send_now' | 'take_over'): Promise<void> {
+  if (!idempotencyKey) return;
+  const key = 'overdrive_pending_actions';
+  const stored = await chrome.storage.local.get([key]);
+  const map = (stored?.[key] as Record<string, { action: 'send_now' | 'take_over'; at: number }>) || {};
+  map[idempotencyKey] = { action, at: Date.now() };
+  await chrome.storage.local.set({ [key]: map });
+}
+
+function pendingCountdownText(decision: any): string {
+  const pendingSeconds = Number(decision?.metadata?.pending_window_seconds);
+  const serverTs = Date.parse(String(decision?.server_ts || ''));
+  if (!Number.isFinite(pendingSeconds) || !Number.isFinite(serverTs)) return '';
+  const remaining = Math.max(0, Math.ceil((serverTs + pendingSeconds * 1000 - Date.now()) / 1000));
+  return remaining > 0 ? ` · ${remaining}s` : '';
+}
+
+async function renderOverdriveHeartbeatStrip(root: HTMLElement): Promise<void> {
+  const strip = root.querySelector('#o8-overdrive-heartbeat-strip') as HTMLElement | null;
+  if (!strip) return;
+
+  const likelyVehicleThread = !!(pinnedCustomer?.vehicle || autoThreadScan?.vehicle);
+  if (!likelyVehicleThread && !pinnedCustomer) {
+    strip.style.display = 'none';
+    strip.innerHTML = '';
+    return;
+  }
+
+  const conversationKey = await resolveOverdriveHeartbeatConversationKey();
+  if (!conversationKey) {
+    strip.style.display = 'none';
+    strip.innerHTML = '';
+    return;
+  }
+
+  try {
+    const { getThreadDecision } = await import('../lib/overdrive/apiClient');
+    const data = await getThreadDecision(conversationKey);
+    const latest = data.latest;
+    if (!latest) {
+      strip.style.display = 'none';
+      strip.innerHTML = '';
+      return;
+    }
+    const tone = heartbeatToneForDecision(latest.decision, latest.stop_reason);
+    const snippet = latest.message_snippet ? `<div class="overdrive-heartbeat-seen">Saw: ${esc(latest.message_snippet)}</div>` : '';
+    const draft = latest.draft ? `<div class="overdrive-heartbeat-draft" style="display:none">${esc(latest.draft)}</div>` : '';
+    const recovery = renderHeartbeatRecovery(latest);
+    const countdown = latest.decision === 'pending_send'
+      ? `<span class="overdrive-heartbeat-countdown" data-pending-seconds="${Number(latest.metadata?.pending_window_seconds || 0)}" data-server-ts="${esc(latest.server_ts || '')}">${pendingCountdownText(latest)}</span>`
+      : '';
+    strip.style.display = 'block';
+    strip.className = `overdrive-heartbeat-strip overdrive-heartbeat-${tone}`;
+    strip.dataset.conversationKey = conversationKey;
+    strip.innerHTML = `
+      <div class="overdrive-heartbeat-main" role="button" tabindex="0">
+        <span class="overdrive-heartbeat-dot"></span>
+        <div class="overdrive-heartbeat-copy">
+          <div class="overdrive-heartbeat-title">${esc(latest.plain_text || 'Armed on this thread, waiting for the customer')}${countdown}</div>
+          ${snippet}
+        </div>
+        ${recovery}
+      </div>
+      <div class="overdrive-heartbeat-inspector" style="display:none">
+        <div><strong>Decision:</strong> ${esc(latest.decision || 'unknown')}</div>
+        <div><strong>Reason:</strong> ${esc(latest.plain_text || latest.stop_reason || 'Unknown')}</div>
+        ${latest.message_snippet ? `<div><strong>Message:</strong> ${esc(latest.message_snippet)}</div>` : ''}
+        ${latest.event_type ? `<div><strong>Event:</strong> ${esc(latest.event_type)}</div>` : ''}
+        <button class="overdrive-heartbeat-action" data-heartbeat-action="check-again" type="button">Check again</button>
+      </div>
+      ${draft}
+    `;
+
+    const main = strip.querySelector('.overdrive-heartbeat-main') as HTMLElement | null;
+    const inspector = strip.querySelector('.overdrive-heartbeat-inspector') as HTMLElement | null;
+    if (main && inspector) {
+      main.onclick = (event) => {
+        if ((event.target as HTMLElement)?.closest('button')) return;
+        inspector.style.display = inspector.style.display === 'none' ? 'block' : 'none';
+      };
+    }
+    strip.querySelectorAll<HTMLButtonElement>('[data-heartbeat-action]').forEach((button) => {
+      button.onclick = async (event) => {
+        event.stopPropagation();
+        const action = button.dataset.heartbeatAction || '';
+        if (action === 'resume') {
+          const { resumeThread } = await import('../lib/overdrive/apiClient');
+          await resumeThread(conversationKey);
+          showToast(root, 'Overdrive resumed');
+          await renderOverdriveHeartbeatStrip(root);
+        } else if (action === 'take-over') {
+          const idempotencyKey = String(latest?.metadata?.idempotency_key || '');
+          await queuePendingOverdriveAction(idempotencyKey, 'take_over');
+          const { pauseThread } = await import('../lib/overdrive/apiClient');
+          await pauseThread(conversationKey, { paused_by: 'takeover', reason: 'rep_takeover_pending_window' }).catch(() => null);
+          showToast(root, 'Overdrive held');
+          await renderOverdriveHeartbeatStrip(root);
+        } else if (action === 'send-now') {
+          const idempotencyKey = String(latest?.metadata?.idempotency_key || '');
+          await queuePendingOverdriveAction(idempotencyKey, 'send_now');
+          showToast(root, 'Sending now');
+          button.setAttribute('disabled', 'true');
+        } else if (action === 'open-draft') {
+          const input = root.querySelector('#o8-input') as HTMLTextAreaElement | null;
+          if (input && latest.draft) {
+            input.value = latest.draft;
+            showQuickView(root, false);
+            input.focus();
+          }
+        } else if (action === 'check-again') {
+          autoThreadScanUrl = '';
+          await scanThreadForGenerate(root, true).catch(() => null);
+          await renderOverdriveHeartbeatStrip(root);
+        }
+      };
+    });
+  } catch {
+    strip.style.display = 'block';
+    strip.className = 'overdrive-heartbeat-strip overdrive-heartbeat-warning';
+    strip.innerHTML = `
+      <div class="overdrive-heartbeat-main">
+        <span class="overdrive-heartbeat-dot"></span>
+        <div class="overdrive-heartbeat-copy">
+          <div class="overdrive-heartbeat-title">Checking Overdrive state</div>
+        </div>
+      </div>
+    `;
+  }
 }
 
 async function openCustomerPicker(root: HTMLElement): Promise<void> {
@@ -2106,6 +2282,7 @@ async function renderPanel(): Promise<void> {
   renderAccountChip().catch(() => {});
   renderRadarStatus(root).catch(() => {});
   renderOverdriveStatusPill(root).catch(() => {});
+  renderOverdriveHeartbeatStrip(root).catch(() => {});
   wireIdentityReactivity();
   requestAnimationFrame(() => resetPanelScroll(root));
 }
@@ -2257,7 +2434,10 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
     (window as any).__brevmontOverdrivePillListener = true;
     try {
       chrome.runtime.onMessage.addListener((msg) => {
-        if (msg?.type === 'OVERDRIVE_STATE_CHANGED') { void loadAndPaint(); }
+        if (msg?.type === 'OVERDRIVE_STATE_CHANGED') {
+          void loadAndPaint();
+          void renderOverdriveHeartbeatStrip(root);
+        }
         return false;
       });
     } catch { /* noop */ }

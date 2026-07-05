@@ -140,6 +140,7 @@ export function getPanelHTML(platform: Platform): string {
 </div>
 <div id="o8-challenge-banner" class="challenge-banner" style="display:none"></div>
 <div id="o8-customer-stamp" class="customer-stamp" style="display:none"></div>
+<div id="o8-overdrive-heartbeat-strip" class="overdrive-heartbeat-strip" style="display:none"></div>
 <div id="o8-customer-picker" class="customer-picker" style="display:none"></div>
 <div id="o8-quick" class="quick-mode">
   ${customerCard}

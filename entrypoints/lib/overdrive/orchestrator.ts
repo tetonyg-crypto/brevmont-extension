@@ -39,8 +39,9 @@ import {
   buildSafetyDelay,
   inActiveHours,
   repRecentlyTyped,
+  sleep,
 } from './safetyEnvelope';
-import { requestOverdriveReply, confirmOverdriveSend } from './apiClient';
+import { requestOverdriveReply, confirmOverdriveSend, pauseThread } from './apiClient';
 import type { OverdriveReplyResponse, OverdriveSendConfirmPayload } from './apiClient';
 import type { OverdriveAttachResult, OverdriveSendResult, OverdriveStage, OverdriveThreadContext } from './types';
 
@@ -147,6 +148,7 @@ export function unsafeOverdriveReplyReason(text: string): string | null {
 // or install), we scan the map and re-fire anything < 10min old.
 const PENDING_CONFIRMS_KEY = 'overdrive_pending_confirms';
 const PENDING_MAX_AGE_MS = 10 * 60 * 1000;
+const PENDING_ACTIONS_KEY = 'overdrive_pending_actions';
 
 interface PendingConfirmEntry {
   queued_at: number;
@@ -171,6 +173,33 @@ async function clearPendingConfirm(idempotencyKey: string): Promise<void> {
       await chrome.storage.local.set({ [PENDING_CONFIRMS_KEY]: map });
     }
   } catch { /* noop */ }
+}
+
+type PendingSendAction = 'send_now' | 'take_over';
+
+async function readPendingSendAction(idempotencyKey: string): Promise<PendingSendAction | null> {
+  try {
+    const stored = await chrome.storage.local.get([PENDING_ACTIONS_KEY]);
+    const map = (stored?.[PENDING_ACTIONS_KEY] as Record<string, { action: PendingSendAction; at: number }>) || {};
+    const entry = map[idempotencyKey];
+    if (!entry?.action) return null;
+    delete map[idempotencyKey];
+    await chrome.storage.local.set({ [PENDING_ACTIONS_KEY]: map });
+    return entry.action;
+  } catch {
+    return null;
+  }
+}
+
+async function waitPendingSendWindow(idempotencyKey: string, seconds: number): Promise<PendingSendAction | null> {
+  const totalMs = Math.max(0, Math.min(60_000, Math.round(seconds * 1000)));
+  const started = Date.now();
+  while (Date.now() - started < totalMs) {
+    const action = await readPendingSendAction(idempotencyKey);
+    if (action) return action;
+    await sleep(Math.min(250, Math.max(0, totalMs - (Date.now() - started))));
+  }
+  return readPendingSendAction(idempotencyKey);
 }
 
 /**
@@ -455,11 +484,40 @@ async function orchestrateReplyInner(
     };
   }
 
-  // Step 4: pre-send jitter
-  const delay = buildSafetyDelay(reply.reply_text || '');
-  await delay.waitBeforeInject();
+  // Step 4: server-owned pending-send window. During this window the
+  // sidepanel heartbeat strip can either let Overdrive send, take over,
+  // or tell it to send immediately. This keeps the existing send token
+  // path intact while making the wait visible and controllable.
+  const pendingSeconds = Number.isFinite(reply.pending_window_seconds)
+    ? Math.max(0, Math.min(60, Number(reply.pending_window_seconds)))
+    : 15;
+  const pendingAction = await waitPendingSendWindow(reply.idempotency_key, pendingSeconds);
+  if (pendingAction === 'take_over') {
+    try {
+      await pauseThread(scrape.conversation_key, {
+        paused_by: 'takeover',
+        reason: 'rep_takeover_pending_window',
+      });
+    } catch { /* server pause is best-effort; local stand-down still wins */ }
+    deps.emitEvent({
+      type: 'overdrive.skipped',
+      conversation_key: scrape.conversation_key,
+      payload: { reason: 'rep_engaged', stage: reply.next_stage },
+    });
+    return {
+      attempted: true,
+      skipped_reason: 'rep_engaged',
+      qualification,
+      reply,
+      latency_ms: Date.now() - startedAt,
+    };
+  }
 
-  // Step 5: inject text
+  // Step 5: typing simulation. We inject after the visible countdown,
+  // then hold only for the short typing delay before clicking send.
+  const delay = buildSafetyDelay(reply.reply_text || '', { jitter_ms: 0 });
+
+  // Step 6: inject text
   let injectOk = await deps.injectText(reply.reply_text || '');
   let injectMethodTag: string = 'inject_failed';
   if (!injectOk) {
@@ -523,10 +581,10 @@ async function orchestrateReplyInner(
     };
   }
 
-  // Step 6: typing simulation
+  // Step 7: typing simulation
   await delay.waitAfterInject();
 
-  // Step 7: if AI-question, attach photo before send
+  // Step 8: if AI-question, attach photo before send
   let attach: OrchestratorResult['attach'] | undefined;
   if (reply.ai_question_triggered && reply.photo_data_url) {
     const attachResult = deps.attachPhoto
@@ -542,7 +600,7 @@ async function orchestrateReplyInner(
     // If attach failed, we still send the text reply.
   }
 
-  // Step 8: DOM-verified send
+  // Step 9: DOM-verified send
   const sendResult = await deps.sendText(reply.reply_text || '');
 
   // Migration 310 write-through: server writes the terminal event
@@ -622,7 +680,7 @@ async function orchestrateReplyInner(
     };
   }
 
-  // Step 9: persist state + log
+  // Step 10: persist state + log
   await recordReplyOutcome(scrape.conversation_key, {
     stage: reply.next_stage as OverdriveStage,
     last_inbound_hash: scrape.last_inbound_hash,

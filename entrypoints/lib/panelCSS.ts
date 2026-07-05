@@ -170,6 +170,26 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .customer-picker-meta { font-size:10px; color:#64748B; margin-top:1px; }
 .customer-picker-actions { display:flex; gap:6px; margin-top:8px; }
 .customer-picker-actions button { flex:1; border:1px solid #D9E7E7; background:#fff; border-radius:8px; padding:7px; font-size:11px; font-weight:800; font-family:inherit; color:#0D6E6E; cursor:pointer; }
+.overdrive-heartbeat-strip { flex:0 0 auto; margin:0 12px 8px; border:1px solid #D9E7E7; border-radius:10px; background:#F8FAFC; color:#0F1419; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+.overdrive-heartbeat-main { display:flex; align-items:center; gap:8px; min-height:38px; padding:8px 9px; cursor:pointer; }
+.overdrive-heartbeat-dot { width:8px; height:8px; flex:0 0 8px; border-radius:999px; background:#0D6E6E; box-shadow:0 0 0 4px rgba(13,110,110,.1); }
+.overdrive-heartbeat-copy { flex:1 1 auto; min-width:0; }
+.overdrive-heartbeat-title { font-size:11px; font-weight:850; line-height:1.25; color:#0F1419; }
+.overdrive-heartbeat-seen { margin-top:2px; font-size:10px; line-height:1.3; color:#64748B; overflow-wrap:anywhere; }
+.overdrive-heartbeat-action { flex:0 0 auto; border:0; border-radius:7px; background:#F3F4F6; color:#0D6E6E; padding:6px 8px; font-size:10px; line-height:1; font-weight:850; font-family:inherit; cursor:pointer; }
+.overdrive-heartbeat-action:hover { background:#E6F4F1; }
+.overdrive-heartbeat-action:disabled { opacity:.55; cursor:default; }
+.overdrive-heartbeat-actions { display:flex; align-items:center; gap:6px; flex:0 0 auto; }
+.overdrive-heartbeat-countdown { color:#0D6E6E; white-space:nowrap; }
+.overdrive-heartbeat-active { border-color:#99F6E4; background:#ECFDF5; }
+.overdrive-heartbeat-active .overdrive-heartbeat-dot { background:#10B981; box-shadow:0 0 0 4px rgba(16,185,129,.14); }
+.overdrive-heartbeat-warning { border-color:#FDE68A; background:#FFFBEB; }
+.overdrive-heartbeat-warning .overdrive-heartbeat-dot { background:#F59E0B; box-shadow:0 0 0 4px rgba(245,158,11,.14); }
+.overdrive-heartbeat-attention { border-color:#FECACA; background:#FEF2F2; }
+.overdrive-heartbeat-attention .overdrive-heartbeat-dot { background:#DC2626; box-shadow:0 0 0 4px rgba(220,38,38,.14); }
+.overdrive-heartbeat-inspector { border-top:1px solid rgba(15,23,42,.08); padding:8px 10px 10px; font-size:10.5px; line-height:1.45; color:#475569; background:rgba(255,255,255,.72); }
+.overdrive-heartbeat-inspector > div + div { margin-top:4px; }
+.overdrive-heartbeat-inspector .overdrive-heartbeat-action { margin-top:8px; }
 .nav-count { display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; margin-left:4px; border-radius:999px; background:#DC2626; color:#fff; font-size:10px; font-weight:800; padding:0 4px; }
 .my-lead-card { border:1px solid #E5E7EB; border-radius:10px; padding:10px; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.04); }
 .my-lead-card + .my-lead-card { margin-top:8px; }

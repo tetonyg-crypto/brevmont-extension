@@ -57,15 +57,23 @@ export interface SafetyDelay {
   waitAfterInject(): Promise<void>;
 }
 
-export function buildSafetyDelay(messageText: string): SafetyDelay {
-  const jitter_ms = computePreSendJitterMs();
+export function buildSafetyDelay(
+  messageText: string,
+  overrides?: { jitter_ms?: number; typing_ms?: number },
+): SafetyDelay {
+  const jitter_ms = Number.isFinite(overrides?.jitter_ms)
+    ? Math.max(0, Math.round(Number(overrides?.jitter_ms)))
+    : computePreSendJitterMs();
   const typing_ms = computeTypingMs(messageText);
+  const finalTypingMs = Number.isFinite(overrides?.typing_ms)
+    ? Math.max(0, Math.round(Number(overrides?.typing_ms)))
+    : typing_ms;
   return {
     jitter_ms,
-    typing_ms,
-    total_ms: jitter_ms + typing_ms,
+    typing_ms: finalTypingMs,
+    total_ms: jitter_ms + finalTypingMs,
     waitBeforeInject: () => sleep(jitter_ms),
-    waitAfterInject: () => sleep(typing_ms),
+    waitAfterInject: () => sleep(finalTypingMs),
   };
 }
 

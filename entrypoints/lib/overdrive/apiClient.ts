@@ -148,6 +148,39 @@ export async function getThreadState(conversation_key: string): Promise<{ thread
   );
 }
 
+export interface OverdriveThreadDecision {
+  id: string | null;
+  event_type: string | null;
+  server_ts: string | null;
+  decision: string;
+  stop_reason: string;
+  plain_text: string;
+  message_snippet: string | null;
+  classification: string | null;
+  draft: string | null;
+  recovery: string[];
+  metadata?: {
+    source?: string | null;
+    details?: unknown;
+    pending_window_seconds?: number | null;
+    idempotency_key?: string | null;
+  };
+}
+
+export interface OverdriveThreadDecisionResponse {
+  conversation_key: string;
+  latest: OverdriveThreadDecision | null;
+  decisions: OverdriveThreadDecision[];
+  thread: OverdriveThreadState | null;
+  plain_word_map_version: string;
+}
+
+export async function getThreadDecision(conversation_key: string): Promise<OverdriveThreadDecisionResponse> {
+  return overdriveFetch<OverdriveThreadDecisionResponse>(
+    `/api/overdrive/thread/${encodeURIComponent(conversation_key)}/decision`
+  );
+}
+
 // 1.16.47: pause requires paused_by so the server records origin
 // (rep manual, GM dashboard, takeover, escalation). Default 'rep'
 // matches the pre-1.16.47 behavior for callers that don't specify.
@@ -192,6 +225,7 @@ export interface OverdriveReplyResponse {
   escalation_reason: string | null;
   ai_question_triggered: boolean;
   photo_data_url: string | null;
+  pending_window_seconds?: number;
   server_ts: string;
 }
 
