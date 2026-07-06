@@ -515,6 +515,13 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
   if (!root) return;
   if (loading) loading.style.display = 'none';
   root.style.display = 'flex';
+  document.documentElement.style.background = '#0F1419';
+  document.body.style.background = '#0F1419';
+  document.body.style.overflow = 'hidden';
+  root.style.width = '100%';
+  root.style.minHeight = '100vh';
+  root.style.background = '#0F1419';
+  root.style.overflow = 'hidden';
 
   // Clear any prior poll from a previous mount so we don't double-poll.
   const priorPoll = (window as any).__brevmontSignInPollId;
@@ -529,7 +536,7 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
   const waiting = !!opts?.waiting;
 
   root.innerHTML = `
-    <div style="min-height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:32px 24px;background:#0F1419;color:#F8F6F1;text-align:center;">
+    <div style="width:100%;min-height:100vh;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:32px 24px;background:#0F1419;color:#F8F6F1;text-align:center;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:32px;">
         <div style="width:36px;height:36px;border-radius:10px;background:#0D6E6E;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;">B</div>
         <div style="font-weight:900;letter-spacing:.24em;font-size:13px;">BREVMONT</div>
@@ -1498,6 +1505,9 @@ async function renderOverdriveHeartbeatStrip(root: HTMLElement): Promise<void> {
     const snippet = latest.message_snippet ? `<div class="overdrive-heartbeat-seen">Saw: ${esc(latest.message_snippet)}</div>` : '';
     const draft = latest.draft ? `<div class="overdrive-heartbeat-draft" style="display:none">${esc(latest.draft)}</div>` : '';
     const recovery = renderHeartbeatRecovery(latest);
+    const reasonText = latest.stop_reason || latest.plain_text || 'Unknown';
+    const sourceText = latest.metadata?.source ? `<div><strong>Source:</strong> ${esc(latest.metadata.source)}</div>` : '';
+    const detailsText = latest.metadata?.details ? `<div><strong>Details:</strong> ${esc(JSON.stringify(latest.metadata.details).slice(0, 180))}</div>` : '';
     const countdown = latest.decision === 'pending_send'
       ? `<span class="overdrive-heartbeat-countdown" data-pending-seconds="${Number(latest.metadata?.pending_window_seconds || 0)}" data-server-ts="${esc(latest.server_ts || '')}">${pendingCountdownText(latest)}</span>`
       : '';
@@ -1515,7 +1525,9 @@ async function renderOverdriveHeartbeatStrip(root: HTMLElement): Promise<void> {
       </div>
       <div class="overdrive-heartbeat-inspector" style="display:none">
         <div><strong>Decision:</strong> ${esc(latest.decision || 'unknown')}</div>
-        <div><strong>Reason:</strong> ${esc(latest.plain_text || latest.stop_reason || 'Unknown')}</div>
+        <div><strong>Reason:</strong> ${esc(reasonText)}</div>
+        ${sourceText}
+        ${detailsText}
         ${latest.message_snippet ? `<div><strong>Message:</strong> ${esc(latest.message_snippet)}</div>` : ''}
         ${latest.event_type ? `<div><strong>Event:</strong> ${esc(latest.event_type)}</div>` : ''}
         <button class="overdrive-heartbeat-action" data-heartbeat-action="check-again" type="button">Check again</button>
@@ -2271,6 +2283,14 @@ async function renderPanel(): Promise<void> {
     renderSignedOutScreen();
     return;
   }
+  document.documentElement.style.background = '';
+  document.body.style.background = '#fff';
+  document.body.style.overflowX = 'hidden';
+  document.body.style.overflowY = 'auto';
+  root.style.width = '';
+  root.style.minHeight = '';
+  root.style.background = '';
+  root.style.overflow = '';
 
   // Inject CSS
   const style = document.createElement('style');

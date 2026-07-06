@@ -29,6 +29,9 @@ const NOTIFICATION_ID_PREFIX = 'overdrive-escalation-';
 const SETTINGS_CACHE_KEY = 'overdrive_settings_cache';
 const REP_REPLIES_TODAY_KEY = 'overdrive_rep_replies_today';
 const FACEBOOK_HOSTS = /(?:^|\.)(facebook|messenger)\.com$/i;
+const RADAR_SWEEP_COOLDOWN_MS = 20_000;
+const RADAR_SWEEP_MAX_ITEMS = 100;
+const RADAR_SWEEP_CAPTURE_PACE_MS = 150;
 
 interface CachedSettings {
   fetchedAt: number;
@@ -252,12 +255,11 @@ async function ensureFacebookTabIfEnabled(cached: CachedSettings | null): Promis
  * Radar catch-up sweep — walk every open Facebook tab, ask the
  * content script for its visible chat-list snapshot, and fire
  * POST /api/v1/radar/capture for each item with sweep_source=
- * 'catchup_sweep'. Rate-limited to 1 capture/second per rep to look
- * human-plausible in the DOM read cadence. Server idempotency
- * prevents dupes across sweeps.
+ * 'catchup_sweep'. This is read-only lead capture, so keep it brisk;
+ * server idempotency prevents dupes across sweeps.
  */
 async function runRadarCatchupSweep(): Promise<void> {
-  if (Date.now() - state.lastRadarSweepAt < 60_000) return;
+  if (Date.now() - state.lastRadarSweepAt < RADAR_SWEEP_COOLDOWN_MS) return;
   state.lastRadarSweepAt = Date.now();
   await overdriveLog({ event: 'radar_sweep_start' });
   const tabs = await findFacebookTabs();
@@ -274,7 +276,7 @@ async function runRadarCatchupSweep(): Promise<void> {
       last_inbound_text: string;
       last_inbound_hash: string;
       url: string;
-    }> }>(tab.id, { type: 'RADAR_SWEEP_LIST' });
+    }> }>(tab.id, { type: 'RADAR_SWEEP_LIST', deep: true, maxItems: RADAR_SWEEP_MAX_ITEMS });
     if (!list?.ok || !list.items) continue;
     for (const item of list.items) {
       try {
@@ -309,8 +311,7 @@ async function runRadarCatchupSweep(): Promise<void> {
         else if (result.mode === 'updated') counts.updated += 1;
         else if (result.mode === 'noop') counts.noop += 1;
         else if (!result.ok) counts.error += 1;
-        // Human-plausible pacing: 1 capture / second per sweep.
-        await new Promise((r) => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, RADAR_SWEEP_CAPTURE_PACE_MS));
       } catch (e: any) {
         counts.error += 1;
         await overdriveLog({ event: 'radar_sweep_item_error', error: e?.message });
@@ -675,7 +676,7 @@ export async function installOverdriveController(): Promise<void> {
         // Walks the Marketplace chat list and captures anything the
         // observer missed while Chrome was closed. Rate-limited server-side
         // by the idempotency index (migration 304).
-    chrome.alarms.create(RADAR_SWEEP_ALARM, { periodInMinutes: 5, delayInMinutes: 1 });
+    chrome.alarms.create(RADAR_SWEEP_ALARM, { periodInMinutes: 2, delayInMinutes: 1 });
     chrome.alarms.onAlarm.addListener(async (alarm) => {
       if (alarm.name === STATE_POLL_ALARM) {
         await pollOverdriveState();

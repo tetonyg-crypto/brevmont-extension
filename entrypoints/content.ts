@@ -1905,8 +1905,8 @@ export default defineContentScript({
       }
 
       if (msg.type === 'RADAR_SWEEP_LIST') {
-        // Catch-up sweep (Radar Phase C). Walk the visible Messenger
-        // chat list and return top-N recent Marketplace-origin threads.
+        // Catch-up sweep (Radar Phase C). Walk the Messenger chat list
+        // read-only and return recent Marketplace-origin threads.
         // Read-only DOM scan. Background loops through the result and
         // fires POST /api/v1/radar/capture per item with sweep_source=
         // 'catchup_sweep'. Idempotency at the server prevents dupes.
@@ -1923,46 +1923,82 @@ export default defineContentScript({
               last_inbound_hash: string;
               url: string;
             }> = [];
-            // Messenger's chat-list rows are role="row" inside role="grid"
-            // OR role="listitem" on older layouts. We accept either.
-            // We prefer rows with an "unread" indicator (aria-label
-            // matching /unread/i or a dot badge). If nothing looks
-            // unread we fall back to the most recent visible rows.
-            const rows = Array.from(document.querySelectorAll('[role="row"], [role="listitem"]'))
-              .filter((el) => el instanceof HTMLElement) as HTMLElement[];
-            const unread = rows.filter((r) => /unread/i.test(r.getAttribute('aria-label') || ''));
-            const pool = unread.length > 0 ? unread : rows.slice(0, 20);
-            for (const row of pool.slice(0, 20)) {
+            const seenKeys = new Set<string>();
+            const maxItems = Math.max(20, Math.min(150, Number(msg.maxItems || 100)));
+            const deep = msg.deep !== false;
+            const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+            const hashText = async (text: string) => {
               try {
-                const link = row.querySelector('a[href*="/marketplace/t/"], a[href*="/messages/t/"]') as HTMLAnchorElement | null;
-                if (!link) continue;
-                const href = link.href;
-                // conversation_key = 'mp:<thread_id>' for Marketplace,
-                // 'msg:<thread_id>' otherwise. Extract the id from the URL.
-                const m = href.match(/\/(?:marketplace|messages)\/t\/([^/?#]+)/);
-                if (!m) continue;
-                const threadId = m[1];
-                const isMarketplace = /marketplace/i.test(href);
-                const conversation_key = `${isMarketplace ? 'mp' : 'msg'}:${threadId}`;
-                const preview = (row.querySelector('[dir="auto"] span') as HTMLElement | null)?.innerText?.trim() || '';
-                const header_text = (row.querySelector('span[dir="auto"]') as HTMLElement | null)?.innerText?.trim() || row.innerText.trim().split('\n')[0].slice(0, 200);
-                // Hash the preview as a stand-in for last_inbound_hash;
-                // if we can't hash, use the raw slice as an idempotency key.
-                let last_inbound_hash = '';
+                const enc = new TextEncoder().encode(text);
+                const digest = await crypto.subtle.digest('SHA-256', enc);
+                const bytes = new Uint8Array(digest);
+                return Array.from(bytes.slice(0, 8)).map((b) => b.toString(16).padStart(2, '0')).join('');
+              } catch { return text.slice(0, 32); }
+            };
+            const findRadarSweepScrollContainer = () => {
+              const candidates = Array.from(document.querySelectorAll<HTMLElement>('[role="grid"], [role="list"], div'))
+                .filter((el) => el.scrollHeight > el.clientHeight + 80)
+                .map((el) => {
+                  const rowCount = el.querySelectorAll('[role="row"], [role="listitem"]').length;
+                  const threadLinkCount = el.querySelectorAll('a[href*="/marketplace/t/"], a[href*="/messages/t/"]').length;
+                  return { el, score: threadLinkCount * 10 + rowCount };
+                })
+                .filter((candidate) => candidate.score > 0)
+                .sort((a, b) => b.score - a.score);
+              return candidates[0]?.el || null;
+            };
+            const collectRadarSweepRows = async (scope: ParentNode) => {
+              const rows = Array.from(scope.querySelectorAll('[role="row"], [role="listitem"]'))
+                .filter((el) => el instanceof HTMLElement) as HTMLElement[];
+              for (const row of rows) {
+                if (items.length >= maxItems) return;
                 try {
-                  const enc = new TextEncoder().encode(preview);
-                  const digest = await crypto.subtle.digest('SHA-256', enc);
-                  const bytes = new Uint8Array(digest);
-                  last_inbound_hash = Array.from(bytes.slice(0, 8)).map((b) => b.toString(16).padStart(2, '0')).join('');
-                } catch { last_inbound_hash = preview.slice(0, 32); }
-                items.push({
-                  conversation_key,
-                  header_text,
-                  last_inbound_text: preview,
-                  last_inbound_hash,
-                  url: href,
-                });
-              } catch { /* skip row */ }
+                  const link = row.querySelector('a[href*="/marketplace/t/"], a[href*="/messages/t/"]') as HTMLAnchorElement | null;
+                  if (!link) continue;
+                  const href = link.href;
+                  const m = href.match(/\/(?:marketplace|messages)\/t\/([^/?#]+)/);
+                  if (!m) continue;
+                  const threadId = m[1];
+                  const isMarketplace = /marketplace/i.test(href);
+                  const conversation_key = `${isMarketplace ? 'mp' : 'msg'}:${threadId}`;
+                  if (seenKeys.has(conversation_key)) continue;
+                  seenKeys.add(conversation_key);
+                  const textBits = Array.from(row.querySelectorAll<HTMLElement>('[dir="auto"], span'))
+                    .map((el) => el.innerText?.trim())
+                    .filter((text): text is string => !!text);
+                  const rowLines = row.innerText.split('\n').map((line) => line.trim()).filter(Boolean);
+                  const header_text = (textBits[0] || rowLines[0] || '').slice(0, 220);
+                  const preview = (textBits.find((text, idx) => idx > 0 && text !== header_text) || rowLines.find((line, idx) => idx > 0 && line !== header_text) || '').slice(0, 500);
+                  items.push({
+                    conversation_key,
+                    header_text,
+                    last_inbound_text: preview,
+                    last_inbound_hash: await hashText(preview || `${conversation_key}:${header_text}`),
+                    url: href,
+                  });
+                } catch { /* skip row */ }
+              }
+            };
+            const scroller = findRadarSweepScrollContainer();
+            const originalScrollTop = scroller?.scrollTop || 0;
+            try {
+              if (deep && scroller) {
+                scroller.scrollTop = 0;
+                await sleep(90);
+              }
+              let stalePages = 0;
+              for (let page = 0; page < (deep && scroller ? 12 : 1) && items.length < maxItems; page += 1) {
+                const beforeCount = items.length;
+                await collectRadarSweepRows(scroller || document);
+                if (!deep || !scroller) break;
+                const beforeTop = scroller.scrollTop;
+                scroller.scrollTop = Math.min(scroller.scrollHeight - scroller.clientHeight, beforeTop + Math.max(240, scroller.clientHeight * 0.85));
+                await sleep(110);
+                stalePages = items.length === beforeCount || scroller.scrollTop === beforeTop ? stalePages + 1 : 0;
+                if (stalePages >= 2) break;
+              }
+            } finally {
+              if (scroller) scroller.scrollTop = originalScrollTop;
             }
             sendResponse({ ok: true, items });
           } catch (err: any) {

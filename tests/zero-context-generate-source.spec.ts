@@ -242,14 +242,38 @@ test('My Leads merges server rows with local radar cache', () => {
 
 test('radar catch-up sweep captures vehicle Marketplace rows only and leaves backlog unarmed', () => {
   const background = read('entrypoints/lib/overdrive/backgroundController.ts');
+  const content = read('entrypoints/content.ts');
   expect(background).toContain('function isCarInquirySweepItem');
   expect(background).toContain("reason: 'not_vehicle_marketplace_inquiry'");
   expect(background).toContain('extractVehicleHint');
   expect(background).toContain('vehicle_year: vehicle?.year || null');
   expect(background).toContain("sweep_source: 'catchup_sweep'");
-  expect(background).toContain("chrome.alarms.create(RADAR_SWEEP_ALARM, { periodInMinutes: 5, delayInMinutes: 1 })");
-  expect(background).toContain('if (Date.now() - state.lastRadarSweepAt < 60_000) return;');
+  expect(background).toContain("chrome.alarms.create(RADAR_SWEEP_ALARM, { periodInMinutes: 2, delayInMinutes: 1 })");
+  expect(background).toContain('const RADAR_SWEEP_COOLDOWN_MS = 20_000');
+  expect(background).toContain('const RADAR_SWEEP_MAX_ITEMS = 100');
+  expect(background).toContain('const RADAR_SWEEP_CAPTURE_PACE_MS = 150');
+  expect(background).toContain("{ type: 'RADAR_SWEEP_LIST', deep: true, maxItems: RADAR_SWEEP_MAX_ITEMS }");
   expect(background).toContain('void runRadarCatchupSweep();');
+  expect(content).toContain('findRadarSweepScrollContainer');
+  expect(content).toContain('collectRadarSweepRows');
+  expect(content).toContain('seenKeys');
+  expect(content).toContain('const maxItems = Math.max(20, Math.min(150, Number(msg.maxItems || 100)))');
+  expect(content).toContain('scroller.scrollTop = 0');
+  expect(content).toContain('scroller.scrollTop = originalScrollTop');
+  expect(content).not.toContain('const pool = unread.length > 0 ? unread : rows.slice(0, 20)');
+  expect(content).not.toContain('pool.slice(0, 20)');
+});
+
+test('signed-out sidepanel fills the full dark surface without a white stripe', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(source).toContain("document.documentElement.style.background = '#0F1419'");
+  expect(source).toContain("document.body.style.background = '#0F1419'");
+  expect(source).toContain("document.body.style.overflow = 'hidden'");
+  expect(source).toContain("root.style.minHeight = '100vh'");
+  expect(source).toContain("root.style.background = '#0F1419'");
+  expect(source).toContain('width:100%;min-height:100vh;box-sizing:border-box;overflow:hidden');
+  expect(source).toContain("document.body.style.background = '#fff'");
+  expect(source).toContain("document.body.style.overflowY = 'auto'");
 });
 
 test('appointment saves create rep reminders through the same alarm path', () => {
