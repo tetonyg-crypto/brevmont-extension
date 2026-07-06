@@ -6,12 +6,17 @@ const read = (file: string) => readFileSync(resolve(process.cwd(), file), 'utf8'
 
 test('manual Generate auto-scans the active thread before using typed fallback', () => {
   const source = read('entrypoints/sidepanel/main.ts');
+  const background = read('entrypoints/background.ts');
   expect(source).toContain('startAutoThreadScan(root)');
   expect(source).toContain("sendToContent({ type: 'SCAN_LEAD_V2' })");
   expect(source).toContain("ctx = await sendToContent({ type: 'SCAN_LEAD' })");
   expect(source).toContain('threadContext: scan?.threadContext || null');
   expect(source).toContain('repInput: input');
   expect(source).toContain('zero_context_generate: !!scan');
+  expect(source).toContain('last_inbound_text: scan?.threadContext?.last_inbound_text || null');
+  expect(background).toContain('last_inbound_text: metadata?.last_inbound_text ?? threadContext?.last_inbound_text ?? null');
+  expect(background).toContain('thread_context: threadContext');
+  expect(background).toContain('messages: Array.isArray(threadContext.messages)');
   expect(source).toContain('Replying to:');
 });
 

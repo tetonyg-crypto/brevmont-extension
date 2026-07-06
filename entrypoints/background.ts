@@ -3110,8 +3110,31 @@ function buildGenerateProxyBody(
     detection_method?: string | null;
     detection_confidence?: number | string | null;
     vehicle_context?: string | null;
+    context_fingerprint?: string | null;
+    thread_fingerprint?: string | null;
+    zero_context_generate?: boolean | null;
+    adapter_id?: string | null;
+    surface_kind?: string | null;
+    conversation_key?: string | null;
+    last_inbound_text?: string | null;
+    last_inbound_hash?: string | null;
+    scan_scanned_at?: number | string | null;
+    scan_message_count?: number | string | null;
+    scan_source?: string | null;
+    thread_context?: {
+      conversation_key?: string | null;
+      raw_text?: string | null;
+      messages?: Array<{ text?: string; direction?: string; role?: string; ts?: number }>;
+      last_inbound_text?: string | null;
+      last_inbound_hash?: string | null;
+      header_text?: string | null;
+      url?: string | null;
+      scanned_at?: number | string | null;
+      message_count?: number | string | null;
+    } | null;
   }
 ) {
+  const threadContext = metadata?.thread_context || null;
   return {
     dealer_token: dealerToken,
     messages: [{ role: 'user', content: userMessage }],
@@ -3134,6 +3157,39 @@ function buildGenerateProxyBody(
     detection_method: metadata?.detection_method ?? null,
     detection_confidence: metadata?.detection_confidence ?? null,
     vehicle_context: metadata?.vehicle_context ?? metadata?.vehicle ?? null,
+    context_fingerprint: metadata?.context_fingerprint ?? null,
+    thread_fingerprint: metadata?.thread_fingerprint ?? null,
+    zero_context_generate: metadata?.zero_context_generate ?? Boolean(threadContext),
+    adapter_id: metadata?.adapter_id ?? null,
+    surface_kind: metadata?.surface_kind ?? null,
+    conversation_key: metadata?.conversation_key ?? threadContext?.conversation_key ?? null,
+    last_inbound_text: metadata?.last_inbound_text ?? threadContext?.last_inbound_text ?? null,
+    last_inbound_hash: metadata?.last_inbound_hash ?? threadContext?.last_inbound_hash ?? null,
+    scan_scanned_at: metadata?.scan_scanned_at ?? threadContext?.scanned_at ?? null,
+    scan_message_count: metadata?.scan_message_count ?? threadContext?.message_count ?? null,
+    scan_source: metadata?.scan_source ?? null,
+    thread_context: threadContext
+      ? {
+          conversation_key: threadContext.conversation_key ?? metadata?.conversation_key ?? null,
+          raw_text: threadContext.raw_text ?? null,
+          messages: Array.isArray(threadContext.messages)
+            ? threadContext.messages
+                .slice(-30)
+                .map((message) => ({
+                  text: String(message?.text || '').slice(0, 1000),
+                  direction: message?.direction || message?.role || null,
+                  role: message?.role || message?.direction || null,
+                  ts: message?.ts || null,
+                }))
+            : [],
+          last_inbound_text: threadContext.last_inbound_text ?? metadata?.last_inbound_text ?? null,
+          last_inbound_hash: threadContext.last_inbound_hash ?? metadata?.last_inbound_hash ?? null,
+          header_text: threadContext.header_text ?? null,
+          url: threadContext.url ?? null,
+          scanned_at: threadContext.scanned_at ?? metadata?.scan_scanned_at ?? null,
+          message_count: threadContext.message_count ?? metadata?.scan_message_count ?? null,
+        }
+      : null,
   };
 }
 
