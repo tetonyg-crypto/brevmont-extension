@@ -21,6 +21,7 @@ import { orchestrateReply, isHeroStage, replayPendingConfirms } from './orchestr
 import { reportOverdriveBlocked, reportOverdriveDetection } from './apiClient';
 import { radarCapture, radarSweepDone } from './radarClient';
 import { getOverdriveSettings } from './apiClient';
+import { extractVehicleHint } from '../platforms/shared';
 
 const KEEPALIVE_ALARM = 'overdrive-keepalive';
 const RADAR_SWEEP_ALARM = 'radar-catchup-sweep';
@@ -45,6 +46,7 @@ interface State {
   perTabDetectorInstalled: Set<number>;
   perThreadDebounce: Map<string, number>;
   lastLogAt: number;
+  lastRadarSweepAt: number;
 }
 
 const state: State = {
@@ -53,7 +55,48 @@ const state: State = {
   perTabDetectorInstalled: new Set(),
   perThreadDebounce: new Map(),
   lastLogAt: 0,
+  lastRadarSweepAt: 0,
 };
+
+const VEHICLE_WORD_RE =
+  /\b(?:chevrolet|chevy|subaru|toyota|ford|ram|dodge|jeep|gmc|honda|nissan|hyundai|kia|bmw|mercedes|buick|cadillac|lexus|acura|audi|volvo|mazda|chrysler|lincoln|infiniti|volkswagen|vw|porsche|tesla|rivian|mitsubishi|genesis|silverado|sierra|tahoe|suburban|ascent|outback|forester|wrx|crosstrek|camry|corolla|rav4|tacoma|tundra|f-?150|mustang|escape|explorer|bronco|accord|civic|cr-v|pilot|altima|sentra|rogue|elantra|sonata|telluride|sorento|escalade|yukon|denali|wrangler|cherokee|charger|challenger|durango|truck|car|suv|van|vehicle)\b/i;
+
+function splitMarketplaceHeader(headerText: string): {
+  customer_name: string | null;
+  listing_title: string | null;
+} {
+  const header = String(headerText || '').trim();
+  if (!header) return { customer_name: null, listing_title: null };
+  const parts = header.split(/\s*[·•]\s*/);
+  if (parts.length >= 2) {
+    return {
+      customer_name: parts[0].trim() || null,
+      listing_title: parts.slice(1).join(' · ').trim() || null,
+    };
+  }
+  return { customer_name: header, listing_title: null };
+}
+
+function vehicleHintFromSweepItem(item: {
+  header_text?: string;
+  last_inbound_text?: string;
+  url?: string;
+}): { raw?: string; year?: number; make?: string; model?: string } | null {
+  const { listing_title } = splitMarketplaceHeader(String(item.header_text || ''));
+  const haystack = [listing_title, item.header_text, item.last_inbound_text, item.url]
+    .filter(Boolean)
+    .join(' ');
+  return extractVehicleHint(haystack) || (VEHICLE_WORD_RE.test(haystack) ? { raw: listing_title || item.header_text || haystack } : null);
+}
+
+function isCarInquirySweepItem(item: {
+  header_text?: string;
+  last_inbound_text?: string;
+  url?: string;
+}): boolean {
+  if (!/\/marketplace\/t\//i.test(String(item.url || ''))) return false;
+  return !!vehicleHintFromSweepItem(item);
+}
 
 // ─────────────────────────────────────────────────────────────
 // Settings cache
@@ -214,6 +257,8 @@ async function ensureFacebookTabIfEnabled(cached: CachedSettings | null): Promis
  * prevents dupes across sweeps.
  */
 async function runRadarCatchupSweep(): Promise<void> {
+  if (Date.now() - state.lastRadarSweepAt < 60_000) return;
+  state.lastRadarSweepAt = Date.now();
   await overdriveLog({ event: 'radar_sweep_start' });
   const tabs = await findFacebookTabs();
   if (tabs.length === 0) {
@@ -233,23 +278,30 @@ async function runRadarCatchupSweep(): Promise<void> {
     if (!list?.ok || !list.items) continue;
     for (const item of list.items) {
       try {
-        counts.total += 1;
-        // Split "<Buyer> · <Listing>" header if present.
-        let customer_name: string | null = null;
-        let listing_title: string | null = null;
-        const parts = item.header_text.split(/\s*[·•]\s*/);
-        if (parts.length >= 2) {
-          customer_name = parts[0].trim() || null;
-          listing_title = parts.slice(1).join(' · ').trim() || null;
-        } else if (item.header_text) {
-          customer_name = item.header_text;
+        if (!isCarInquirySweepItem(item)) {
+          await overdriveLog({
+            event: 'radar_sweep_item_skipped',
+            reason: 'not_vehicle_marketplace_inquiry',
+            conversation_key: item.conversation_key,
+            header_text: item.header_text,
+          });
+          continue;
         }
+        counts.total += 1;
+        const { customer_name, listing_title } = splitMarketplaceHeader(item.header_text);
+        const vehicle = vehicleHintFromSweepItem(item);
         const result = await radarCapture({
           conversation_key: item.conversation_key,
           last_inbound_hash: item.last_inbound_hash,
           last_inbound_text: item.last_inbound_text,
           customer_name,
-          listing: { title: listing_title, url: item.url },
+          listing: {
+            title: listing_title,
+            url: item.url,
+            vehicle_year: vehicle?.year || null,
+            vehicle_make: vehicle?.make || null,
+            vehicle_model: vehicle?.model || null,
+          },
           source_platform: /marketplace/i.test(item.url) ? 'facebook_marketplace' : 'facebook_messenger',
           sweep_source: 'catchup_sweep',
         });
@@ -371,16 +423,12 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
       // Facebook Marketplace threads use "<Buyer> · <Listing>" in the
       // h1. We split here for the server payload; the server also
       // runs isChannelOrUiName defensively.
-      const headerText = String(s.header_text || '').trim();
-      let customerName: string | null = null;
-      let listingTitle: string | null = null;
-      const parts = headerText.split(/\s*[·•]\s*/);
-      if (parts.length >= 2) {
-        customerName = parts[0].trim() || null;
-        listingTitle = parts.slice(1).join(' · ').trim() || null;
-      } else if (headerText) {
-        customerName = headerText;
-      }
+      const { customer_name: customerName, listing_title: listingTitle } = splitMarketplaceHeader(s.header_text || '');
+      const vehicle = vehicleHintFromSweepItem({
+        header_text: s.header_text,
+        last_inbound_text: s.last_inbound_text,
+        url: s.url,
+      });
       const radarResult = await radarCapture({
         conversation_key: s.conversation_key,
         last_inbound_hash: s.last_inbound_hash,
@@ -389,6 +437,9 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
         listing: {
           title: listingTitle,
           url: s.url,
+          vehicle_year: vehicle?.year || null,
+          vehicle_make: vehicle?.make || null,
+          vehicle_model: vehicle?.model || null,
         },
         source_platform: /marketplace/i.test(s.url || '') ? 'facebook_marketplace' : 'facebook_messenger',
         sweep_source: 'live',
@@ -620,11 +671,11 @@ export async function installOverdriveController(): Promise<void> {
   // Register the keepalive alarm (1 min).
   try {
     chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 1 });
-    // Radar catch-up sweep — every 30min while radar is eligible.
-    // Walks the Marketplace chat list and captures anything the
-    // observer missed while Chrome was closed. Rate-limited server-side
-    // by the idempotency index (migration 304).
-    chrome.alarms.create(RADAR_SWEEP_ALARM, { periodInMinutes: 30, delayInMinutes: 2 });
+        // Radar catch-up sweep — frequent inbox discovery while radar is eligible.
+        // Walks the Marketplace chat list and captures anything the
+        // observer missed while Chrome was closed. Rate-limited server-side
+        // by the idempotency index (migration 304).
+    chrome.alarms.create(RADAR_SWEEP_ALARM, { periodInMinutes: 5, delayInMinutes: 1 });
     chrome.alarms.onAlarm.addListener(async (alarm) => {
       if (alarm.name === STATE_POLL_ALARM) {
         await pollOverdriveState();
@@ -638,6 +689,7 @@ export async function installOverdriveController(): Promise<void> {
         const radarEligible = !!(cached?.linked && cached?.disclosure_acked);
         if (overdriveGoLightIsGreen(cached) || radarEligible) {
           await armDetectorOnAllFbTabs();
+          void runRadarCatchupSweep();
         }
         // Replay any pending send-confirms that survived a worker
         // teardown mid-fetch. Server dedupes by idempotency_key.
@@ -669,7 +721,10 @@ export async function installOverdriveController(): Promise<void> {
       const radarEligible = !!(cached?.linked && cached?.disclosure_acked);
       if (!overdriveGoLightIsGreen(cached) && !radarEligible) return;
       const r = await sendToTab<{ ok: boolean }>(tabId, { type: 'OVERDRIVE_INSTALL_DETECTOR' });
-      if (r?.ok) state.perTabDetectorInstalled.add(tabId);
+      if (r?.ok) {
+        state.perTabDetectorInstalled.add(tabId);
+        void runRadarCatchupSweep();
+      }
     });
     chrome.tabs.onRemoved?.addListener((tabId) => {
       state.perTabDetectorInstalled.delete(tabId);
@@ -695,9 +750,11 @@ export async function installOverdriveController(): Promise<void> {
         // controller re-reads settings on the next cycle without
         // waiting for the 5-min TTL.
         void loadSettingsFresh().then(async (cached) => {
+          const radarEligible = !!(cached?.linked && cached?.disclosure_acked);
           if (overdriveGoLightIsGreen(cached)) {
             await armDetectorOnAllFbTabs();
           }
+          if (radarEligible) void runRadarCatchupSweep();
         });
         sendResponse({ ok: true });
         return false;
@@ -723,6 +780,9 @@ export async function installOverdriveController(): Promise<void> {
   const cached = await activeSettings();
   if (overdriveGoLightIsGreen(cached)) {
     await armDetectorOnAllFbTabs();
+  }
+  if (cached?.linked && cached?.disclosure_acked) {
+    void runRadarCatchupSweep();
   }
   await overdriveLog({ event: 'controller_installed', go: overdriveGoLightIsGreen(cached) });
 }

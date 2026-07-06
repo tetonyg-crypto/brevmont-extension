@@ -240,6 +240,18 @@ test('My Leads merges server rows with local radar cache', () => {
   expect(source).toContain('local_only');
 });
 
+test('radar catch-up sweep captures vehicle Marketplace rows only and leaves backlog unarmed', () => {
+  const background = read('entrypoints/lib/overdrive/backgroundController.ts');
+  expect(background).toContain('function isCarInquirySweepItem');
+  expect(background).toContain("reason: 'not_vehicle_marketplace_inquiry'");
+  expect(background).toContain('extractVehicleHint');
+  expect(background).toContain('vehicle_year: vehicle?.year || null');
+  expect(background).toContain("sweep_source: 'catchup_sweep'");
+  expect(background).toContain("chrome.alarms.create(RADAR_SWEEP_ALARM, { periodInMinutes: 5, delayInMinutes: 1 })");
+  expect(background).toContain('if (Date.now() - state.lastRadarSweepAt < 60_000) return;');
+  expect(background).toContain('void runRadarCatchupSweep();');
+});
+
 test('appointment saves create rep reminders through the same alarm path', () => {
   const background = read('entrypoints/background.ts');
   const source = read('entrypoints/sidepanel/main.ts');
