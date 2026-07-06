@@ -428,14 +428,21 @@ async function orchestrateReplyInner(
   try {
     reply = await requestOverdriveReply(ctx);
   } catch (err: any) {
+    const apiReason =
+      err?.body?.reason ||
+      err?.body?.stop_reason ||
+      err?.body?.pause_reason ||
+      err?.body?.error ||
+      err?.message ||
+      'unknown';
     deps.emitEvent({
       type: 'overdrive.skipped',
       conversation_key: scrape.conversation_key,
-      payload: { reason: 'reply_api_failed', error: err?.message || 'unknown' },
+      payload: { reason: String(apiReason), error: err?.message || 'unknown' },
     });
     return {
       attempted: true,
-      skipped_reason: 'reply_api_failed',
+      skipped_reason: String(apiReason),
       qualification,
       latency_ms: Date.now() - startedAt,
     };

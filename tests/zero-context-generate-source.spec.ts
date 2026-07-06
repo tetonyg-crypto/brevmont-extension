@@ -325,6 +325,15 @@ test('Overdrive suppresses self-echo when Facebook re-renders our own autonomous
   expect(orchestrator).toContain("reply_text: reply.reply_text || ''");
 });
 
+test('Overdrive answers rapid fresh inbound turns instead of clock-blocking active conversations', () => {
+  const stateMachine = read('entrypoints/lib/overdrive/stateMachine.ts');
+  const orchestrator = read('entrypoints/lib/overdrive/orchestrator.ts');
+  expect(stateMachine).not.toContain('thread_60s_cap');
+  expect(stateMachine).toContain('Do not rate-limit fresh inbound turns by wall clock');
+  expect(orchestrator).toContain('err?.body?.reason');
+  expect(orchestrator).toContain("skipped_reason: String(apiReason)");
+});
+
 test('Overdrive detector rearms with page-side ticks and watches Facebook text mutations', () => {
   const background = read('entrypoints/lib/overdrive/backgroundController.ts');
   const content = read('entrypoints/content.ts');

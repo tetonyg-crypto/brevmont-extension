@@ -166,10 +166,10 @@ export function shouldReply(input: ShouldReplyInput): ShouldReplyResult {
   if (inboundNorm && state.last_reply_text_norm && inboundNorm === state.last_reply_text_norm) {
     return { should: false, reason: 'own_reply_echo' };
   }
-  // Cap: 1 auto-reply per thread per 60 seconds
-  if (state.last_reply_at && now - state.last_reply_at < 60_000) {
-    return { should: false, reason: 'thread_60s_cap' };
-  }
+  // Do not rate-limit fresh inbound turns by wall clock. Marketplace
+  // customers often rapid-fire follow-ups; idempotency, same-turn
+  // hashes, echo detection, and the server send budget are the safety
+  // rails. A clock-only gate makes a good active exchange look broken.
   // Cap: per_thread_per_day
   if (state.replies_today >= caps.per_thread_per_day) {
     return { should: false, reason: 'thread_daily_cap' };
