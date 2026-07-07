@@ -20,7 +20,10 @@ async function getApiBase(): Promise<string> {
 async function overdriveFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const base = await getApiBase();
   const method = String(init.method || 'GET').toUpperCase();
-  const headers = init.headers as Record<string, string> | undefined;
+  const headers = {
+    'X-Extension-Version': chrome.runtime.getManifest().version || 'unknown',
+    ...(init.headers as Record<string, string> | undefined),
+  };
   const requestBody = typeof init.body === 'string'
     ? JSON.parse(init.body || '{}')
     : (init.body || {});
