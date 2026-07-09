@@ -1861,21 +1861,6 @@ async function getVersionStatus(refresh = true): Promise<VersionStatus | null> {
   return normalizeVersionStatus(data.brevmont_version_status);
 }
 
-const FOUNDER_EMAIL = 'founder@brevmont.com';
-
-async function isFounderIdentity(): Promise<boolean> {
-  try {
-    const [sync, local] = await Promise.all([
-      browser.storage.sync.get(['rep_email']),
-      browser.storage.local.get(['rep_email']),
-    ]);
-    const email = String(local.rep_email || sync.rep_email || '').toLowerCase().trim();
-    return email === FOUNDER_EMAIL;
-  } catch {
-    return false;
-  }
-}
-
 async function applyVersionStatus(root: HTMLElement): Promise<void> {
   const existing = root.querySelector('#o8-version-update-banner');
   if (existing) existing.remove();
@@ -1884,28 +1869,23 @@ async function applyVersionStatus(root: HTMLElement): Promise<void> {
   if (!status) return;
 
   // Distribution is self-hosted, not real Chrome Web Store auto-update --
-  // reps have no self-service way to act on "update available" (a sideloaded
-  // extension can't update itself from a downloaded zip). Every version bump
-  // used to nag every installed rep with a dismissible-per-version banner
-  // that reappeared on the next bump, and the download link often led to a
-  // dead end. Rejected 2026-07-09: "stop pushing for updates... make it
-  // internal." Only show the actionable, dismissible banner to the founder
-  // identity now; updates for reps are handled operationally. A genuine
-  // forceUpdate (deprecated/broken build) still applies to everyone -- that
-  // blocks generation outright and isn't a routine nag.
-  if (!status.forceUpdate && !(await isFounderIdentity())) return;
-
-  if (!status.forceUpdate) {
-    const dismissed = await chrome.storage.local.get('brevmont_version_banner_dismissed');
-    if (dismissed.brevmont_version_banner_dismissed === status.latest) return;
-  }
+  // nobody has a self-service way to act on "update available" (a
+  // sideloaded extension can't update itself from a downloaded zip, and
+  // this repo's convention is to ship fixes under the CWS-matching version
+  // number rather than bumping it, so this should rarely even fire).
+  // Removed entirely 2026-07-09 after it kept firing on stale cached
+  // status and got flatly rejected: "remove this bullshit and stop doing
+  // this shit." A genuine forceUpdate (deprecated/broken build) is the
+  // only thing that still shows -- that blocks generation outright via the
+  // hard-lock overlay, not a dismissible nag, and is a real operational
+  // necessity rather than a routine version ping.
+  if (!status.forceUpdate) return;
 
   const banner = document.createElement('div');
   banner.id = 'o8-version-update-banner';
-  banner.className = `version-update-banner${status.forceUpdate ? ' force' : ''}`;
+  banner.className = 'version-update-banner force';
   banner.innerHTML = `
-    ${status.forceUpdate ? '' : '<button class="version-update-close" type="button" aria-label="Dismiss">×</button>'}
-    <div class="version-update-title">${status.forceUpdate ? 'Update required' : 'Update available: reload the extension'}</div>
+    <div class="version-update-title">Update required</div>
     <div class="version-update-copy">${esc(status.message || '')}</div>
     <button id="o8-version-download" class="version-update-btn" type="button">Download latest${status.latest ? ` v${esc(String(status.latest))}` : ''}</button>
   `;
@@ -1914,25 +1894,15 @@ async function applyVersionStatus(root: HTMLElement): Promise<void> {
   if (header) header.insertAdjacentElement('afterend', banner);
   else root.prepend(banner);
 
-  const closeBtn = banner.querySelector('.version-update-close') as HTMLButtonElement | null;
-  if (closeBtn) {
-    closeBtn.onclick = async () => {
-      banner.remove();
-      await chrome.storage.local.set({ brevmont_version_banner_dismissed: status.latest || '' });
-    };
-  }
-
   const download = banner.querySelector('#o8-version-download') as HTMLButtonElement | null;
   if (download) {
     download.onclick = () => chrome.tabs.create({ url: status.downloadUrl || 'https://api.brevmont.com/api/extension-download' });
   }
 
-  if (status.forceUpdate) {
-    root.querySelectorAll<HTMLButtonElement>('#o8-generate,#o8-coach-btn,#o8-cmd-execute,#o8-ctx-generate').forEach((button) => {
-      button.disabled = true;
-      button.title = 'Update Brevmont to keep writing follow-ups.';
-    });
-  }
+  root.querySelectorAll<HTMLButtonElement>('#o8-generate,#o8-coach-btn,#o8-cmd-execute,#o8-ctx-generate').forEach((button) => {
+    button.disabled = true;
+    button.title = 'Update Brevmont to keep writing follow-ups.';
+  });
 }
 
 async function ensureGenerationAllowed(root: HTMLElement): Promise<boolean> {
