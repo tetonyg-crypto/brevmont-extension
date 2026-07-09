@@ -3820,11 +3820,11 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
     } else {
       msg += `REP VOICE/TYPED INPUT:\n${repSteer || payload.repInput || ''}\n\n`;
     }
-    msg += 'Generate ALL THREE follow-ups. You MUST produce all three labeled sections:\n';
-    msg += '1. TEXT (2-3 sentences max, no exclamation points, end with a question)\n';
-    msg += '2. EMAIL (subject + 3-4 sentence body + signature)\n';
-    msg += '3. CRM NOTE (plain text: date, contact type, summary, vehicle, intent, action, next step, notes)\n';
-    msg += 'Label each section clearly as TEXT, EMAIL, and CRM NOTE. Do not skip any section.\n';
+    msg += 'Generate ALL THREE follow-ups. You MUST produce all three sections, each starting with its exact fence marker on its own line:\n';
+    msg += '[[[TEXT]]]\n(2-3 sentences max, no exclamation points, end with a question)\n\n';
+    msg += '[[[EMAIL]]]\n(subject + 3-4 sentence body + signature)\n\n';
+    msg += '[[[CRM NOTE]]]\n(plain text: date, contact type, summary, vehicle, intent, action, next step, notes)\n\n';
+    msg += 'The fence markers [[[TEXT]]], [[[EMAIL]]], and [[[CRM NOTE]]] must appear literally and exactly as shown, each alone on its own line, before its section. Do not skip any section. Do not merge sections into one paragraph.\n';
   } else if (payload.type === 'text') {
     msg += `Generate a TEXT MESSAGE. CRITICAL: 2-3 sentences MAXIMUM. No more. End with one question. No exclamation points. No filler.\n`;
     if (hasThreadContext && repSteer) msg += `Rep steer: ${repSteer}\n`;

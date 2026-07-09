@@ -10,6 +10,29 @@ export interface ParsedGenerationSections {
 const META_LINE_RE = /\b(?:classification|classifying|for your records|crm note for your records|internal instructions?|record classification|classify this interaction)\b/i;
 const SECTION_BOUNDARY_RE = /^(?:TEXT(?:\s+MESSAGE)?|MESSAGE|EMAIL(?:\s+REPLY)?|CRM(?:\s+NOTE)?|CLASSIFICATION|INTERNAL|FOR YOUR RECORDS)\s*[:\-]?\s*$/i;
 
+// Fenced markers the model is instructed to emit for multi-section (type=all)
+// generations. Unlike a bare "EMAIL:" line heading, these can't be confused
+// with the model running sections together without a line break -- the
+// bracket sequence is distinctive enough to find anywhere in the raw text,
+// not just at the start of a line. Added 2026-07-09 after a P0 where the
+// model wrote all three sections as one continuous paragraph and the
+// line-based heading parser below silently collapsed everything into
+// `sections.text`.
+const FENCE_MARKER_RE = /\[{3}\s*(TEXT|EMAIL|CRM(?:\s+NOTE)?)\s*\]{3}/gi;
+
+// Rescue boundary for partial fence-marker compliance: if the model emits
+// [[[TEXT]]] and [[[EMAIL]]] correctly but drifts back to a bare "CRM NOTE:"
+// heading for the third section (no brackets, no line break), fence-only
+// detection would silently merge that trailing text into the EMAIL chunk.
+// Deliberately narrow to avoid false-splitting ordinary prose: only matches
+// right after a sentence boundary (start of string, or `.`/`?`/`!` + space) --
+// NOT after a comma or mid-clause -- and requires a colon (not a dash, which
+// is common in casual phrasing like "message - see attached"). This is what
+// keeps it from firing on something like "Hi John, Text: yes that works" or
+// "left him a message - he'll call back", which are real dealership phrasing,
+// while still catching "...Mercedes of Indiana. CRM NOTE: Contact Frank...".
+const INLINE_HEADING_RE = /(^|[.?!])\s*(TEXT(?:\s+MESSAGE)?|MESSAGE|EMAIL(?:\s+REPLY)?|CRM(?:\s+NOTE)?)\s*:/gi;
+
 function normalizeLines(value: unknown): string[] {
   return String(value || '')
     .replace(/\r\n/g, '\n')
@@ -65,8 +88,69 @@ function headingInfo(line: string): { key: GenerationSectionKey | null; inline: 
   return { key: 'text', inline: match[2] || '' };
 }
 
+function fenceMarkerKey(label: string): GenerationSectionKey {
+  const normalized = label.toLowerCase();
+  if (normalized.startsWith('email')) return 'email';
+  if (normalized.startsWith('crm')) return 'crm';
+  return 'text';
+}
+
+interface SectionBoundary {
+  start: number;
+  contentStart: number;
+  key: GenerationSectionKey;
+}
+
+// Splits on [[[TEXT]]] / [[[EMAIL]]] / [[[CRM NOTE]]] fence markers found
+// anywhere in the raw text (not just at the start of a line), so a model
+// that fails to add a line break before a marker still parses correctly.
+// Also rescues bare "EMAIL:" / "CRM NOTE:" style headings that show up
+// between fence markers (partial compliance) so they don't get swallowed
+// into whichever fenced section precedes them. Returns null if no fence
+// markers are present at all, so the caller can fall back to the older
+// line-heading parser.
+function parseFencedSections(text: string): Record<GenerationSectionKey, string[]> | null {
+  const fenceMatches = Array.from(text.matchAll(FENCE_MARKER_RE));
+  if (!fenceMatches.length) return null;
+
+  const boundaries: SectionBoundary[] = fenceMatches.map((match) => ({
+    start: match.index ?? 0,
+    contentStart: (match.index ?? 0) + match[0].length,
+    key: fenceMarkerKey(match[1]),
+  }));
+  for (const match of text.matchAll(INLINE_HEADING_RE)) {
+    const label = match[2];
+    // Boundary starts at the label itself (e.g. "CRM NOTE"), not the leading
+    // sentence terminator -- the terminator (". ") stays part of the prior
+    // section's content.
+    const labelStart = (match.index ?? 0) + match[0].lastIndexOf(label);
+    if (boundaries.some((b) => labelStart >= b.start && labelStart < b.contentStart)) continue;
+    boundaries.push({ start: labelStart, contentStart: (match.index ?? 0) + match[0].length, key: fenceMarkerKey(label) });
+  }
+  boundaries.sort((a, b) => a.start - b.start);
+
+  const sections: Record<GenerationSectionKey, string[]> = { text: [], email: [], crm: [] };
+  for (let index = 0; index < boundaries.length; index += 1) {
+    const boundary = boundaries[index];
+    const end = index + 1 < boundaries.length ? boundaries[index + 1].start : text.length;
+    const chunk = text.slice(boundary.contentStart, end).trim();
+    if (chunk) sections[boundary.key].push(chunk);
+  }
+  return sections;
+}
+
 export function parseGenerationSections(raw: unknown, requestedType?: string): ParsedGenerationSections {
   const text = String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  const fenced = parseFencedSections(text);
+  if (fenced) {
+    return {
+      text: sanitizeCustomerFacingOutput(fenced.text.join('\n'), 'text'),
+      email: sanitizeCustomerFacingOutput(fenced.email.join('\n'), 'email'),
+      crm: sanitizeCustomerFacingOutput(fenced.crm.join('\n'), 'crm'),
+      raw: text,
+    };
+  }
+
   const sections: Record<GenerationSectionKey, string[]> = { text: [], email: [], crm: [] };
   let active: GenerationSectionKey | null = null;
 
