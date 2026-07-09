@@ -1793,7 +1793,11 @@ function normalizeVersionStatus(raw: unknown): VersionStatus | null {
   if (!updateAvailable && !updateRequired && !forceUpdate) return null;
   const latest = String(value.latest || value.version || value.latestVersion || '').trim() || null;
   const currentVersion = String(value.currentVersion || value.current_version || '').trim() || null;
-  const downloadUrl = String(value.downloadUrl || value.download_url || value.support_download_url || '').trim();
+  // support_download_url (self-hosted, always current) takes priority over
+  // download_url -- the server may still point download_url at the real
+  // Chrome Web Store listing, which is deliberately frozen and never has
+  // the version this banner is telling someone to go get.
+  const downloadUrl = String(value.downloadUrl || value.support_download_url || value.download_url || '').trim();
   const updateMessage = String(value.message || value.update_message || '').trim();
   return {
     ...value,
@@ -1857,12 +1861,39 @@ async function getVersionStatus(refresh = true): Promise<VersionStatus | null> {
   return normalizeVersionStatus(data.brevmont_version_status);
 }
 
+const FOUNDER_EMAIL = 'founder@brevmont.com';
+
+async function isFounderIdentity(): Promise<boolean> {
+  try {
+    const [sync, local] = await Promise.all([
+      browser.storage.sync.get(['rep_email']),
+      browser.storage.local.get(['rep_email']),
+    ]);
+    const email = String(local.rep_email || sync.rep_email || '').toLowerCase().trim();
+    return email === FOUNDER_EMAIL;
+  } catch {
+    return false;
+  }
+}
+
 async function applyVersionStatus(root: HTMLElement): Promise<void> {
   const existing = root.querySelector('#o8-version-update-banner');
   if (existing) existing.remove();
 
   const status = await getVersionStatus();
   if (!status) return;
+
+  // Distribution is self-hosted, not real Chrome Web Store auto-update --
+  // reps have no self-service way to act on "update available" (a sideloaded
+  // extension can't update itself from a downloaded zip). Every version bump
+  // used to nag every installed rep with a dismissible-per-version banner
+  // that reappeared on the next bump, and the download link often led to a
+  // dead end. Rejected 2026-07-09: "stop pushing for updates... make it
+  // internal." Only show the actionable, dismissible banner to the founder
+  // identity now; updates for reps are handled operationally. A genuine
+  // forceUpdate (deprecated/broken build) still applies to everyone -- that
+  // blocks generation outright and isn't a routine nag.
+  if (!status.forceUpdate && !(await isFounderIdentity())) return;
 
   if (!status.forceUpdate) {
     const dismissed = await chrome.storage.local.get('brevmont_version_banner_dismissed');
