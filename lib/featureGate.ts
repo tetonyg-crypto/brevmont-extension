@@ -2,6 +2,7 @@ export type ExtensionTier =
   | 'free'
   | 'free_trial'
   | 'founding_pilot'
+  | 'founding_annual'
   | 'pilot'
   | 'floor'
   | 'operator'
@@ -12,6 +13,7 @@ export type ExtensionTier =
 
 const PAID_TIERS = new Set<ExtensionTier>([
   'founding_pilot',
+  'founding_annual',
   'pilot',
   'floor',
   'operator',

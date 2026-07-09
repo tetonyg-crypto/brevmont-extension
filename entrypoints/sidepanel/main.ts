@@ -2451,7 +2451,7 @@ async function renderAccountChip(): Promise<void> {
   // Render the fallback IMMEDIATELY so the chip is visible even if the
   // API call below takes a few seconds (cold-start service worker).
   const cachedPlan = cachedTier === 'free' || cachedTier === 'free_trial' ? 'free'
-    : cachedTier === 'founding_pilot' || cachedTier === 'pilot' ? 'pilot'
+    : cachedTier === 'founding_pilot' || cachedTier === 'founding_annual' || cachedTier === 'pilot' ? 'pilot'
     : cachedTier === 'command' ? 'command'
     : cachedTier === 'annual' || cachedTier === 'command_annual' ? 'annual'
     : 'free';
