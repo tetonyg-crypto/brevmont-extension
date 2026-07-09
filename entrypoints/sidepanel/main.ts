@@ -12,7 +12,6 @@
 import { getPanelHTML } from '../lib/panelUI';
 import { getPanelCSS } from '../lib/panelCSS';
 import {
-  appendFreeTierEmailSignature,
   BREVMONT_CWS_REVIEWS,
   dismissedReviewState,
   LOCAL_GENERATION_COUNT_KEY,
@@ -182,7 +181,6 @@ async function clearCredentialsForReconnect(): Promise<void> {
       'dealership_tier',
       'dealership_plan',
       'brevmont_features',
-      'brevmont_usage',
     ]),
   ]);
 }
@@ -1782,196 +1780,8 @@ async function refreshPlatform(): Promise<void> {
   }
 }
 
-// ─── Free tier usage counter ────────────────────────────────────────────────
-type GenerationUsage = {
-  generations_used?: number;
-  generations_limit?: number;
-  generations_remaining?: number;
-  resets_at?: string | null;
-};
-
-function normalizeUsageTier(tier: unknown): string {
-  const value = String(tier || '').trim().toLowerCase();
-  return value === 'free' ? 'free_trial' : value;
-}
-
-function isLimitedFreeTier(tier: unknown): boolean {
-  return normalizeUsageTier(tier) === 'free_trial';
-}
-
 async function contentForEmailOutput(raw: string): Promise<string> {
-  const data = await chrome.storage.local.get(['brevmont_tier']).catch(() => ({}));
-  return isLimitedFreeTier(data.brevmont_tier) ? appendFreeTierEmailSignature(raw) : raw;
-}
-
-function renderUsageWarning(root: HTMLElement, remaining: number, limit: number): void {
-  const prompt = root.querySelector('#o8-upgrade-prompt') as HTMLElement;
-  if (!prompt) return;
-  prompt.style.display = 'block';
-  prompt.innerHTML = `
-    <div class="upgrade-title">${remaining} follow-ups remaining this month.</div>
-    <div class="upgrade-msg">Want unlimited? Ask your GM to unlock the dashboard.</div>
-    <button id="o8-tell-gm" class="upgrade-btn" type="button">Tell My GM -></button>
-  `;
-  const button = prompt.querySelector('#o8-tell-gm') as HTMLButtonElement | null;
-  if (button) button.onclick = () => showInviteGmModal(root, { generations_used: limit - remaining, generations_limit: limit, generations_remaining: remaining });
-}
-
-function hideUsageWarning(root: HTMLElement): void {
-  const prompt = root.querySelector('#o8-upgrade-prompt') as HTMLElement | null;
-  if (prompt) prompt.style.display = 'none';
-}
-
-function renderUsageCounter(root: HTMLElement, tier: unknown, usage?: GenerationUsage): void {
-  const counter = root.querySelector('#o8-usage-counter') as HTMLElement;
-  if (!counter) return;
-
-  if (!isLimitedFreeTier(tier) || !usage) {
-    counter.style.display = 'none';
-    hideUsageWarning(root);
-    const generateButton = root.querySelector('#o8-generate') as HTMLButtonElement | null;
-    if (generateButton && !isGenerating) {
-      generateButton.disabled = false;
-      generateButton.title = '';
-    }
-    return;
-  }
-
-  const used = Number(usage.generations_used || 0);
-  const limit = Number(usage.generations_limit || 500);
-  const remaining = Math.max(0, Number.isFinite(Number(usage.generations_remaining)) ? Number(usage.generations_remaining) : limit - used);
-  const pct = Math.min(100, Math.round((used / Math.max(1, limit)) * 100));
-  const generateButton = root.querySelector('#o8-generate') as HTMLButtonElement | null;
-
-  counter.style.display = 'block';
-  counter.className = 'usage-counter' + (pct >= 100 ? ' usage-critical' : pct >= 90 ? ' usage-warning' : '');
-  counter.innerHTML = `<span>${used} / ${limit} this month</span><div class="usage-bar"><div class="usage-fill" style="width:${pct}%"></div></div>`;
-  chrome.action?.setBadgeBackgroundColor?.({ color: '#0D6E6E' }).catch?.(() => {});
-  chrome.action?.setBadgeText?.({ text: String(remaining) }).catch?.(() => {});
-
-  if (used >= limit || remaining <= 0) {
-    if (generateButton) {
-      generateButton.disabled = true;
-      generateButton.title = 'Send a GM request to unlock more Brevmont follow-ups.';
-    }
-    hideUsageWarning(root);
-    showInviteGmModal(root, { ...usage, generations_used: used, generations_limit: limit, generations_remaining: remaining });
-  } else if (used >= 450 || remaining <= 50) {
-    if (generateButton && !isGenerating) {
-      generateButton.disabled = false;
-      generateButton.title = '';
-    }
-    renderUsageWarning(root, remaining, limit);
-  } else {
-    if (generateButton && !isGenerating) {
-      generateButton.disabled = false;
-      generateButton.title = '';
-    }
-    hideUsageWarning(root);
-  }
-}
-
-async function refreshGenerationStatus(root: HTMLElement): Promise<void> {
-  try {
-    const response = await safeSend({ type: 'GET_GENERATION_STATUS' });
-    if (!response?.ok) return;
-    renderUsageCounter(root, response.tier, {
-      generations_used: response.used,
-      generations_limit: response.limit,
-      generations_remaining: response.remaining,
-      resets_at: response.resets_at,
-    });
-  } catch {
-    updateUsageCounter(root);
-  }
-}
-
-function updateUsageCounter(root: HTMLElement): void {
-  chrome.storage.local.get(['brevmont_tier', 'brevmont_usage']).then(data => {
-    renderUsageCounter(root, data.brevmont_tier, data.brevmont_usage as GenerationUsage | undefined);
-  }).catch(() => {});
-}
-
-function showUpgradePrompt(root: HTMLElement, message: string, upgradeUrl?: string): void {
-  showInviteGmModal(root);
-  const prompt = root.querySelector('#o8-upgrade-prompt') as HTMLElement | null;
-  if (prompt) {
-    prompt.style.display = 'block';
-    prompt.innerHTML = `
-      <div class="upgrade-title">Free follow-ups used up</div>
-      <div class="upgrade-msg">${esc(message)}</div>
-      <button id="o8-tell-gm-limit" class="upgrade-btn" type="button">Tell My GM -></button>
-      <div class="upgrade-phone"><a href="${upgradeUrl || 'https://brevmont.com/pricing'}" target="_blank" rel="noopener">See Plans</a></div>
-    `;
-    const button = prompt.querySelector('#o8-tell-gm-limit') as HTMLButtonElement | null;
-    if (button) button.onclick = () => showInviteGmModal(root);
-  }
-}
-
-function showInviteGmModal(root: HTMLElement, usage?: GenerationUsage): void {
-  if (root.querySelector('#o8-gm-invite-modal')) return;
-  const limit = usage?.generations_limit || 500;
-  const used = usage?.generations_used || limit;
-  const remaining = Math.max(0, usage?.generations_remaining ?? (limit - used));
-  const hoursSaved = Math.max(1, Math.round((Math.min(used, limit) * 1.45) / 60));
-  const title = remaining > 0
-    ? `${remaining} follow-ups remaining this month.`
-    : `You've used all ${limit} free follow-ups this month.`;
-  const backdrop = document.createElement('div');
-  backdrop.id = 'o8-gm-invite-modal';
-  backdrop.className = 'gm-invite-backdrop';
-  backdrop.innerHTML = `
-    <div class="gm-invite-modal" role="dialog" aria-modal="true" aria-labelledby="o8-gm-invite-title">
-      <button class="gm-invite-close" type="button" aria-label="Close">&times;</button>
-      <div class="gm-invite-eyebrow">Unlock the floor</div>
-      <h2 id="o8-gm-invite-title" class="gm-invite-title">${esc(title)}</h2>
-      <p class="gm-invite-copy">You saved approximately ${hoursSaved} hours of typing this month using Brevmont.</p>
-      <p class="gm-invite-copy">Don't go back to typing manually. Send a one-click request to your GM to unlock unlimited Brevmont for your entire floor.</p>
-      <label class="gm-invite-label" for="o8-gm-email">GM's Email</label>
-      <input id="o8-gm-email" class="gm-invite-input" type="email" placeholder="gm@dealership.com" />
-      <div id="o8-gm-invite-error" class="gm-invite-error"></div>
-      <button id="o8-gm-send" class="gm-invite-send" type="button">Send Request -></button>
-      <button id="o8-gm-plans" class="gm-invite-plans" type="button">Or upgrade yourself: See Plans</button>
-    </div>
-  `;
-  document.body.appendChild(backdrop);
-
-  const close = () => backdrop.remove();
-  const closeButton = backdrop.querySelector('.gm-invite-close') as HTMLButtonElement | null;
-  if (closeButton) closeButton.onclick = close;
-  backdrop.addEventListener('click', (event) => {
-    if (event.target === backdrop) close();
-  });
-
-  const plans = backdrop.querySelector('#o8-gm-plans') as HTMLButtonElement | null;
-  if (plans) plans.onclick = () => chrome.tabs.create({ url: 'https://brevmont.com/pricing?utm_source=extension&utm_medium=limit_modal&utm_campaign=see_plans' });
-
-  const input = backdrop.querySelector('#o8-gm-email') as HTMLInputElement | null;
-  const error = backdrop.querySelector('#o8-gm-invite-error') as HTMLElement | null;
-  const send = backdrop.querySelector('#o8-gm-send') as HTMLButtonElement | null;
-  if (send && input) {
-    send.onclick = async () => {
-      const gmEmail = input.value.trim();
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(gmEmail)) {
-        if (error) error.textContent = 'Enter a valid GM email.';
-        return;
-      }
-      send.disabled = true;
-      send.textContent = 'Sending...';
-      if (error) error.textContent = '';
-      try {
-        await safeSend({ type: 'INVITE_GM', payload: { gm_email: gmEmail } });
-        showToast(root, 'GM request sent.');
-        close();
-      } catch (err: any) {
-        if (error) error.textContent = err?.message || 'Could not send request.';
-        send.disabled = false;
-        send.textContent = 'Send Request ->';
-      }
-    };
-  }
-
-  setTimeout(() => input?.focus(), 50);
+  return raw;
 }
 
 function normalizeVersionStatus(raw: unknown): VersionStatus | null {
@@ -2100,20 +1910,6 @@ async function ensureGenerationAllowed(root: HTMLElement): Promise<boolean> {
     await applyVersionStatus(root);
     showToast(root, 'Update Brevmont to keep writing follow-ups.');
     return false;
-  }
-
-  const data = await chrome.storage.local.get(['brevmont_tier', 'brevmont_usage']);
-  const usage = data.brevmont_usage as GenerationUsage | undefined;
-  if (isLimitedFreeTier(data.brevmont_tier) && usage) {
-    const used = Number(usage.generations_used || 0);
-    const limit = Number(usage.generations_limit || 500);
-    const remaining = Number.isFinite(Number(usage.generations_remaining))
-      ? Number(usage.generations_remaining)
-      : limit - used;
-    if (used >= limit || remaining <= 0) {
-      showInviteGmModal(root, { ...usage, generations_used: used, generations_limit: limit, generations_remaining: Math.max(0, remaining) });
-      return false;
-    }
   }
   return true;
 }
@@ -2312,14 +2108,10 @@ async function renderPanel(): Promise<void> {
   chrome.runtime.sendMessage({ type: 'SYNC_AUTH_FROM_COOKIE' }).then((resp: any) => {
     if (resp?.configured) {
       renderAccountChip().catch(() => {});
-      refreshGenerationStatus(root).catch(() => {});
     }
   }).catch(() => {});
 
-  // Show free tier usage counter if applicable
   applyFirstUseGuide(root);
-  updateUsageCounter(root);
-  refreshGenerationStatus(root).catch(() => {});
   applyFeatureGates(root);
   showAccessEndedBanner(root);
   applyVersionStatus(root).catch(() => {});
@@ -2839,7 +2631,6 @@ async function performSignOut(): Promise<void> {
       'brevmont_features',
       'license_access_state',
       'activated_at',
-      'brevmont_usage',
       'brevmont_jwt_cache',
     ]);
   } catch (err) { console.warn('[brevmont] signout local sweep failed', err); }
@@ -3804,10 +3595,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     // Clear pending lead_id after sending
     (root as any).__pendingLeadId = null;
 
-    if (response?.generation_limit_reached) {
-      showUpgradePrompt(root, response.message || 'You\'ve used all your free follow-ups this month.', response.upgrade_url);
-      updateUsageCounter(root);
-    } else if (response?.queued) {
+    if (response?.queued) {
       showToast(root, response.message || 'Saved. Will sync when online.');
     } else if (response?.hold || response?.error === 'grounding_hold') {
       showGenerationHold(root, response);
@@ -3830,21 +3618,6 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       if (selectedReady || firstReady) setActiveOutputTab(root, selectedReady || firstReady!);
       await markFirstGenerationComplete(root);
       await recordSuccessfulGeneration(root);
-
-      // /v1/generate records one generation.created event for the one paid request.
-      // Copy and inject events still record which specific draft the rep actually used.
-
-      // Increment local usage counter for immediate UI feedback (free tier)
-      chrome.storage.local.get(['brevmont_tier', 'brevmont_usage']).then(data => {
-        if (isLimitedFreeTier(data.brevmont_tier) && data.brevmont_usage) {
-          const u = data.brevmont_usage as { generations_used?: number; generations_limit?: number };
-          const newUsed = (u.generations_used || 0) + 1;
-          chrome.storage.local.set({
-            brevmont_usage: { ...u, generations_used: newUsed, generations_remaining: Math.max(0, (u.generations_limit || 500) - newUsed) },
-          });
-        }
-      }).catch(() => {});
-      updateUsageCounter(root);
     }
   } catch (_e: any) {
     showGenerationError(root, GENERATION_FAILURE_MESSAGE);
@@ -3853,7 +3626,6 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     btn.innerHTML = 'Generate';
     btn.disabled = false;
     isGenerating = false;
-    updateUsageCounter(root);
   }
 }
 
@@ -5538,7 +5310,6 @@ chrome.runtime.onMessage.addListener((msg) => {
   const root = document.getElementById('sp-root');
   if (root && root.style.display !== 'none') {
     applyFeatureGates(root);
-    updateUsageCounter(root);
   }
   return false;
 });

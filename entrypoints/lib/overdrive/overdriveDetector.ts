@@ -43,7 +43,12 @@ interface DetectorState {
   activeThreadObserver: MutationObserver | null;
   lastTitle: string;
   lastActiveThreadContainer: Element | null;
+  lastThreadKey: string | null;
+  lastThreadUnread: boolean;
 }
+
+// Recency window for auto-arm (20 minutes)
+const OVERDRIVE_AUTO_ARM_TTL_MS = 20 * 60 * 1000;
 
 const state: DetectorState = {
   installed: false,
@@ -55,7 +60,44 @@ const state: DetectorState = {
   activeThreadObserver: null,
   lastTitle: '',
   lastActiveThreadContainer: null,
+  lastThreadKey: null,
+  lastThreadUnread: false,
 };
+
+/**
+ * Compute the conversation key for the current thread.
+ * Mirrors the logic in contentBridge.ts.
+ */
+function computeThreadKey(): string | null {
+  try {
+    const path = window.location.pathname;
+    const mp = path.match(/\/marketplace\/t\/([^/?#]+)/);
+    if (mp) return `mp:${mp[1]}`;
+    const t = path.match(/\/t\/([^/?#]+)/);
+    if (t) return `t:${t[1]}`;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if the current thread has an unread indicator.
+ * Facebook marks threads with various attributes when they have unread messages.
+ */
+function isThreadUnread(): boolean {
+  try {
+    // Check for unread badge or indicator in the thread header
+    const unreadBadge = document.querySelector('[role="main"] [aria-label*="unread" i], [role="main"] [data-testid*="unread" i]');
+    if (unreadBadge) return true;
+    // Check for blue dot or similar indicators
+    const blueDot = document.querySelector('[role="main"] [data-testid*="blue" i], [role="main"] .__fb-light-blue');
+    if (blueDot) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 /** Emit through the registered callback, tolerating callback throws. */
 function emit(signal: DetectionSignal): void {
@@ -113,11 +155,23 @@ function installConversationListObserver(): MutationObserver | null {
  * scrollable region. New inbounds are appended to the bottom. We
  * observe the [role="main"] subtree because Messenger swaps the
  * inner scroller when the thread changes.
+ *
+ * Trigger origin logic:
+ * - If thread has unread indicator → unread_or_new_inbound (auto-fire allowed)
+ * - If thread was already read → thread_open_or_focus (auto-fire blocked)
  */
 function installActiveThreadObserver(): MutationObserver | null {
   const main = document.querySelector('[role="main"]');
   if (!main) return null;
   state.lastActiveThreadContainer = main;
+
+  // Track the current thread key and unread state
+  const currentKey = computeThreadKey();
+  const currentUnread = isThreadUnread();
+  if (currentKey) {
+    state.lastThreadKey = currentKey;
+    state.lastThreadUnread = currentUnread;
+  }
 
   const queueSignal = () => {
     if (state.activeThreadTimer !== null) {
@@ -125,9 +179,14 @@ function installActiveThreadObserver(): MutationObserver | null {
     }
     state.activeThreadTimer = window.setTimeout(() => {
       state.activeThreadTimer = null;
+      // Determine trigger origin based on current thread state
+      const threadKey = computeThreadKey();
+      const threadUnread = isThreadUnread();
+      const triggerOrigin = threadUnread ? 'unread_or_new_inbound' : 'thread_open_or_focus';
       emit({
         type: 'mutation_active_thread',
         detected_at: Date.now(),
+        trigger_origin: triggerOrigin,
       });
     }, 150);
   };
@@ -188,6 +247,9 @@ function replaceActiveThreadObserver(): void {
  * fires even when the tab is not focused; the visibility API can't
  * see it and MutationObserver on <head> is unreliable across UAs.
  * We poll title on a 1s interval — cheap, no observer overhead.
+ *
+ * Title changes with unread count indicate a new inbound, so this
+ * always sets trigger_origin to 'unread_or_new_inbound'.
  */
 function installTitleObserver(): void {
   if (state.titleTimer !== null) return;
@@ -203,6 +265,7 @@ function installTitleObserver(): void {
         type: 'title_unread_count',
         detected_at: Date.now(),
         raw: current,
+        trigger_origin: 'unread_or_new_inbound',
       });
     }
   }, 1000);

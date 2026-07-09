@@ -31,6 +31,12 @@ export interface RadarCaptureBody {
   };
   source_platform?: 'facebook_marketplace' | 'facebook_messenger' | string;
   sweep_source?: 'live' | 'catchup_sweep';
+  /**
+   * Explicit trigger origin for Overdrive auto-fire policy.
+   * - unread_or_new_inbound: Real new message detected (auto-fire allowed)
+   * - thread_open_or_focus: User opened an old thread (auto-fire blocked)
+   */
+  trigger_origin?: 'unread_or_new_inbound' | 'thread_open_or_focus';
 }
 
 export interface RadarCaptureResult {

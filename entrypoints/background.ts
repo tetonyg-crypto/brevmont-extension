@@ -16,25 +16,6 @@ const FRESH_SIGN_IN_INTENTS = new Set(['google_resolved', 'manual_sign_in', 'sto
 const BLANK_CONTEXT_IMAGE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 
-async function updateFreeTierBadge(usage?: { remaining?: number; generations_remaining?: number }, tier?: string) {
-  try {
-    const local = await browser.storage.local.get(['brevmont_tier', 'brevmont_usage']);
-    const badge = resolveFreeTierBadgeState({
-      usage,
-      tier,
-      localTier: local.brevmont_tier,
-      localUsage: local.brevmont_usage,
-    });
-    if (!badge.freeTier) {
-      await chrome.action.setBadgeText({ text: '' });
-      return;
-    }
-    await chrome.action.setBadgeBackgroundColor({ color: badge.backgroundColor || '#0D6E6E' });
-    await chrome.action.setBadgeText({ text: badge.text });
-  } catch {
-    // Badge updates should never block auth or generation.
-  }
-}
 
 async function claimReferralAfterFirstGeneration() {
   try {
@@ -68,7 +49,6 @@ async function fetchWithRetry(url: string, opts: RequestInit, attempts = 3): Pro
 }
 
 import { signedFetch, signedPatch, signedGet } from '../lib/authSigning';
-import { resolveFreeTierBadgeState } from '../lib/badgeState';
 import { enqueue, processQueue, getQueueCount as getDexieQueueCount } from '../lib/retryQueue';
 import { parseGenerationSections, sanitizeCustomerFacingOutput } from './lib/outputContract';
 import { telemetry } from './lib/telemetry';
@@ -583,7 +563,9 @@ export default defineBackground(() => {
     }
 
     dlog('[Brevmont] Storage migration complete');
-  })().catch(() => {});
+  })().catch(e => {
+    console.error('[Brevmont] Storage migration failed:', e?.message);
+  });
 
   // app.brevmont.com /install detection — RepLanding pings via externally_connectable
   chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
@@ -675,7 +657,7 @@ export default defineBackground(() => {
             'rep_email', 'rep_name', 'dealership', 'dealership_id',
             'rep_id', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
             'brevmont_jwt_cache', 'brevmont_tier', 'dealership_tier',
-            'dealership_plan', 'brevmont_features', 'brevmont_usage',
+            'dealership_plan', 'brevmont_features',
           ];
           const IDENTITY_SYNC_KEYS = [
             'rep_email', 'rep_name', 'dealership', 'dealership_id',
@@ -709,7 +691,9 @@ export default defineBackground(() => {
             actual_dealership_id: identity.dealership_id || '',
             actual_dealership: identity.dealership || '',
           }, configured ? 'session-ready handoff accepted by extension' : 'session-ready handoff rejected by extension', true);
-          if (configured) sendHeartbeat().catch(() => {});
+          if (configured) sendHeartbeat().catch(e => {
+            console.error('[Brevmont] Heartbeat failed:', e?.message);
+          });
           broadcastIdentityChanged(configured ? 'session_ready_configured' : 'session_ready_failed');
           sendResponse({
             ok: configured,
@@ -752,7 +736,7 @@ export default defineBackground(() => {
         'license_revoked', 'license_revoked_at', 'license_revoked_message',
         'license_access_state', 'brevmont_jwt_cache',
         'brevmont_tier', 'dealership_tier', 'dealership_plan',
-        'brevmont_features', 'brevmont_usage',
+        'brevmont_features',
         'rep_email', 'rep_id', 'rep_name', 'dealership_id', 'dealership',
         'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
       ];
@@ -808,7 +792,9 @@ export default defineBackground(() => {
           ...(msg.payload || {}),
           updatedAt: Date.now(),
         },
-      }).catch(() => {});
+      }).catch(e => {
+        console.warn('[Brevmont] Failed to store customer context:', e?.message);
+      });
       return false;
     }
 
@@ -862,7 +848,7 @@ export default defineBackground(() => {
             'profile', 'profile_onboarded',
             'license_revoked', 'license_revoked_at', 'license_revoked_message', 'license_access_state',
             'install_token', 'activated_at',
-            'brevmont_tier', 'brevmont_usage', 'brevmont_jwt_cache',
+            'brevmont_tier', 'brevmont_jwt_cache',
             'dealership_tier', 'dealership_plan', 'brevmont_features',
             'pending_heartbeats',
           ]);
@@ -914,7 +900,9 @@ export default defineBackground(() => {
       (async () => {
         try {
           const configured = await tryCookieShareAutoConfig(undefined, {}, 'sync_auth_from_cookie_msg');
-          if (configured) sendHeartbeat().catch(() => {});
+          if (configured) sendHeartbeat().catch(e => {
+            console.error('[Brevmont] Heartbeat failed:', e?.message);
+          });
           const local = await browser.storage.local.get([
             'dealer_token',
             'rep_auth_token',
@@ -1010,7 +998,9 @@ export default defineBackground(() => {
 
     if (msg.type === 'REPORT_ERROR') {
       const { error_type, error_message, context } = msg.payload || {};
-      reportError(error_type || 'UNKNOWN', `[content] ${(error_message || 'unknown error').slice(0, 400)}${context ? ` | ctx: ${context}` : ''}`).catch(() => {});
+      reportError(error_type || 'UNKNOWN', `[content] ${(error_message || 'unknown error').slice(0, 400)}${context ? ` | ctx: ${context}` : ''}`).catch(e => {
+        console.error('[Brevmont] Error reporting failed:', e?.message, 'Original error:', error_message);
+      });
       sendResponse({ ok: true });
       return false;
     }
@@ -1022,7 +1012,9 @@ export default defineBackground(() => {
           const result = await handleGenerate(msg.payload);
           addBreadcrumb('generation', 'API response received', { queued: !!(result as any)?.queued });
           const apiUrl = await getResolvedApiUrl();
-          void processQueue(apiUrl).catch(() => {});
+          void processQueue(apiUrl).catch(e => {
+            console.error('[Brevmont] Queue processing failed after generation:', e?.message);
+          });
           if ((result as any)?.queued) {
             sendResponse({
               queued: true,
@@ -1040,20 +1032,10 @@ export default defineBackground(() => {
             : err.message?.includes('429') ? 'API_ERROR'
             : 'UNKNOWN';
           captureError(err instanceof Error ? err : new Error(String(err?.message || err)), { flow: 'GENERATE_OUTPUT', errType });
-          reportError(errType, err.message).catch(() => {});
+          reportError(errType, err.message).catch(e => {
+            console.error('[Brevmont] Error reporting failed for generation error:', e?.message, 'Original:', err?.message);
+          });
           sendResponse({ error: isAccessError ? errMessage : 'Generation failed. Try again or contact founder@brevmont.com' });
-        }
-      })();
-      return true;
-    }
-
-    if (msg.type === 'GET_GENERATION_STATUS') {
-      (async () => {
-        try {
-          const status = await handleGenerationStatus();
-          sendResponse({ ok: true, ...status });
-        } catch (err: any) {
-          sendResponse({ ok: false, error: err?.message || 'status_unavailable' });
         }
       })();
       return true;
@@ -1069,18 +1051,6 @@ export default defineBackground(() => {
           sendResponse({ ok: true, referral_code: data.referral_code, referral_url: data.referral_url });
         } catch (err: any) {
           sendResponse({ ok: false, error: err?.message || 'referral_unavailable' });
-        }
-      })();
-      return true;
-    }
-
-    if (msg.type === 'INVITE_GM') {
-      (async () => {
-        try {
-          const result = await handleInviteGm(msg.payload || {});
-          sendResponse({ ok: true, ...result });
-        } catch (err: any) {
-          sendResponse({ ok: false, error: err?.message || 'invite_failed' });
         }
       })();
       return true;
@@ -1136,8 +1106,12 @@ export default defineBackground(() => {
 
     if (msg.type === 'CHECK_FEATURES') {
       browser.storage.local.get(['brevmont_tier', 'brevmont_features', 'brevmont_last_heartbeat']).then(data => {
+        // If we haven't had a successful heartbeat in 30+ min, don't keep
+        // showing a stale paid tier's features — fall back to 'free' until a
+        // heartbeat re-confirms entitlement. (Server-side generation calls
+        // independently enforce the real tier, so this is UI gating only.)
         const stale = !data.brevmont_last_heartbeat || (Date.now() - data.brevmont_last_heartbeat > 30 * 60 * 1000);
-        const tier = stale ? (data.brevmont_tier || 'free') : (data.brevmont_tier || 'free');
+        const tier = stale ? 'free' : (data.brevmont_tier || 'free');
         sendResponse({ tier, features: getTierFeatures(tier) });
       }).catch(() => sendResponse({ tier: 'free', features: getTierFeatures('free') }));
       return true;
@@ -1213,7 +1187,9 @@ export default defineBackground(() => {
         } catch(e: any) {
           console.error('[Brevmont] Log action failed:', e);
           telemetry.trackError(e, { flow: 'log_action' });
-          reportError('API_ERROR', `Log action failed: ${e?.message || 'unknown'}`).catch(() => {});
+          reportError('API_ERROR', `Log action failed: ${e?.message || 'unknown'}`).catch(err => {
+            console.error('[Brevmont] Failed to report log action error:', err?.message);
+          });
         }
       });
       return false;
@@ -1333,7 +1309,9 @@ export default defineBackground(() => {
           const errType = err.message?.includes('License') ? 'AUTH_ERROR'
             : err.message?.includes('429') ? 'API_ERROR' : 'UNKNOWN';
           captureError(err instanceof Error ? err : new Error(String(err?.message || err)), { flow: 'COACH_ME', errType });
-          reportError(errType, err.message).catch(() => {});
+          reportError(errType, err.message).catch(e => {
+            console.error('[Brevmont] Failed to report coaching error:', e?.message);
+          });
           sendResponse({ error: err.message || 'Coach unavailable. Try again.' });
         }
       })();
@@ -1352,7 +1330,9 @@ export default defineBackground(() => {
           const errType = err.message?.includes('License') ? 'AUTH_ERROR'
             : err.message?.includes('429') ? 'API_ERROR' : 'UNKNOWN';
           captureError(err instanceof Error ? err : new Error(String(err?.message || err)), { flow: 'EXECUTE_COMMAND', errType });
-          reportError(errType, err.message).catch(() => {});
+          reportError(errType, err.message).catch(e => {
+            console.error('[Brevmont] Failed to report command error:', e?.message);
+          });
           sendResponse({ error: err.message || 'Command unavailable. Try again.' });
         }
       })();
@@ -1372,7 +1352,9 @@ export default defineBackground(() => {
             : err.message?.includes('413') ? 'PAYLOAD_ERROR'
             : err.message?.includes('429') ? 'API_ERROR' : 'UNKNOWN';
           captureError(err instanceof Error ? err : new Error(String(err?.message || err)), { flow: 'CONTEXT_REPLY', errType });
-          reportError(errType, err.message).catch(() => {});
+          reportError(errType, err.message).catch(e => {
+            console.error('[Brevmont] Failed to report context reply error:', e?.message);
+          });
           sendResponse({ error: err.message || 'Screenshot reply unavailable. Try again.' });
         }
       })();
@@ -1390,7 +1372,9 @@ export default defineBackground(() => {
           const errType = err.message?.includes('License') ? 'AUTH_ERROR'
             : err.message?.includes('429') ? 'API_ERROR' : 'UNKNOWN';
           captureError(err instanceof Error ? err : new Error(String(err?.message || err)), { flow: 'VOICE_REPLY', errType });
-          reportError(errType, err.message).catch(() => {});
+          reportError(errType, err.message).catch(e => {
+            console.error('[Brevmont] Failed to report voice reply error:', e?.message);
+          });
           sendResponse({ error: err.message || 'Voice reply unavailable. Try again.' });
         }
       })();
@@ -1661,7 +1645,9 @@ export default defineBackground(() => {
                 captured_lead_id: leadId,
                 context_fingerprint: msg.payload?.context_fingerprint || null,
                 thread_fingerprint: msg.payload?.thread_fingerprint || msg.payload?.context_fingerprint || null,
-              }).catch(() => {});
+              }).catch(e => {
+                console.warn('[Brevmont] Failed to store captured lead context:', e?.message, 'leadId:', leadId);
+              });
             }
           }
 
@@ -2153,22 +2139,24 @@ export default defineBackground(() => {
           brevmont_features: data.features || getTierFeatures(tier),
           brevmont_last_heartbeat: Date.now(),
         };
-        // Store usage data for free tier counter display
-        if (data.usage) {
-          storageUpdate.brevmont_usage = data.usage;
-        }
         await browser.storage.local.set(storageUpdate);
         if (previous.brevmont_tier && previous.brevmont_tier !== tier) {
           browser.runtime.sendMessage({ type: 'TIER_CHANGED', tier }).catch(() => {});
         }
         const qSize = await getDexieQueueCount();
         if (qSize > 0) {
-          await processQueue(apiUrl).catch(() => {});
+          await processQueue(apiUrl).catch(err => {
+            console.error('[Brevmont] Queue processing failed in heartbeat:', err?.message);
+          });
         }
-        await sendHeartbeatV2(apiUrl).catch(() => {});
+        await sendHeartbeatV2(apiUrl).catch(err => {
+          console.error('[Brevmont] Heartbeat V2 failed:', err?.message);
+        });
       }
     } catch(e) {
-      reportError('NETWORK_ERROR', `Heartbeat failed: ${(e as Error).message}`).catch(() => {});
+      reportError('NETWORK_ERROR', `Heartbeat failed: ${(e as Error).message}`).catch(err => {
+        console.error('[Brevmont] Failed to report heartbeat network error:', err?.message);
+      });
     }
   }
 
@@ -2219,12 +2207,16 @@ export default defineBackground(() => {
     if (alarm.name === 'brevmont-heartbeat') void sendHeartbeat();
     else if (alarm.name === 'brevmont-check-alerts') void checkAlerts();
     else if (alarm.name === 'brevmont-queue-flush') {
-      void getResolvedApiUrl().then((u) => processQueue(u).catch(() => {}));
+      void getResolvedApiUrl().then((u) => processQueue(u).catch(e => {
+        console.error('[Brevmont] Queue flush alarm failed:', e?.message);
+      }));
     } else if (alarm.name === 'brevmont-honest-drain') {
       // Honest-events queue drain (chrome.storage.local-backed).
       void import('./lib/honestEvents')
         .then((mod) => (mod.flushQueue ? mod.flushQueue() : Promise.resolve()))
-        .catch(() => {});
+        .catch(e => {
+          console.error('[Brevmont] Honest events flush failed:', e?.message);
+        });
     } else if (alarm.name === 'brevmont-config-refresh') {
       void getResolvedApiUrl().then(async (apiUrl) => {
         const cfg = await fetchRemoteConfig(apiUrl);
@@ -2238,12 +2230,16 @@ export default defineBackground(() => {
           }
         }
       });
+    } else if (alarm.name === 'brevmont-version-check') {
+      void checkVersionStatus();
     }
   });
 
   try {
     self.addEventListener('online', () => {
-      void getResolvedApiUrl().then((u) => processQueue(u).catch(() => {}));
+      void getResolvedApiUrl().then((u) => processQueue(u).catch(e => {
+        console.error('[Brevmont] Queue processing failed on network recovery:', e?.message);
+      }));
     });
     self.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
       captureError(new Error(`Unhandled rejection: ${event.reason}`), { type: 'unhandled_rejection' });
@@ -2629,8 +2625,12 @@ export default defineBackground(() => {
   // this fires with no expected identity — whatever cookie is present
   // gets adopted silently. Tag the callsite so the trace names it.
   tryCookieShareAutoConfig(undefined, {}, 'browser_startup').then((configured) => {
-    if (configured) sendHeartbeat().catch(() => {});
-  }).catch(() => {});
+    if (configured) sendHeartbeat().catch(e => {
+      console.error('[Brevmont] Heartbeat after cookie config failed:', e?.message);
+    });
+  }).catch(e => {
+    console.error('[Brevmont] Cookie share auto-config failed:', e?.message);
+  });
 
   // Bootstrap secret on startup (after heartbeat settles)
   setTimeout(bootstrapLicenseSecret, 15000);
@@ -2700,9 +2700,12 @@ export default defineBackground(() => {
     }
   }
 
-  // Check version on startup (after 20s) and every hour
+  // Check version on startup (after 20s), then hourly via a chrome.alarm.
+  // A bare setInterval does NOT survive MV3 service-worker suspension, so the
+  // recurring check is registered as an alarm (handled in onAlarm above),
+  // consistent with every other periodic job in this file.
   setTimeout(checkVersionStatus, 20000);
-  setInterval(checkVersionStatus, 60 * 60 * 1000);
+  browser.alarms.create('brevmont-version-check', { periodInMinutes: 60 });
 
   // Single source of truth for onInstalled. Previously two separate listeners
   // raced: one tried cookie auto-config (silent path), the other unconditionally
@@ -2728,7 +2731,9 @@ export default defineBackground(() => {
 
     // Updates / reloads: never pop install UI if they're already activated.
     if (details.reason === 'update' && alreadySetup) {
-      sendHeartbeat().catch(() => {});
+      sendHeartbeat().catch(e => {
+        console.error('[Brevmont] Heartbeat on update failed:', e?.message);
+      });
       setTimeout(bootstrapLicenseSecret, 5000);
       setTimeout(checkVersionStatus, 8000);
       return;
@@ -2737,7 +2742,9 @@ export default defineBackground(() => {
     if (autoConfigured) {
       // Cookie share landed. Fire heartbeat now so the ACTIVATED Telegram
       // alert lands immediately instead of after the 5-min cron tick.
-      sendHeartbeat().catch(() => {});
+      sendHeartbeat().catch(e => {
+        console.error('[Brevmont] Heartbeat on auto-config failed:', e?.message);
+      });
 
       // Cookie auto-config means the rep is also seeing the install screen
       // for the first time. Show the "Find Brevmont in Chrome" walkthrough
@@ -3042,30 +3049,6 @@ async function handleGenerate(payload: {
   } catch (err: any) {
     const m = String(err?.message || err);
 
-    // Free tier generation limit reached — return structured response for upgrade prompt
-    if (m.startsWith('GENERATION_LIMIT:')) {
-      try {
-        const data = JSON.parse(m.slice('GENERATION_LIMIT:'.length));
-        // Update stored usage so the counter refreshes immediately
-        await browser.storage.local.set({
-          brevmont_usage: {
-            generations_used: data.used || data.limit || 500,
-            generations_limit: data.limit || 500,
-            generations_remaining: 0,
-            resets_at: data.resets_at || null,
-          },
-        });
-        return {
-          generation_limit_reached: true,
-          message: data.message || `You've used all ${data.limit || 500} free follow-ups this month.`,
-          limit: data.limit || 500,
-          used: data.used || data.limit || 500,
-          resets_at: data.resets_at || null,
-          upgrade_url: data.upgrade_url || 'https://brevmont.com',
-        };
-      } catch { /* fall through to re-throw */ }
-    }
-
     const shouldQueue =
       (err instanceof TypeError && m.includes('fetch')) ||
       /Failed to fetch|NetworkError/i.test(m) ||
@@ -3247,48 +3230,6 @@ async function readGenerationStream(resp: Response, generationId?: string | null
   return finalPayload;
 }
 
-async function handleGenerationStatus(): Promise<any> {
-  const base = (await getResolvedApiUrl()).replace(/\/$/, '');
-  const resp = await signedGet(`${base}/v1/generate/status`);
-  await handleRevocationResponse(resp);
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    throw new Error(data?.error || `status_${resp.status}`);
-  }
-
-  const limit = Number(data.limit ?? data.generations_limit ?? 500);
-  const used = Number(data.used ?? data.generations_used ?? 0);
-  const remaining = Number(data.remaining ?? Math.max(0, limit - used));
-  const tier = String(data.tier || 'free_trial');
-  await browser.storage.local.set({
-    brevmont_tier: tier,
-    brevmont_usage: {
-      generations_used: used,
-      generations_limit: limit,
-      generations_remaining: remaining,
-      resets_at: data.resets_at || null,
-    },
-  });
-  await updateFreeTierBadge({ remaining }, tier);
-  return { tier, limit, used, remaining, resets_at: data.resets_at || null };
-}
-
-async function handleInviteGm(payload: any): Promise<any> {
-  const gmEmail = String(payload?.gm_email || payload?.email || '').trim();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(gmEmail)) {
-    throw new Error('Enter a valid GM email.');
-  }
-  const base = (await getResolvedApiUrl()).replace(/\/$/, '');
-  const resp = await signedFetch(`${base}/api/v1/invite-gm`, { gm_email: gmEmail });
-  await handleRevocationResponse(resp);
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    if (resp.status === 429) throw new Error('You already sent a GM request this month.');
-    throw new Error(data?.error || `invite_${resp.status}`);
-  }
-  return data;
-}
-
 // --- Generate via Proxy ---
 // Does NOT send system prompt — proxy resolves it from dealer's vertical_config
 async function generateViaProxy(
@@ -3347,9 +3288,6 @@ async function generateViaProxy(
   if (resp.status === 401) throw new Error('Your Brevmont access expired or needs to be refreshed. Sign in with Google again, or text us at 307-690-0291.');
   if (resp.status === 429) {
     const body429 = await resp.json().catch(() => ({}));
-    if (body429.error === 'generation_limit_reached') {
-      throw new Error(`GENERATION_LIMIT:${JSON.stringify(body429)}`);
-    }
     if (body429.error === 'daily_limit_reached') {
       throw new Error(body429.message || "You've hit your daily follow-up limit. This resets tomorrow morning.");
     }
@@ -3403,13 +3341,11 @@ async function generateViaProxy(
       },
     });
   }
-  if (data?.brevmont_usage) await updateFreeTierBadge(data.brevmont_usage, data.tier);
   void claimReferralAfterFirstGeneration();
 
   return {
     text,
     usage: data.usage || {},
-    brevmont_usage: data.brevmont_usage || null,
     tier: data.tier || null,
     guard_metrics: guardMetrics,
   };

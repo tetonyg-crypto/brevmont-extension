@@ -87,11 +87,6 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .first-use-example:hover { background:#eef8f5; }
 .first-use-dismiss { position:absolute; top:8px; right:8px; width:22px; height:22px; display:flex; align-items:center; justify-content:center; border:none; border-radius:999px; background:rgba(15,20,25,0.06); color:#64748b; font-size:16px; line-height:1; cursor:pointer; font-family:inherit; }
 .first-use-dismiss:hover { background:rgba(15,20,25,0.11); color:#0F1419; }
-.usage-counter { text-align:center; font-size:11px; color:#64748b; margin-top:6px; padding:4px 8px; background:#f8fafc; border-radius:6px; border:1px solid #e2e8f0; }
-.usage-counter .usage-bar { height:3px; background:#e2e8f0; border-radius:2px; margin-top:4px; overflow:hidden; }
-.usage-counter .usage-fill { height:100%; background:#0D6E6E; border-radius:2px; transition:width 0.3s ease; }
-.usage-counter.usage-warning .usage-fill { background:#f59e0b; }
-.usage-counter.usage-critical .usage-fill { background:#ef4444; }
 .overdrive-pill { flex-shrink:0; }
 .overdrive-pill-row { display:flex; align-items:center; gap:7px; min-height:22px; }
 .overdrive-pill-summary { flex:1; min-width:0; border:0; background:transparent; padding:0; color:#0F1419; font-family:inherit; font-size:12px; font-weight:800; text-align:left; cursor:pointer; display:flex; align-items:center; gap:4px; overflow:hidden; white-space:nowrap; }
@@ -103,31 +98,10 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .overdrive-pill-toggle.is-primary:hover { background:#0A5555; }
 .overdrive-pill-details { margin-top:6px; padding-left:15px; }
 .overdrive-pill-sub { color:rgba(15,20,25,0.55); font-size:10.5px; line-height:1.35; }
-.upgrade-prompt { margin-top:8px; padding:12px; background:#fef3c7; border:1px solid #fcd34d; border-radius:8px; text-align:center; }
-.upgrade-prompt .upgrade-title { font-size:12px; font-weight:700; color:#92400e; margin-bottom:4px; }
-.upgrade-prompt .upgrade-msg { font-size:11px; color:#78350f; line-height:1.4; margin-bottom:8px; }
-.upgrade-prompt .upgrade-btn { display:inline-block; padding:8px 16px; background:#0D6E6E; color:#fff; border-radius:6px; font-size:12px; font-weight:600; text-decoration:none; cursor:pointer; border:none; }
-.upgrade-prompt .upgrade-btn:hover { background:#0A5555; }
-.upgrade-prompt .upgrade-phone { font-size:11px; color:#78350f; margin-top:6px; }
 .review-prompt { margin:10px 12px 0; border:1px solid rgba(13,110,110,.22); background:#F0FDF4; border-radius:8px; padding:10px 34px 10px 12px; position:relative; }
 .review-title { color:#0F1419; font-size:12px; font-weight:700; line-height:1.35; }
 .review-link { margin-top:6px; border:0; background:#0D6E6E; color:white; border-radius:6px; padding:7px 10px; font:700 11px Inter,system-ui,sans-serif; cursor:pointer; }
 .review-dismiss { position:absolute; top:6px; right:8px; border:0; background:transparent; color:#64748b; font-size:18px; cursor:pointer; line-height:1; }
-.gm-invite-backdrop { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:14px; background:rgba(15,20,25,.48); }
-.gm-invite-modal { position:relative; width:100%; max-width:340px; border-radius:12px; background:#fff; box-shadow:0 20px 60px rgba(15,23,42,.28); padding:16px; color:#0F1419; }
-.gm-invite-close { position:absolute; top:10px; right:10px; width:24px; height:24px; border:0; border-radius:999px; background:#F1F5F9; color:#64748B; cursor:pointer; font-size:17px; line-height:1; }
-.gm-invite-eyebrow { font-size:10px; font-weight:900; letter-spacing:.12em; text-transform:uppercase; color:#0D6E6E; margin-bottom:6px; }
-.gm-invite-title { padding-right:24px; font-size:18px; line-height:1.2; font-weight:900; letter-spacing:0; color:#0F1419; }
-.gm-invite-copy { margin-top:9px; font-size:12px; line-height:1.45; color:#475569; }
-.gm-invite-label { display:block; margin-top:12px; margin-bottom:5px; font-size:10px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; color:#64748B; }
-.gm-invite-input { width:100%; height:40px; border:1px solid #E5E7EB; border-radius:8px; padding:0 10px; font-size:13px; font-family:inherit; color:#0F1419; outline:none; }
-.gm-invite-input:focus { border-color:#0D6E6E; box-shadow:0 0 0 3px rgba(13,110,110,.08); }
-.gm-invite-error { min-height:16px; margin-top:6px; font-size:11px; color:#DC2626; line-height:1.35; }
-.gm-invite-send { width:100%; height:40px; border:0; border-radius:8px; background:#0D6E6E; color:#fff; font-size:13px; font-weight:800; font-family:inherit; cursor:pointer; }
-.gm-invite-send:hover { background:#0A5555; }
-.gm-invite-send:disabled { opacity:.62; cursor:wait; }
-.gm-invite-plans { width:100%; margin-top:8px; border:0; background:transparent; color:#0D6E6E; font-size:12px; font-weight:800; font-family:inherit; cursor:pointer; }
-.gm-invite-plans:hover { text-decoration:underline; }
 .version-update-banner { position:relative; margin:8px 12px 0; padding:10px 11px; border:1px solid #D6E4E4; border-radius:9px; background:#F0FAFA; color:#0F1419; font-size:12px; line-height:1.4; }
 .version-update-banner.force { border-color:#FCA5A5; background:#FEF2F2; }
 .version-update-close { position:absolute; top:6px; right:8px; border:0; background:transparent; color:#64748B; cursor:pointer; font-size:15px; line-height:1; padding:2px 4px; }

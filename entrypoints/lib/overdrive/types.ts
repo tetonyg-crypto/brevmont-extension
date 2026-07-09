@@ -59,6 +59,12 @@ export interface DetectionSignal {
   detected_at: number;
   conversation_hint?: string;
   raw?: string;
+  /**
+   * Explicit trigger origin for Overdrive auto-fire policy.
+   * - unread_or_new_inbound: Real new message detected (auto-fire allowed)
+   * - thread_open_or_focus: User opened an old thread (auto-fire blocked)
+   * - manual_overdrive_click: Explicit rep action (auto-fire allowed)
+   */
+  trigger_origin?: 'unread_or_new_inbound' | 'thread_open_or_focus' | 'manual_overdrive_click';
 }
-
 export type DetectionCallback = (signal: DetectionSignal) => void;

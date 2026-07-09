@@ -164,8 +164,6 @@ export function getPanelHTML(platform: Platform): string {
     <div class="input-hint">Optional steer. Text, email, CRM note.</div>
     <div id="o8-reply-context" class="reply-context" style="display:none"></div>
     <button id="o8-generate" class="gen-btn">Generate</button>
-    <div id="o8-usage-counter" class="usage-counter" style="display:none;"></div>
-    <div id="o8-upgrade-prompt" class="upgrade-prompt" style="display:none;"></div>
     ${isVinSolutions ? `<div id="o8-outcome-section" class="outcome-section" style="display:none; margin-top:8px; padding:8px; background:#f8fafc; border-radius:8px; border:1px solid #E5E7EB;">
   <div style="font-size:11px; font-weight:600; color:#64748b; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">Deal Outcome</div>
   <select id="o8-outcome-select" style="width:100%; padding:8px; border:1px solid #E5E7EB; border-radius:6px; font-size:12px; background:#fff; margin-bottom:6px;">

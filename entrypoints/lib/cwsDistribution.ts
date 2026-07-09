@@ -32,10 +32,6 @@ export function reviewClickedState(now = Date.now()): ReviewPromptState {
   return { clicked: true, shown_at: now };
 }
 
-export function appendFreeTierEmailSignature(value: string): string {
-  return value;
-}
-
 export function cwsLinkFor(channel: string, campaign: string, medium = 'extension'): string {
   const params = new URLSearchParams({
     utm_source: channel,

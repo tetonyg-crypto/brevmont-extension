@@ -349,7 +349,7 @@ async function armDetectorOnAllFbTabs(): Promise<void> {
 // ─────────────────────────────────────────────────────────────
 // Detection → orchestration pipeline
 // ─────────────────────────────────────────────────────────────
-async function handleDetectionSignal(tabId: number, signal: { type: string; conversation_hint?: string }): Promise<void> {
+async function handleDetectionSignal(tabId: number, signal: { type: string; conversation_hint?: string; trigger_origin?: 'unread_or_new_inbound' | 'thread_open_or_focus' }): Promise<void> {
   const cached = await activeSettings();
 
   // Radar (migration 304) is decoupled from Overdrive: it runs whenever
@@ -444,6 +444,7 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
         },
         source_platform: /marketplace/i.test(s.url || '') ? 'facebook_marketplace' : 'facebook_messenger',
         sweep_source: 'live',
+        trigger_origin: signal.trigger_origin,
       });
       await overdriveLog({ event: 'radar_capture', tab_id: tabId, result: radarResult });
     } catch (e: any) {
@@ -736,7 +737,7 @@ export async function installOverdriveController(): Promise<void> {
   try {
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (!msg || typeof msg !== 'object') return false;
-      const m = msg as { type: string; signal?: { type: string; conversation_hint?: string } };
+      const m = msg as { type: string; signal?: { type: string; conversation_hint?: string; trigger_origin?: 'unread_or_new_inbound' | 'thread_open_or_focus' } };
 
       if (m.type === 'OVERDRIVE_DETECTION_SIGNAL') {
         const tabId = sender.tab?.id;
