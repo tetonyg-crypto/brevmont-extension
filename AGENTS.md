@@ -6,7 +6,7 @@ chaos, stale Desktop folders, "which build is actually running") don't
 get re-introduced.
 
 ## What this extension is
-- AI co-pilot overlay for Gmail, Messenger, LinkedIn, VinSolutions
+- Chrome side-panel workflow for Gmail, Messenger, LinkedIn, VinSolutions
 - Posts events to `https://api.brevmont.com/api/v1/events` (canonical) and
   `/api/v1/log-action` (legacy v1.10 path, sunset June 2026)
 - MV3 service-worker background, WXT 0.20, React 19 panel UI

@@ -1,6 +1,6 @@
 # Brevmont Chrome Extension
 
-The rep-execution layer for relationship sales. Injects into VinSolutions and other dealership CRMs to draft text messages, emails, and CRM notes in three seconds, keyed to the rep's voice and the lead's history.
+The rep-execution layer for relationship sales. Brevmont opens beside dealership browser workflows so reps can create reviewed text messages, emails, and CRM notes from visible lead context.
 
 ## Repos
 

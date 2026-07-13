@@ -51,12 +51,12 @@ export default defineConfig({
     // Private key stored in brevmont-vault/secrets/extension-keypair.pem
     // (never commit private key to source; this public key is safe to publish).
     key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkMsS75L94HSdLb6I5gYOWkaP7JwtWdeRtVTmBRjkVR8tbvnsvYBE54CPY4jrHGKR8+CUO8NSd62MRCabJZMaJ5N1QpwgttOY2XCD78wCggmRGbKlGsZOtZjwkvX93NHAgcNFc/1RKu1mq0ireFqtidDLp8tM6WKPD/maWZ83xPPeYWD5Ahmwx0qjLMyAsj4e3uBIegtyT05IrPBtpYOT30GRuoi2+kTDU/McaY6yS9VtVZXomsLH5kUlA8+RD7vzxToGitogc6g0pJdEluXtdIkSN+ulcPzOfWzmBBdbViiJlmOUr/m/OFF482E0eSy6Ek4V/Z1KAJGheOAKh0wOvwIDAQAB',
-    name: 'Brevmont - AI Sales Co-Pilot',
+    name: 'Brevmont Chrome Extension',
     short_name: 'Brevmont',
     version: pkgVersion,
     version_name: pkgVersion,
-    description: "AI co-pilot in your reps' sidebar. Writes the text, email, and CRM note beside every page they work in.",
-    homepage_url: 'https://brevmont.com',
+    description: "Brevmont opens beside dealership browser workflows so reps can create reviewed follow-up, email, and CRM-ready notes.",
+    homepage_url: 'https://brevmont.com/extension',
     icons: {
       '16': 'icons/icon-16.png',
       '32': 'icons/icon-32.png',

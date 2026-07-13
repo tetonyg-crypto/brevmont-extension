@@ -1,7 +1,7 @@
 {
   "name": "brevmont-extension",
   "version": "1.16.86",
-  "description": "Brevmont Chrome Extension - AI Sales Co-Pilot",
+  "description": "Brevmont Chrome extension for dealership browser workflows",
   "main": "index.js",
   "scripts": {
     "build": "wxt build",
