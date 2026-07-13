@@ -32,6 +32,11 @@ import {
 import { sanitizeCustomerFacingOutput } from '../lib/outputContract';
 import { cleanCustomerNameCandidate } from '../lib/leadContextScan';
 import { isMessengerSystemCardText } from '../lib/messengerSystemText';
+import {
+  type ManualTopic,
+  resolveChangelogUrl,
+  resolveManualUrl,
+} from '../../lib/helpLinks';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Platform =
@@ -1970,6 +1975,32 @@ function showPrimaryPanel(root: HTMLElement, selector: string, resetScroll = tru
   return panel;
 }
 
+function visibleManualTopic(root: HTMLElement): ManualTopic {
+  const visible = (selector: string): boolean => {
+    const node = root.querySelector(selector) as HTMLElement | null;
+    return !!node && node.style.display !== 'none';
+  };
+  if (visible('#o8-settings-panel')) return 'settings';
+  if (visible('#o8-stats-panel')) return 'my-stats';
+  if (visible('#o8-my-leads-panel')) return 'my-leads';
+  if (visible('#o8-lead-panel')) return 'save-lead';
+  if (visible('#o8-tools-panel')) {
+    const activeTool = root.querySelector('#o8-tools-panel .tool-tab-btn.active') as HTMLElement | null;
+    if (activeTool?.dataset.tool === 'coach') return 'coach';
+    if (activeTool?.dataset.tool === 'command') return 'ask';
+    return 'rep-tool';
+  }
+  return 'generate';
+}
+
+async function openManual(topic: ManualTopic): Promise<void> {
+  await chrome.tabs.create({ url: await resolveManualUrl(topic) });
+}
+
+async function openChangelog(): Promise<void> {
+  await chrome.tabs.create({ url: await resolveChangelogUrl() });
+}
+
 function toolLabel(tool: string | null): string {
   switch (tool) {
     case 'coach': return 'Coach';
@@ -2962,6 +2993,12 @@ function wireHandlers(root: HTMLElement): void {
   // Generate button
   const genBtn = el('o8-generate');
   if (genBtn) genBtn.onclick = () => doGenerate(root);
+  const manualBtn = el('o8-manual-btn') as HTMLButtonElement | null;
+  if (manualBtn) {
+    manualBtn.onclick = () => {
+      void openManual(visibleManualTopic(root)).catch(() => showToast(root, 'Could not open the owner\'s manual'));
+    };
+  }
   const accountBtn = el('o8-account-btn') as HTMLButtonElement | null;
   if (accountBtn) {
     accountBtn.onclick = () => {
@@ -3089,6 +3126,24 @@ function wireHandlers(root: HTMLElement): void {
   if (helpBtn) {
     helpBtn.onclick = (event) => {
       event.preventDefault();
+      void openManual('settings').catch(() => showToast(root, 'Could not open the owner\'s manual'));
+    };
+  }
+  const overdriveHelpBtn = root.querySelector('#sp-link-overdrive-manual') as HTMLButtonElement | null;
+  if (overdriveHelpBtn) {
+    overdriveHelpBtn.onclick = () => {
+      void openManual('overdrive').catch(() => showToast(root, 'Could not open the Overdrive guide'));
+    };
+  }
+  const changelogBtn = root.querySelector('#sp-link-changelog') as HTMLButtonElement | null;
+  if (changelogBtn) {
+    changelogBtn.onclick = () => {
+      void openChangelog().catch(() => showToast(root, 'Could not open the changelog'));
+    };
+  }
+  const supportBtn = root.querySelector('#sp-link-support') as HTMLButtonElement | null;
+  if (supportBtn) {
+    supportBtn.onclick = () => {
       void showSettingsSupport(root, 'help');
     };
   }

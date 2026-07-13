@@ -227,6 +227,8 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .out-regen { background:transparent; border:1px solid #E5E7EB; color:#475569; } .out-regen:hover { background:#f3f4f6; }
 .tools-panel { display:flex; flex-direction:column; flex:1 1 auto; height:100%; max-height:100%; min-height:0; overflow:hidden; }
 .tools-header { padding:10px 14px; border-bottom:1px solid #e8eaed; display:flex; align-items:center; gap:8px; }
+.manual-btn { width:26px; height:26px; flex:0 0 26px; border:1px solid #D6E4E4; border-radius:50%; background:#fff; color:#0D6E6E; font-family:inherit; font-size:12px; font-weight:800; line-height:24px; text-align:center; cursor:pointer; }
+.manual-btn:hover, .manual-btn:focus-visible { border-color:#0D6E6E; background:#F0FAFA; outline:none; }
 .back-btn { background:none; border:none; color:#0D6E6E; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; } .tools-title { font-size:13px; font-weight:600; }
 .tool-tabs { display:flex; border-bottom:1px solid #e8eaed; }
 .tool-tab-btn { flex:1; padding:8px 4px; font-size:11px; font-weight:600; font-family:inherit; border:none; background:transparent; color:#94a3b8; cursor:pointer; border-bottom:2px solid transparent; } .tool-tab-btn.active { color:#0D6E6E; border-bottom-color:#0D6E6E; }
@@ -303,6 +305,9 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 #o8-settings-panel { min-height:0; overflow:hidden; }
 .settings-section { padding:16px 14px var(--panel-safe-bottom); } .settings-label { font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; margin-top:12px; }
 .settings-kicker { font-size:10px; font-weight:900; letter-spacing:.12em; text-transform:uppercase; color:#0D6E6E; margin-bottom:7px; }
+.settings-kicker-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.settings-inline-help { border:none; background:none; color:#0D6E6E; font-family:inherit; font-size:10px; font-weight:750; letter-spacing:0; text-transform:none; padding:2px 0; cursor:pointer; }
+.settings-inline-help:hover, .settings-inline-help:focus-visible { text-decoration:underline; outline:none; }
 .settings-card { border:1px solid #E5E7EB; border-radius:8px; background:#fff; padding:10px; margin-bottom:10px; }
 .settings-account-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:4px 0; font-size:11px; color:#64748B; }
 .settings-account-row strong { color:#0F1419; font-size:11px; min-width:0; max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:right; }
@@ -315,9 +320,8 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .settings-secondary:hover { border-color:#B91C1C; color:#B91C1C; background:#FEF2F2; }
 .settings-back-bottom:hover { border-color:#0D6E6E; color:#0D6E6E; background:#F0FAFA; }
 .settings-footer-links { border-top:1px solid #E5E7EB; margin-top:14px; padding-top:10px; padding-bottom:24px; display:flex; flex-direction:column; gap:7px; }
-.settings-footer-links a, .settings-footer-links button:not(.settings-secondary) { width:max-content; background:none; border:none; padding:0; font-size:11px; line-height:1.4; color:#0D6E6E; cursor:pointer; text-align:left; font-weight:650; font-family:inherit; text-decoration:none; }
-.settings-footer-links a { color:#6B7280; font-weight:500; }
-.settings-footer-links a:hover, .settings-footer-links button:not(.settings-secondary):hover { text-decoration:underline; }
+.settings-footer-links button:not(.settings-secondary) { width:max-content; background:none; border:none; padding:0; font-size:11px; line-height:1.4; color:#0D6E6E; cursor:pointer; text-align:left; font-weight:650; font-family:inherit; text-decoration:none; }
+.settings-footer-links button:not(.settings-secondary):hover { text-decoration:underline; }
 .settings-support-card { background:#F0FAFA; border-color:#CFE2E2; }
 .settings-support-email { margin-top:8px; border:1px solid #D6E4E4; border-radius:7px; background:#fff; color:#0F1419; padding:8px 9px; font-size:12px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .settings-support-actions { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:8px; }

@@ -76,7 +76,7 @@ function getSettingsHTML(): string {
     </div>
     <button id="sp-settings-sign-out" class="settings-secondary" type="button">Sign out</button>
     <div class="settings-divider"></div>
-    <div class="settings-kicker">Overdrive</div>
+    <div class="settings-kicker settings-kicker-row"><span>Overdrive</span><button id="sp-link-overdrive-manual" class="settings-inline-help" type="button">Guide</button></div>
     <div id="overdrive-panel-mount"></div>
     <div id="sp-support-card" class="settings-card settings-support-card" style="display:none">
       <div class="settings-note-title" id="sp-support-title">Support</div>
@@ -89,8 +89,9 @@ function getSettingsHTML(): string {
       </div>
     </div>
     <div class="settings-footer-links">
-      <a id="sp-link-changelog" href="https://app.brevmont.com/changelog" target="_blank" rel="noopener">Changelog</a>
-      <button id="sp-link-help" type="button">Get help</button>
+      <button id="sp-link-help" type="button">Owner's manual</button>
+      <button id="sp-link-changelog" type="button">Changelog</button>
+      <button id="sp-link-support" type="button">Contact support</button>
       <button id="sp-link-report" type="button">Report issue</button>
       <button id="sp-settings-bottom-back" class="settings-secondary settings-back-bottom" type="button">Back to Generate</button>
     </div>
@@ -108,6 +109,7 @@ export function getPanelHTML(platform: Platform): string {
   <span class="version-badge" id="o8-version-badge"></span>
   <span style="flex:1"></span>
   ${badge.label ? `<span id="o8-platform-badge" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;color:${badge.color};background:${badge.bg}">${esc(badge.label)}</span>` : '<span id="o8-platform-badge" style="display:none"></span>'}
+  <button id="o8-manual-btn" class="manual-btn" type="button" title="Open help for this view" aria-label="Open help for this view">?</button>
   <button id="o8-account-btn" class="account-btn overdrive-dot-off" type="button" title="Open settings" aria-label="Open settings">•</button>
   <button id="o8-lead-btn" class="lead-btn">+ Lead</button>
   <span id="o8-close" class="close">&times;</span>

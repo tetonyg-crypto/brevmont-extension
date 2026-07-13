@@ -6,6 +6,11 @@ import {
   TRIAL_ENDED_CTA,
   TRIAL_ENDED_TITLE,
 } from '../../lib/accessState';
+import {
+  type ManualTopic,
+  resolveChangelogUrl,
+  resolveManualUrl,
+} from '../../lib/helpLinks';
 
 interface PopupState {
   rep_name: string;
@@ -268,6 +273,22 @@ function App() {
     window.close();
   };
 
+  const openManual = (topic: ManualTopic) => {
+    void (async () => {
+      const url = await resolveManualUrl(topic);
+      await browser.tabs.create({ url });
+      window.close();
+    })();
+  };
+
+  const openChangelog = () => {
+    void (async () => {
+      const url = await resolveChangelogUrl();
+      await browser.tabs.create({ url });
+      window.close();
+    })();
+  };
+
   const PALETTE = {
     bone: '#F8F6F1',
     charcoal: '#0F1419',
@@ -340,12 +361,13 @@ function App() {
         >
           Trouble activating? Try manual setup
         </button>
-        <a
-          href="mailto:founder@brevmont.com"
-          style={{ fontSize: 11, color: PALETTE.textFaint, textDecoration: 'none', textAlign: 'center' }}
+        <button
+          type="button"
+          onClick={() => openManual('install-login')}
+          style={{ border: 'none', background: 'transparent', fontFamily: 'inherit', fontSize: 11, color: PALETTE.deepTeal, cursor: 'pointer', textAlign: 'center' }}
         >
-          Need help? founder@brevmont.com
-        </a>
+          Installation help
+        </button>
       </div>
     );
   }
@@ -519,12 +541,9 @@ function App() {
       {reportHint && <div style={{ fontSize: 11, color: PALETTE.textBody, textAlign: 'center' }}>{reportHint}</div>}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 8, borderTop: `1px solid ${PALETTE.border}` }}>
-        <a href="https://app.brevmont.com/changelog" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: PALETTE.textMuted, textDecoration: 'none' }}>
-          Changelog
-        </a>
         <button
           type="button"
-          onClick={() => setSupportOpen(true)}
+          onClick={() => openManual('rep-tool')}
           style={{
             fontSize: 12,
             color: PALETTE.deepTeal,
@@ -537,7 +556,21 @@ function App() {
             fontFamily: 'inherit',
           }}
         >
-          Get help
+          Owner's manual
+        </button>
+        <button
+          type="button"
+          onClick={openChangelog}
+          style={{ fontSize: 12, color: PALETTE.textMuted, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', fontWeight: 500, fontFamily: 'inherit' }}
+        >
+          Changelog
+        </button>
+        <button
+          type="button"
+          onClick={() => setSupportOpen(true)}
+          style={{ fontSize: 12, color: PALETTE.deepTeal, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', fontWeight: 500, fontFamily: 'inherit' }}
+        >
+          Contact support
         </button>
         <button
           type="button"

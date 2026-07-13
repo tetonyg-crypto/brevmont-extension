@@ -17,6 +17,8 @@ export interface RemoteConfig {
   heartbeat_interval_minutes: number;
   queue_flush_interval_minutes: number;
   config_refresh_interval_minutes: number;
+  manual_base_url?: string;
+  changelog_url?: string;
 }
 
 const CONFIG_STORAGE_KEY = 'brevmont_remote_config';
