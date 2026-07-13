@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,6 +34,8 @@ const permissions = manifest.permissions || [];
 const hosts = manifest.host_permissions || [];
 const failures = [];
 if ('key' in manifest) failures.push('manifest.key is present');
+if (manifest.action?.default_popup) failures.push('action.default_popup points at the retired generic popup');
+if (manifest.side_panel?.default_path !== 'sidepanel.html') failures.push('side_panel.default_path is not sidepanel.html');
 // notifications: required for Overdrive escalation desktop alerts and
 // documented in the CWS submission kit's 02-permission-justifications.md.
 // Reviewer sees an explicit "why" string, no surprise.
@@ -42,6 +44,19 @@ const BROAD_MATCHES = new Set(['http://*/*', 'https://*/*', '<all_urls>']);
 for (const cs of manifest.content_scripts || []) {
   for (const m of cs.matches || []) {
     if (BROAD_MATCHES.has(m)) failures.push(`content script has broad match pattern: ${m}`);
+  }
+}
+
+const chunksDir = resolve(root, '.output', 'chrome-mv3', 'chunks');
+const sidepanelChunk = existsSync(chunksDir)
+  ? readdirSync(chunksDir).find((name) => /^sidepanel-.*\.js$/.test(name))
+  : null;
+if (!sidepanelChunk) {
+  failures.push('full sidepanel bundle is missing');
+} else {
+  const sidepanelSource = readFileSync(resolve(chunksDir, sidepanelChunk), 'utf8');
+  for (const requiredControl of ['+ Lead', 'My Leads', 'Coach', 'My Stats', 'Settings']) {
+    if (!sidepanelSource.includes(requiredControl)) failures.push(`full workspace control is missing: ${requiredControl}`);
   }
 }
 
