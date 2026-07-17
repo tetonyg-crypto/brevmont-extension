@@ -249,7 +249,7 @@ export async function requestOverdriveReply(
 // ─────────────────────────────────────────────────────────────────
 // The extension MUST call confirmOverdriveSend after every
 // overdriveSend() attempt so the server can write the terminal
-// event (overdrive.reply_sent|appointment_set|photo_sent) instead
+// event (overdrive.reply_sent|appointment_set|photo_sent when media attached) instead
 // of trusting a pre-send optimistic write. On DOM verify failure,
 // pass verified: false — server writes overdrive.send_unverified.
 export interface OverdriveSendConfirmPayload {

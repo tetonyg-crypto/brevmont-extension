@@ -14,8 +14,8 @@
  *   7. safeInjectText() — write reply into composer (double-inject
  *      fix already live)
  *   8. Wait computeTypingMs()
- *   9. If ai_question_triggered + photo_data_url present:
- *      overdriveAttachPhoto() first, THEN send
+ *   9. If photo_data_url is present:
+ *      overdriveAttachPhoto() first, THEN send. Current API default is text-only.
  *   10. overdriveSend() — DOM-verified send with fallback chain
  *   11. recordReplyOutcome() — persist local + server state
  *   12. Log to background so it can fire chrome.notifications for
@@ -101,7 +101,7 @@ export interface OrchestratorDeps {
   sendText: (text: string) => Promise<OverdriveSendResult>;
 
   /**
-   * Optional page-side attachment hook for AI-question selfie replies.
+   * Optional page-side attachment hook for image-bearing replies.
    */
   attachPhoto?: (photoDataUrl: string) => Promise<OverdriveAttachResult>;
 
@@ -597,7 +597,7 @@ async function orchestrateReplyInner(
   // Step 7: typing simulation
   await delay.waitAfterInject();
 
-  // Step 8: if AI-question, attach photo before send
+  // Step 8: attach media only when the API explicitly returns it.
   let attach: OrchestratorResult['attach'] | undefined;
   if (reply.ai_question_triggered && reply.photo_data_url) {
     const attachResult = deps.attachPhoto

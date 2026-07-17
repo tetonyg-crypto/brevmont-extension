@@ -82,7 +82,7 @@ const DISCLOSURE_TEXT = [
   '',
   'What Overdrive sends:',
   '- One reply per inbound, driving toward an in-store appointment.',
-  '- A thumbs-up selfie only if the customer asks if you are a bot.',
+  '- A transparent disclosure reply if the customer asks if you are a bot or AI.',
   '- Never negotiates prices or trade values. Never quotes rates.',
   '',
   'What your GM sees:',
