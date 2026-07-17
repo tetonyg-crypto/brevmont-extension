@@ -172,9 +172,8 @@ async function attemptDropEvent(composer: HTMLElement, blob: Blob, mime: string,
 
 /**
  * Public API — attach a data-URL image to the Messenger composer.
- * `photoDataUrl` typically comes from reps.rep_photo_url via the
- * background worker. Returns structured result so caller can log
- * overdrive.photo_sent or fall back to text-only.
+ * `photoDataUrl` is optional media returned by the API. Current
+ * bot-question disclosure replies are text-only by default.
  */
 export async function overdriveAttachPhoto(photoDataUrl: string): Promise<OverdriveAttachResult> {
   const startedAt = Date.now();
