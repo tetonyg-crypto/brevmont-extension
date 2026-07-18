@@ -90,7 +90,7 @@ test('getJWT marks rep access ended when token mint rejects a revoked rep token'
       headers: { 'Content-Type': 'application/json' },
     });
 
-  await expect(getJWT('https://api.brevmont.test')).resolves.toBeNull();
+  await expect(getJWT('https://api.brevmont.test')).rejects.toThrow('rep_token_revoked');
   expect(storage.license_revoked).toBe(true);
   expect(storage.brevmont_last_error).toBe('rep_token_revoked');
   expect(storage.brevmont_jwt_cache).toBeUndefined();

@@ -110,7 +110,9 @@ async function fetchFreshJwt(repToken: string, apiBase: string): Promise<JwtCach
       }
       const accessState = classifyAccessError(resp.status, body);
       if (accessState) {
-        await markRepAccessEnded(getAccessErrorCode(body), accessState);
+        const errorCode = getAccessErrorCode(body) || 'invalid_rep_token';
+        await markRepAccessEnded(errorCode, accessState);
+        throw new Error(errorCode);
       }
       return null;
     }
@@ -119,7 +121,10 @@ async function fetchFreshJwt(repToken: string, apiBase: string): Promise<JwtCach
     const exp = decodeExp(data.token);
     if (!exp) return null;
     return { token: data.token, exp };
-  } catch {
+  } catch (error) {
+    if (/^(?:invalid_rep_token|rep_token_revoked|rep_token_expired|license_revoked)$/i.test(String((error as Error)?.message || error))) {
+      throw error;
+    }
     return null;
   } finally {
     clearTimeout(timeout);

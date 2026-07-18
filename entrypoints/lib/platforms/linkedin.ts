@@ -52,8 +52,17 @@ function textOf(selector: string, root: Document | Element = document): string {
   return normalizeLine(el?.innerText || el?.textContent || '');
 }
 
+function activeConversationListItem(): HTMLElement | null {
+  const activeLink =
+    (document.querySelector('.msg-conversations-container__convo-item-link--active') as HTMLElement | null) ||
+    (document.querySelector('.msg-conversation-listitem--active') as HTMLElement | null) ||
+    (document.querySelector('[aria-current="page"][href*="/messaging/thread"]') as HTMLElement | null);
+  return (activeLink?.closest('.msg-conversation-listitem') as HTMLElement | null) || activeLink;
+}
+
 function activeThreadRoot(): HTMLElement | null {
   return (
+    (document.querySelector('.scaffold-layout__detail .msg-convo-wrapper.msg-thread') as HTMLElement | null) ||
     (document.querySelector('.msg-conversations-container__thread-view') as HTMLElement | null) ||
     (document.querySelector('.msg-s-message-list-content') as HTMLElement | null) ||
     (document.querySelector('[class*="scaffold-layout__detail"]') as HTMLElement | null) ||
@@ -77,11 +86,11 @@ function activeThreadHeader(): string {
 }
 
 function activeConversationHref(): string {
+  if (/\/messaging\/thread\//i.test(window.location.href)) return window.location.href;
   const selectors = [
+    '.msg-conversations-container__convo-item-link--active a[href*="/messaging/thread"]',
     '.msg-conversation-listitem--active a[href*="/messaging/thread"]',
     'a[aria-current="page"][href*="/messaging/thread"]',
-    '.msg-thread__link-to-profile[href]',
-    'a[href*="/in/"]',
   ];
   for (const selector of selectors) {
     const href = (document.querySelector(selector) as HTMLAnchorElement | null)?.href || '';
@@ -98,11 +107,8 @@ function activeThreadSignature(): string {
 }
 
 function isSponsoredOrAdThread(root: HTMLElement | null): boolean {
-  const activeListText = normalizeLine(
-    (document.querySelector('.msg-conversation-listitem--active') as HTMLElement | null)?.innerText ||
-    (document.querySelector('[aria-current="page"]') as HTMLElement | null)?.textContent ||
-    ''
-  );
+  if (root?.querySelector('.msg-spinmail-thread-presenter, [class*="spinmail-thread-presenter"]')) return true;
+  const activeListText = normalizeLine(activeConversationListItem()?.innerText || '');
   const header = [
     textOf('.msg-thread__link-to-profile'),
     textOf('.msg-overlay-bubble-header__title'),
@@ -112,6 +118,32 @@ function isSponsoredOrAdThread(root: HTMLElement | null): boolean {
   const joined = `${activeListText}\n${header}\n${bodyStart}`;
   return /\b(?:sponsored|promoted|advertisement|ad options)\b/i.test(joined) ||
     /\binmail\b/i.test(joined) && /\b(?:sponsored|promoted|ad)\b/i.test(joined);
+}
+
+function linkedinMessageEvents(root: HTMLElement | null, customerName: string): ThreadContext['messages'] {
+  const messageRoot =
+    (root?.querySelector('.msg-s-message-list-content') as HTMLElement | null) ||
+    (document.querySelector('.scaffold-layout__detail .msg-s-message-list-content') as HTMLElement | null);
+  if (!messageRoot) return [];
+
+  const messages: ThreadContext['messages'] = [];
+  let inheritedDirection: ThreadContext['messages'][number]['direction'] = 'unknown';
+  const events = Array.from(messageRoot.querySelectorAll(':scope > .msg-s-message-list__event')).slice(-30);
+  for (const event of events) {
+    const item = event.querySelector('.msg-s-event-listitem') as HTMLElement | null;
+    const body = event.querySelector('.msg-s-event-listitem__body, .msg-s-event__content') as HTMLElement | null;
+    const text = normalizeLine(body?.innerText || body?.textContent || '', 600);
+    if (!item || !text || text.length < 2) continue;
+
+    const sender = cleanCustomerNameCandidate(textOf('.msg-s-message-group__name', event));
+    let direction: ThreadContext['messages'][number]['direction'] = inheritedDirection;
+    if (item.classList.contains('msg-s-event-listitem--other')) direction = 'inbound';
+    else if (sender && customerName && sender.toLowerCase() === customerName.toLowerCase()) direction = 'inbound';
+    else if (sender) direction = 'outbound';
+    inheritedDirection = direction;
+    messages.push({ text, direction });
+  }
+  return messages;
 }
 
 function scrapeThread(): ThreadContext {
@@ -134,21 +166,16 @@ function scrapeThread(): ThreadContext {
         message_count: 0,
       };
     }
-    raw_text = (thread?.innerText || document.body?.innerText || '').slice(0, 5000);
     // Header — the recipient's name in the top of the thread view.
     header_text = activeThreadHeader();
-    // Message bubbles — the msg-s-event-listitem class family
-    const messageRoot = thread || document;
-    const bubbles = Array.from(messageRoot.querySelectorAll('.msg-s-event-listitem, .msg-s-message-list__event, [class*="msg-s-message"]')).slice(-30);
-    for (const b of bubbles) {
-      const t = normalizeLine((b as HTMLElement).innerText, 600);
-      if (!t || t.length < 3) continue;
-      messages.push({ text: t.slice(0, 600), direction: 'unknown' });
-    }
+    messages.push(...linkedinMessageEvents(thread, header_text));
+    raw_text = messages.length
+      ? messages.map((message) => `[${message.direction || 'unknown'}] ${message.text}`).join('\n').slice(0, 5000)
+      : normalizeLine(thread?.innerText || '', 5000);
   } catch {
     /* noop */
   }
-  const inbound = messages.length ? messages[messages.length - 1].text : raw_text.slice(-2000);
+  const inbound = [...messages].reverse().find((message) => message.direction === 'inbound')?.text || '';
   const signature = activeThreadSignature();
   return {
     conversation_key: `linkedin:${signature || stableKeyFromPath('linkedin')}`,

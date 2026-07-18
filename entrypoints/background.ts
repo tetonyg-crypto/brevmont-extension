@@ -1027,7 +1027,7 @@ export default defineBackground(() => {
           }
         } catch (err: any) {
           const errMessage = err?.message || 'Generation failed. Try again or contact founder@brevmont.com';
-          const isAccessError = /trial ended|access at this dealership has ended|license has been revoked/i.test(errMessage);
+          const isAccessError = /trial ended|access at this dealership has ended|license has been revoked|invalid_rep_token|rep_token_(?:expired|revoked)|session.*ended|access expired/i.test(errMessage);
           const errType = errMessage?.includes('License') || isAccessError ? 'AUTH_ERROR'
             : err.message?.includes('429') ? 'API_ERROR'
             : 'UNKNOWN';
@@ -2955,34 +2955,11 @@ async function handleGenerate(payload: {
     throw new Error('No license key found. Complete onboarding at brevmont.com to activate Brevmont.');
   }
 
-  // Fetch recent notes for same-lead dedup context
+  // Fetch recent notes for same-lead dedup context. The old
+  // /api/recent-notes route has been gone for months; calling that known 404
+  // before every draft added latency and could strand Generate before the
+  // real request when the connection stalled. Keep the prompt path direct.
   const customerName = payload.metadata?.customer_name || payload.leadContext?.customerName || null;
-  if (customerName && customerName !== 'there') {
-    try {
-      // NOTE: /api/recent-notes is currently 404 on the proxy. The dedup
-      // feature silently no-ops when the endpoint is absent. If/when that
-      // handler is restored, this call is already sending customer_name
-      // via query string and the dealer_token via Authorization header —
-      // no further extension change needed.
-      const params = new URLSearchParams({ customer_name: customerName, hours: '2' });
-      const recentResp = await fetch(`${PROXY_URL}/api/recent-notes?${params.toString()}`, {
-        headers: { 'Authorization': `Bearer ${dealerToken}` }
-      });
-      if (recentResp.ok) {
-        const { notes } = await recentResp.json();
-        if (notes && notes.length > 0) {
-          const priorContext = notes.map((n: any) => {
-            const time = new Date(n.generated_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-            const noteText = (n.output || '').substring(0, 200);
-            return `[${time}] ${noteText}`;
-          }).join('\n');
-          userMessage += `\n\nPRIOR NOTES ON THIS CUSTOMER (last 2 hours):\n${priorContext}\n\nDO NOT repeat information from prior notes. Only generate new content if there is new information. For the CRM NOTE specifically: if nothing has changed since the last note, respond with exactly "NO_NEW_NOTE" for the CRM NOTE section.`;
-        }
-      }
-    } catch(e) {
-      // Silent fail — dedup is nice-to-have, not blocking
-    }
-  }
 
   // Structured metadata for generation_events logging (sent alongside the prompt).
   // generation_id is generated here and propagated to the proxy so the server-side

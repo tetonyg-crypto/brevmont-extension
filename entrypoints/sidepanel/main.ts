@@ -2008,6 +2008,15 @@ function isSessionEndedError(error: unknown): boolean {
   return /rep_identity_mismatch|identity mismatch|session.*ended|access expired|needs to be refreshed|not activated|no license key|invalid_rep_token|rep_token_expired|rep_token_revoked/.test(message);
 }
 
+function generationFailureCopy(error: unknown): string {
+  const message = String((error as any)?.message || error || '').trim();
+  if (/timed out|timeout|AbortError/i.test(message)) return 'Generation timed out before Brevmont answered. Try again.';
+  if (/network|failed to fetch|connection|message port closed|no response from background/i.test(message)) {
+    return 'The connection dropped before the draft finished. Try again.';
+  }
+  return GENERATION_FAILURE_MESSAGE;
+}
+
 async function currentStoredIdentityLabel(): Promise<string> {
   try {
     const [local, sync] = await Promise.all([
@@ -3796,7 +3805,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       showGenerationHold(root, response);
     } else if (response?.error) {
       if (isSessionEndedError(response.error)) await showSessionEndedState(root, response.error);
-      else showGenerationError(root, GENERATION_FAILURE_MESSAGE);
+      else showGenerationError(root, generationFailureCopy(response.error));
     } else {
       removeStreamingOutput(root, _generationId);
       const sec = response.sections;
@@ -3817,7 +3826,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     }
   } catch (_e: any) {
     if (isSessionEndedError(_e)) await showSessionEndedState(root, _e);
-    else showGenerationError(root, GENERATION_FAILURE_MESSAGE);
+    else showGenerationError(root, generationFailureCopy(_e));
   } finally {
     removeStreamingOutput(root, _generationId);
     btn.innerHTML = 'Generate';

@@ -78,6 +78,9 @@ test('LinkedIn scans refresh through SPA switches and block ad threads', () => {
   expect(source).toContain("autoThreadScanStatus === 'blocked'");
   expect(source).toContain('Open a customer conversation first.');
   expect(linkedin).toContain('function isSponsoredOrAdThread');
+  expect(linkedin).toContain('msg-conversations-container__convo-item-link--active');
+  expect(linkedin).toContain("querySelectorAll(':scope > .msg-s-message-list__event')");
+  expect(linkedin).toContain("find((message) => message.direction === 'inbound')");
   expect(linkedin).toContain('This is an ad - open a customer conversation.');
   expect(linkedin).toContain('is_blocked_context: true');
 });
@@ -90,6 +93,17 @@ test('session mismatch shows a clear reconnect state instead of generic generati
   expect(source).toContain('id="o8-session-signin"');
   expect(source).toContain("chrome.runtime.sendMessage({ type: 'SYNC_AUTH_FROM_COOKIE' })");
   expect(source).toContain('if (isSessionEndedError(_e)) await showSessionEndedState(root, _e);');
+  expect(source).toContain('function generationFailureCopy');
+});
+
+test('auth refresh failures do not fall through to a stale rep token', () => {
+  const jwtCache = read('lib/jwtCache.ts');
+  const background = read('entrypoints/background.ts');
+  const signing = read('lib/authSigning.ts');
+  expect(jwtCache).toContain("throw new Error(errorCode)");
+  expect(background).toContain('invalid_rep_token|rep_token_(?:expired|revoked)');
+  expect(signing).toContain('NetworkError: request timed out after');
+  expect(background).not.toContain("`${PROXY_URL}/api/recent-notes?");
 });
 
 test('output chips are exclusive mode selectors before generation', () => {
