@@ -10,7 +10,7 @@ const STOP_WORDS =
 const POISON_BEFORE = /(?:Equity|Payoff|Trade-in|trade\s+value|Credit)\b[\s\S]{0,50}$/i;
 const POISON_AFTER = /^[\s\S]{0,20}(?:Calculated|Payoff|payoff|appraised)/i;
 const LINKEDIN_UI_NAME_RE =
-  /^(?:ad options|advertising|sponsored|promoted|2023 grade|grade|follow|message|connect|open to|profile|activity|about|experience|education|people also viewed|linkedin|notifications|jobs|home|my network|premium)$/i;
+  /^(?:ad options|advertising|sponsored|promoted|2023 grade|grade|follow|message|connect|open to|profile|activity|about|experience|education|people also viewed|linkedin|notifications|jobs|home|my network|premium|status is reachable|reachable|mobile|active now|online)$/i;
 
 // Any candidate that equals one of these (case-insensitive, trimmed) is a
 // UI/channel label, not a person. Discovered 2026-07-02 on live demo: on
@@ -51,6 +51,8 @@ export function isChannelOrUiName(value: unknown): boolean {
   if (/^(?:sold|active|available|listed|new)\b/i.test(raw)) return true;
   if (/^(?:facebook|messenger|marketplace|instagram)\s/i.test(raw)) return true;
   if (/^brevmont\b/i.test(raw)) return true;
+  if (/^(?:status\s+is\s+reachable|reachable|active\s+now|mobile)(?:\b|$)/i.test(raw)) return true;
+  if (/^(?:\d+\s*(?:m|h|d|w|mo|yr)s?\s+ago|yesterday|today)$/i.test(raw)) return true;
   // Facebook Marketplace fallback headers for accounts without a friendly
   // display name. "Conversation titled X" is the raw h1; "Chat with X"
   // is a common aria-label variant; "X started this chat" appears in
@@ -87,6 +89,12 @@ export function cleanCustomerNameCandidate(value: unknown): string {
     .replace(/\(\d+\)\s*/g, '')
     .replace(/\s+\|\s+(?:Messenger|Facebook|Gmail|LinkedIn).*$/i, '')
     .replace(/\s+-\s+(?:Messenger|Facebook|Gmail|LinkedIn).*$/i, '')
+    .replace(/\s+\bStatus\s+is\s+reachable\b.*$/i, '')
+    .replace(/\s+[·•]\s*(?:active\s+now|\d+\s*(?:m|h|d|w|mo|yr)s?\s+ago|yesterday|today)\b.*$/i, '')
+    .replace(/\s+\b(?:Reachable|Active now|Online)\b.*$/i, '')
+    .replace(/\s+\bMobile\b(?:\s*[·•]\s*(?:\d+\s*(?:m|h|d|w|mo|yr)s?\s+ago|yesterday|today)\b.*)?$/i, '')
+    .replace(/\s+\b(?:1st|2nd|3rd)\b.*$/i, '')
+    .replace(/\s+\b(?:Sponsored|Promoted|Ad)\b.*$/i, '')
     .replace(/\s*[·•-]\s*(?:19|20)\d{2}\b.*$/i, '')
     .replace(/\b(?:created this group|sent a photo|sent an attachment|is waiting for your response)\b.*$/i, '')
     .replace(/\s+/g, ' ')

@@ -57,7 +57,7 @@ type Platform =
 
 type OutputChip = 'text' | 'email' | 'crm';
 const GENERATE_OUTPUT_TYPES: OutputChip[] = ['text', 'email', 'crm'];
-type AutoThreadScanStatus = 'idle' | 'scanning' | 'ready' | 'fallback' | 'error';
+type AutoThreadScanStatus = 'idle' | 'scanning' | 'ready' | 'fallback' | 'error' | 'blocked';
 
 interface PlatformContext {
   platform: Platform;
@@ -110,6 +110,7 @@ interface AutoThreadScan {
   scannedAt?: number | null;
   lastInboundHash?: string | null;
   messageCount?: number | null;
+  blockedReason?: string | null;
   threadContext: {
     conversation_key?: string | null;
     raw_text: string;
@@ -117,6 +118,8 @@ interface AutoThreadScan {
     last_inbound_text: string;
     last_inbound_hash?: string | null;
     header_text?: string | null;
+    blocked_reason?: string | null;
+    is_blocked_context?: boolean | null;
     url?: string | null;
     scanned_at?: number | null;
     message_count?: number | null;
@@ -136,9 +139,11 @@ let customerDetectionFingerprint = '';
 let autoThreadScan: AutoThreadScan | null = null;
 let autoThreadScanStatus: AutoThreadScanStatus = 'idle';
 let autoThreadScanUrl = '';
+let autoThreadScanSignature = '';
 let autoThreadScanRequestId = 0;
 let autoThreadScanTimer: number | null = null;
 let autoThreadScanListenersAttached = false;
+let autoThreadPollTimer: number | null = null;
 let outputSelectionTouched = false;
 const dismissedChallengeIds = new Set<string>();
 const FIRST_GENERATION_KEY = 'first_generation_completed';
@@ -932,6 +937,7 @@ function cleanThreadRawText(rawText: unknown): string {
 function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): AutoThreadScan | null {
   if (!ctx || typeof ctx !== 'object') return null;
   const thread = ctx.thread || {};
+  const blockedReason = stripMarkdownText(thread.blocked_reason || ctx.blocked_reason || '');
   const messages = buildThreadMessages(thread.messages);
   const rawText = cleanContextText(cleanThreadRawText(thread.raw_text || ctx.raw_text || ctx.source_raw_text || ''), 5000);
   const isDeterministicGmailThread = (ctx.platform || currentPlatform.platform) === 'gmail' && messages.length > 0;
@@ -943,7 +949,7 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
     isDeterministicGmailThread ? '' : lastReadableThreadLine(rawText)
   );
   const headerText = stripThreadDecorators(thread.header_text || ctx.context?.subject_line || ctx.context?.listing_title || '');
-  if (!rawText && !lastInbound && !headerText) return null;
+  if (!rawText && !lastInbound && !headerText && !blockedReason) return null;
 
   const context = ctx.context || {};
   const customerName = getCustomerNameFromContext(ctx);
@@ -970,6 +976,7 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
     scannedAt: Number(thread.scanned_at || ctx.scanned_at || Date.now()) || Date.now(),
     lastInboundHash: thread.last_inbound_hash || ctx.last_inbound_hash || null,
     messageCount: Number(thread.message_count ?? ctx.message_count ?? messages.length) || messages.length,
+    blockedReason: blockedReason || null,
     threadContext: {
       conversation_key: thread.conversation_key || ctx.thread_fingerprint || ctx.context_fingerprint || null,
       raw_text: rawText || [headerText, ...messages.map((message) => `[${message.direction || 'unknown'}] ${message.text}`)].filter(Boolean).join('\n').slice(0, 5000),
@@ -977,6 +984,8 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
       last_inbound_text: lastInbound || (isDeterministicThread ? '' : lastReadableThreadLine(rawText)),
       last_inbound_hash: thread.last_inbound_hash || ctx.last_inbound_hash || null,
       header_text: headerText || null,
+      blocked_reason: blockedReason || null,
+      is_blocked_context: Boolean(thread.is_blocked_context || ctx.is_blocked_context || blockedReason),
       url: thread.url || currentPlatform.url || null,
       scanned_at: Number(thread.scanned_at || ctx.scanned_at || Date.now()) || Date.now(),
       message_count: Number(thread.message_count ?? ctx.message_count ?? messages.length) || messages.length,
@@ -1012,10 +1021,18 @@ function leadContextFromAutoThreadScan(scan: AutoThreadScan | null): any {
   };
 }
 
+function currentThreadSignature(): string {
+  return currentPlatform.platform === 'linkedin' ? '' : currentPlatform.url || '';
+}
+
 function getUsableAutoThreadScan(): AutoThreadScan | null {
   if (!autoThreadScan || autoThreadScanStatus !== 'ready') return null;
   if (autoThreadScanUrl && currentPlatform.url && autoThreadScanUrl !== currentPlatform.url) return null;
-  if (Date.now() - Number(autoThreadScan.scannedAt || autoThreadScan.threadContext?.scanned_at || 0) > 15000) return null;
+  const ageMs = Date.now() - Number(autoThreadScan.scannedAt || autoThreadScan.threadContext?.scanned_at || 0);
+  if (currentPlatform.platform === 'linkedin' && ageMs > 2000) return null;
+  const signature = currentThreadSignature();
+  if (currentPlatform.platform !== 'linkedin' && autoThreadScanSignature && signature && autoThreadScanSignature !== signature) return null;
+  if (ageMs > 15000) return null;
   const lastInbound = autoThreadScan.threadContext?.last_inbound_text || '';
   const rawText = autoThreadScan.threadContext?.raw_text || '';
   return lastInbound || rawText ? autoThreadScan : null;
@@ -1025,6 +1042,28 @@ function applyDefaultOutputFromScan(root: HTMLElement, scan: AutoThreadScan): vo
   if (outputSelectionTouched || !scan.defaultOutput) return;
   if (root.querySelectorAll('.out-card').length > 0) return;
   selectOutputChip(root, scan.defaultOutput);
+}
+
+function wireReplyContextRefresh(root: HTMLElement): void {
+  const button = root.querySelector('#o8-reply-refresh') as HTMLButtonElement | null;
+  if (!button) return;
+  button.onclick = () => {
+    autoThreadScanSignature = '';
+    scheduleAutoThreadScan(root, 0, true);
+  };
+}
+
+function refreshButtonHtml(label = 'Re-read'): string {
+  return `<button id="o8-reply-refresh" type="button" aria-label="Re-read conversation" style="margin-left:auto;border:1px solid #cbd5e1;background:#fff;color:#0D6E6E;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;line-height:1;cursor:pointer;">${esc(label)}</button>`;
+}
+
+function replyContextPreview(scan: AutoThreadScan): string {
+  const header = truncateReplyContext(scan.threadContext.header_text || scan.customerName || '');
+  const last = truncateReplyContext(scan.threadContext.last_inbound_text || scan.threadContext.raw_text || '');
+  if (scan.platform === 'linkedin' && header && last && !last.toLowerCase().startsWith(header.toLowerCase())) {
+    return `${header}: ${last}`;
+  }
+  return last || header || 'Conversation scanned';
 }
 
 function renderAutoThreadScan(root: HTMLElement): void {
@@ -1051,27 +1090,41 @@ function renderAutoThreadScan(root: HTMLElement): void {
   el.className = `reply-context reply-context-${autoThreadScanStatus}`;
 
   if (autoThreadScanStatus === 'scanning') {
-    el.innerHTML = '<span class="reply-context-dot"></span><span>Reading conversation...</span>';
+    el.innerHTML = `<span class="reply-context-dot"></span><span>Reading conversation...</span>${refreshButtonHtml()}`;
+    wireReplyContextRefresh(root);
+    return;
+  }
+
+  if (autoThreadScanStatus === 'blocked' && autoThreadScan) {
+    const message = autoThreadScan.blockedReason || autoThreadScan.threadContext.blocked_reason || 'This conversation cannot be used as context.';
+    el.innerHTML = `
+      <span class="reply-context-label">Blocked:</span>
+      <span class="reply-context-text">${esc(message)}</span>
+      ${refreshButtonHtml()}
+    `;
+    wireReplyContextRefresh(root);
     return;
   }
 
   if (autoThreadScanStatus === 'ready' && autoThreadScan) {
     if (firstUse) firstUse.style.display = 'none';
-    const last = truncateReplyContext(autoThreadScan.threadContext.last_inbound_text || autoThreadScan.threadContext.raw_text);
-    const fallback = truncateReplyContext(autoThreadScan.threadContext.header_text || 'Conversation scanned');
+    const preview = replyContextPreview(autoThreadScan);
     const surface = getDisplayLabel(autoThreadScan.platform || currentPlatform.platform);
     el.innerHTML = `
       <span class="reply-context-label">Replying to:</span>
-      <span class="reply-context-text">${esc(last || fallback || 'Conversation scanned')}</span>
+      <span class="reply-context-text">${esc(preview)}</span>
       ${surface ? `<span class="reply-context-surface">${esc(surface)}</span>` : ''}
+      ${refreshButtonHtml()}
     `;
+    wireReplyContextRefresh(root);
     return;
   }
 
   const message = currentPlatform.platform === 'unknown'
     ? 'Open a supported conversation or type context below.'
     : 'Could not read this page. Type context below.';
-  el.innerHTML = `<span class="reply-context-label">Manual context:</span><span class="reply-context-text">${esc(message)}</span>`;
+  el.innerHTML = `<span class="reply-context-label">Manual context:</span><span class="reply-context-text">${esc(message)}</span>${refreshButtonHtml()}`;
+  wireReplyContextRefresh(root);
 }
 
 async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<AutoThreadScan | null> {
@@ -1096,15 +1149,17 @@ async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<
     const scan = autoThreadScanFromResponse(ctx, source);
     if (scan) {
       autoThreadScan = scan;
-      autoThreadScanStatus = 'ready';
+      autoThreadScanStatus = scan.blockedReason || scan.threadContext.is_blocked_context ? 'blocked' : 'ready';
       autoThreadScanUrl = currentPlatform.url || '';
-      applyDefaultOutputFromScan(root, scan);
+      autoThreadScanSignature = scan.threadContext.conversation_key || currentThreadSignature();
+      if (autoThreadScanStatus === 'ready') applyDefaultOutputFromScan(root, scan);
       renderAutoThreadScan(root);
-      return scan;
+      return autoThreadScanStatus === 'ready' ? scan : null;
     }
     autoThreadScan = null;
     autoThreadScanStatus = 'fallback';
     autoThreadScanUrl = currentPlatform.url || '';
+    autoThreadScanSignature = currentThreadSignature();
     renderAutoThreadScan(root);
     return null;
   } catch {
@@ -1112,6 +1167,7 @@ async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<
     autoThreadScan = null;
     autoThreadScanStatus = 'error';
     autoThreadScanUrl = currentPlatform.url || '';
+    autoThreadScanSignature = currentThreadSignature();
     renderAutoThreadScan(root);
     return null;
   }
@@ -1128,9 +1184,26 @@ function scheduleAutoThreadScan(root: HTMLElement, delayMs = 150, force = false)
   }, delayMs);
 }
 
+function startLinkedInThreadObserver(root: HTMLElement): void {
+  if (currentPlatform.platform !== 'linkedin') return;
+  if (autoThreadPollTimer) return;
+  autoThreadPollTimer = window.setInterval(async () => {
+    await refreshPlatform().catch(() => {});
+    const panelRoot = document.getElementById('sp-root');
+    if (currentPlatform.platform !== 'linkedin' || !panelRoot || panelRoot.style.display === 'none') {
+      if (autoThreadPollTimer) window.clearInterval(autoThreadPollTimer);
+      autoThreadPollTimer = null;
+      return;
+    }
+    if (isGenerating || autoThreadScanStatus === 'scanning') return;
+    scheduleAutoThreadScan(root, 0, true);
+  }, 1200);
+}
+
 function startAutoThreadScan(root: HTMLElement): void {
   renderAutoThreadScan(root);
   scheduleAutoThreadScan(root, 175);
+  startLinkedInThreadObserver(root);
   if (autoThreadScanListenersAttached) return;
   autoThreadScanListenersAttached = true;
   window.addEventListener('focus', () => {
@@ -1917,7 +1990,66 @@ async function ensureGenerationAllowed(root: HTMLElement): Promise<boolean> {
     showToast(root, 'Update Brevmont to keep writing follow-ups.');
     return false;
   }
+  try {
+    const resp: any = await chrome.runtime.sendMessage({ type: 'SYNC_AUTH_FROM_COOKIE' });
+    if (resp?.configured) {
+      await renderAccountChip().catch(() => {});
+    }
+  } catch { /* best-effort proactive account sync */ }
+  if (!(await hasStoredSession())) {
+    await showSessionEndedState(root);
+    return false;
+  }
   return true;
+}
+
+function isSessionEndedError(error: unknown): boolean {
+  const message = String((error as any)?.message || error || '').toLowerCase();
+  return /rep_identity_mismatch|identity mismatch|session.*ended|access expired|needs to be refreshed|not activated|no license key|invalid_rep_token|rep_token_expired|rep_token_revoked/.test(message);
+}
+
+async function currentStoredIdentityLabel(): Promise<string> {
+  try {
+    const [local, sync] = await Promise.all([
+      chrome.storage.local.get(['rep_email', 'brevmont_rep_email', 'rep_name']),
+      chrome.storage.sync.get(['rep_email', 'rep_name']),
+    ]);
+    return String(local.rep_email || local.brevmont_rep_email || sync.rep_email || local.rep_name || sync.rep_name || 'this account').trim();
+  } catch {
+    return 'this account';
+  }
+}
+
+async function reconnectFromSessionEnded(root: HTMLElement): Promise<void> {
+  try { await clearCredentialsForReconnect(); } catch { /* noop */ }
+  try { await chrome.runtime.sendMessage({ type: 'SIGN_OUT_TEARDOWN' }); } catch { /* noop */ }
+  try { openAuthExtensionTab(); } catch { /* noop */ }
+  renderSignedOutScreen();
+}
+
+async function showSessionEndedState(root: HTMLElement, error?: unknown): Promise<void> {
+  const outputs = root.querySelector('#o8-outputs') as HTMLElement | null;
+  if (!outputs) return;
+  const identity = await currentStoredIdentityLabel();
+  const details = String((error as any)?.message || error || '').trim();
+  outputs.innerHTML = `
+    <div class="out-card out-card-error">
+      <div class="out-label">Session ended</div>
+      <div class="out-error-copy">Signed in as ${esc(identity)}, this session ended. Sign in again.</div>
+      ${details && !/rep_identity_mismatch/i.test(details) ? `<div class="out-error-copy" style="margin-top:8px;color:#64748b;">${esc(details)}</div>` : ''}
+      <div class="out-actions">
+        <button class="out-action out-regen" id="o8-session-signin" type="button">Sign in again</button>
+      </div>
+    </div>
+  `;
+  const button = outputs.querySelector('#o8-session-signin') as HTMLButtonElement | null;
+  if (button) {
+    button.onclick = () => {
+      button.disabled = true;
+      button.textContent = 'Opening sign-in';
+      void reconnectFromSessionEnded(root);
+    };
+  }
 }
 
 // ─── Build panel DOM ─────────────────────────────────────────────────────────
@@ -3533,6 +3665,12 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   if (currentPlatform.platform !== 'unknown') {
     scan = await scanThreadForGenerate(root, true);
   }
+  if (autoThreadScanStatus === 'blocked') {
+    isGenerating = false;
+    renderAutoThreadScan(root);
+    showToast(root, autoThreadScan?.blockedReason || 'Open a customer conversation first.');
+    return;
+  }
   if (!scan) scan = getUsableAutoThreadScan();
   if (!scan && !input) {
     scan = await scanVisibleTextFallback(root);
@@ -3547,6 +3685,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   const selectedType = normalizeDefaultOutputChip(Array.from(chips)[0]?.getAttribute('data-type')) || 'text';
   if (chips.length === 0) { isGenerating = false; return; }
 
+  // /v1/generate records one generation.created event for the one paid request.
   const type = 'all';
   const btn = root.querySelector('#o8-generate') as HTMLButtonElement;
   btn.innerHTML = '<span class="gen-spinner"></span> Generating…';
@@ -3656,7 +3795,8 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     } else if (response?.hold || response?.error === 'grounding_hold') {
       showGenerationHold(root, response);
     } else if (response?.error) {
-      showGenerationError(root, GENERATION_FAILURE_MESSAGE);
+      if (isSessionEndedError(response.error)) await showSessionEndedState(root, response.error);
+      else showGenerationError(root, GENERATION_FAILURE_MESSAGE);
     } else {
       removeStreamingOutput(root, _generationId);
       const sec = response.sections;
@@ -3676,7 +3816,8 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       await recordSuccessfulGeneration(root);
     }
   } catch (_e: any) {
-    showGenerationError(root, GENERATION_FAILURE_MESSAGE);
+    if (isSessionEndedError(_e)) await showSessionEndedState(root, _e);
+    else showGenerationError(root, GENERATION_FAILURE_MESSAGE);
   } finally {
     removeStreamingOutput(root, _generationId);
     btn.innerHTML = 'Generate';

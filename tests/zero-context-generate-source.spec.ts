@@ -56,6 +56,42 @@ test('manual Generate protects direct vehicle-condition questions from generic f
   expect(background).toContain('sections.text = financeFallbackReply(latestInbound)');
 });
 
+test('manual Generate makes rep steer dominant over scanned context and templates', () => {
+  const background = read('entrypoints/background.ts');
+  expect(background).toContain('REP STEER - HIGHEST PRIORITY');
+  expect(background).toContain('If this conflicts with the scanned thread, CRM context, template defaults');
+  expect(background).toContain('This steer is a decline/no-interest instruction');
+  expect(background).toContain('function isDeclineOrNoInterestSteer');
+  expect(background).toContain('function applyRepSteerDominanceRepair');
+  expect(background).toContain('sections.text = minimalDeclineTextFromSteer()');
+  expect(background).toContain('Never let this template override the rep steer');
+  expect(background).not.toContain('REP STEER / OPTIONAL DIRECTION');
+});
+
+test('LinkedIn scans refresh through SPA switches and block ad threads', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  const linkedin = read('entrypoints/lib/platforms/linkedin.ts');
+  expect(source).toContain('let autoThreadPollTimer');
+  expect(source).toContain('startLinkedInThreadObserver(root)');
+  expect(source).toContain('scheduleAutoThreadScan(root, 0, true)');
+  expect(source).toContain('id="o8-reply-refresh"');
+  expect(source).toContain("autoThreadScanStatus === 'blocked'");
+  expect(source).toContain('Open a customer conversation first.');
+  expect(linkedin).toContain('function isSponsoredOrAdThread');
+  expect(linkedin).toContain('This is an ad - open a customer conversation.');
+  expect(linkedin).toContain('is_blocked_context: true');
+});
+
+test('session mismatch shows a clear reconnect state instead of generic generation failure', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(source).toContain('function isSessionEndedError');
+  expect(source).toContain('function showSessionEndedState');
+  expect(source).toContain('Signed in as ${esc(identity)}, this session ended. Sign in again.');
+  expect(source).toContain('id="o8-session-signin"');
+  expect(source).toContain("chrome.runtime.sendMessage({ type: 'SYNC_AUTH_FROM_COOKIE' })");
+  expect(source).toContain('if (isSessionEndedError(_e)) await showSessionEndedState(root, _e);');
+});
+
 test('output chips are exclusive mode selectors before generation', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   const ui = read('entrypoints/lib/panelUI.ts');
@@ -565,12 +601,12 @@ test('auto-scan keeps the textbox as optional steer and preserves honest fallbac
   expect(css).toContain('.reply-context-fallback');
 });
 
-test('background prompt uses scanned thread as primary context plus optional rep steer', () => {
+test('background prompt uses scanned thread as context with dominant rep steer', () => {
   const source = read('entrypoints/background.ts');
   expect(source).toContain('SCANNED THREAD CONTEXT');
   expect(source).toContain('LAST CUSTOMER MESSAGE');
-  expect(source).toContain('REP STEER / OPTIONAL DIRECTION');
-  expect(source).toContain('Use the scanned thread as the primary source of truth');
+  expect(source).toContain('REP STEER - HIGHEST PRIORITY');
+  expect(source).toContain('Use the scanned thread as context for facts only');
   expect(source).toContain('systemHints?: { noVehicleDetected?: boolean }');
 });
 

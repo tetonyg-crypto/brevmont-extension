@@ -10,7 +10,7 @@
  * and get uniform safety.
  */
 
-import { isChannelOrUiName, stripConversationWrapper } from '../leadContextScan';
+import { cleanCustomerNameCandidate, isChannelOrUiName } from '../leadContextScan';
 import type { CustomerCandidate } from './types';
 
 /** Cross-platform post-inject verification.
@@ -69,7 +69,7 @@ export function pickCleanName(candidates: Array<CustomerCandidate | null | undef
   const valid: CustomerCandidate[] = [];
   for (const c of candidates) {
     if (!c || !c.name) continue;
-    const trimmed = stripConversationWrapper(c.name);
+    const trimmed = cleanCustomerNameCandidate(c.name);
     if (!trimmed) continue;
     if (isChannelOrUiName(trimmed)) continue;
     valid.push({ ...c, name: trimmed });

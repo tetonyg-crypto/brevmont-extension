@@ -117,4 +117,14 @@ test.describe('isChannelOrUiName — regression coverage', () => {
     expect(cleanCustomerNameCandidate('Archive · 2021 GMC sierra 1500 denali')).toBe('');
     expect(cleanCustomerNameCandidate('Brevmont Labs · 2025 Subaru Ascent')).toBe('');
   });
+
+  test('cleans LinkedIn status and timestamp pollution out of real names', () => {
+    expect(cleanCustomerNameCandidate('Chris Hogan Status Is Reachable Mobile · 16h Ago')).toBe('Chris Hogan');
+    expect(cleanCustomerNameCandidate('Maria Lopez · active now')).toBe('Maria Lopez');
+    expect(cleanCustomerNameCandidate('Jordan Smith Mobile · 2h ago')).toBe('Jordan Smith');
+    expect(cleanCustomerNameCandidate('Pat Reeves | Gmail')).toBe('Pat Reeves');
+    expect(cleanCustomerNameCandidate('Robert · 2021 Jeep Grand Cherokee')).toBe('Robert');
+    expect(isChannelOrUiName('Status Is Reachable')).toBe(true);
+    expect(isChannelOrUiName('Mobile')).toBe(true);
+  });
 });

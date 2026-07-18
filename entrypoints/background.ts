@@ -3045,6 +3045,7 @@ async function handleGenerate(payload: {
     if (isFinanceQuestionText(latestInbound) && sections?.text && looksLikeGenericFollowupForDirectQuestion(sections.text, latestInbound)) {
       sections.text = financeFallbackReply(latestInbound);
     }
+    applyRepSteerDominanceRepair(sections, payload);
     return { text: result.text, sections, guard_metrics: result.guard_metrics || null };
   } catch (err: any) {
     const m = String(err?.message || err);
@@ -3759,6 +3760,48 @@ function financeFallbackReply(latestInbound: unknown): string {
   return "A 600 score and money down can be workable, but I do not want to guess at payments over text. We would need to run the credit application and structure the deal to give you real numbers. Can you come by today or tomorrow?";
 }
 
+function isDeclineOrNoInterestSteer(value: unknown): boolean {
+  const text = String(value || '').toLowerCase();
+  if (!text) return false;
+  return /\b(?:tell\s+(?:him|her|them|the customer|the lead)\s+)?(?:no|no thanks|not interested|not looking|pass(?:ing)?|decline|turn (?:it|them) down|do not want|don't want|dont want|stop pursuing|leave (?:me|us) alone)\b/.test(text);
+}
+
+function repSteerDominanceBlock(repSteer: string): string {
+  if (!repSteer) return '';
+  const lines = [
+    'REP STEER - HIGHEST PRIORITY:',
+    repSteer,
+    'If this conflicts with the scanned thread, CRM context, template defaults, or normal appointment/availability language, obey the rep steer.',
+    'If the context is missing, stale, polluted, or garbage, still honor the rep steer with the simplest accurate message.',
+  ];
+  if (isDeclineOrNoInterestSteer(repSteer)) {
+    lines.push('This steer is a decline/no-interest instruction. Write a concise decline. Do not pivot into availability, appointment setting, vehicle follow-up, or "still interested" language. Do not end with a question unless the steer explicitly asks for one.');
+  }
+  return `${lines.join('\n')}\n\n`;
+}
+
+function minimalDeclineTextFromSteer(): string {
+  return "Thanks for reaching out, but I'm not interested.";
+}
+
+function minimalDeclineEmailFromSteer(repName?: string): string {
+  const signature = String(repName || '').trim();
+  return [
+    'Subject: Passing for now',
+    '',
+    "Thanks for reaching out, but I'm not interested.",
+    signature,
+  ].filter((line, index, arr) => line || index < arr.length - 1).join('\n');
+}
+
+function applyRepSteerDominanceRepair(sections: any, payload: any): void {
+  const repSteer = cleanRepSteer(payload?.repInput);
+  if (!sections || !isDeclineOrNoInterestSteer(repSteer)) return;
+  sections.text = minimalDeclineTextFromSteer();
+  if (sections.email) sections.email = minimalDeclineEmailFromSteer(payload?.repName);
+  if (sections.crm) sections.crm = 'Rep steer: decline / not interested. No follow-up requested unless the rep changes direction.';
+}
+
 function buildUserMessage(payload: any, repName: string, dealership: string, repContext: string = ''): string {
   const lc = payload.leadContext || {};
   const thread = payload.threadContext || payload.thread_context || null;
@@ -3776,6 +3819,7 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
   if (repContext) {
     msg += repContext + '\n';
   }
+  msg += repSteerDominanceBlock(repSteer);
 
   if (lc.customerName || lc.vehicle) {
     msg += 'LEAD CONTEXT (from CRM):\n';
@@ -3805,7 +3849,7 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
     if (thread?.conversation_key) msg += `Conversation key: ${thread.conversation_key}\n`;
     const history = threadMessages || rawThread;
     if (history) msg += `Visible history:\n${history}\n`;
-    msg += 'Use the scanned thread as the primary source of truth. Answer the latest customer message directly, keep the customer name clean, and do not invent vehicle specs, prices, availability, or financing terms not present in the vehicle/dealership context.\n\n';
+    msg += 'Use the scanned thread as context for facts only. Rep steer above overrides the scanned thread, CRM context, and output template. Answer the latest customer message directly unless the rep steer gives a different explicit intent. Keep the customer name clean, and do not invent vehicle specs, prices, availability, or financing terms not present in the vehicle/dealership context.\n\n';
     msg += directVehicleConditionInstruction(lastInbound);
     msg += directFinanceInstruction(lastInbound);
   }
@@ -3816,17 +3860,17 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
 
   if (payload.type === 'all') {
     if (hasThreadContext) {
-      msg += `REP STEER / OPTIONAL DIRECTION:\n${repSteer || 'No extra direction. Use the scanned thread.'}\n\n`;
+      msg += `REP STEER CONFIRMATION:\n${repSteer || 'No extra direction. Use the scanned thread.'}\n\n`;
     } else {
       msg += `REP VOICE/TYPED INPUT:\n${repSteer || payload.repInput || ''}\n\n`;
     }
     msg += 'Generate ALL THREE follow-ups. You MUST produce all three sections, each starting with its exact fence marker on its own line:\n';
-    msg += '[[[TEXT]]]\n(2-3 sentences max, no exclamation points, end with a question)\n\n';
+    msg += '[[[TEXT]]]\n(2-3 sentences max, no exclamation points, end with a question unless the rep steer is a decline/no-interest instruction)\n\n';
     msg += '[[[EMAIL]]]\n(subject + 3-4 sentence body + signature)\n\n';
     msg += '[[[CRM NOTE]]]\n(plain text: date, contact type, summary, vehicle, intent, action, next step, notes)\n\n';
-    msg += 'The fence markers [[[TEXT]]], [[[EMAIL]]], and [[[CRM NOTE]]] must appear literally and exactly as shown, each alone on its own line, before its section. Do not skip any section. Do not merge sections into one paragraph.\n';
+    msg += 'The fence markers [[[TEXT]]], [[[EMAIL]]], and [[[CRM NOTE]]] must appear literally and exactly as shown, each alone on its own line, before its section. Do not skip any section. Do not merge sections into one paragraph. Never let this template override the rep steer.\n';
   } else if (payload.type === 'text') {
-    msg += `Generate a TEXT MESSAGE. CRITICAL: 2-3 sentences MAXIMUM. No more. End with one question. No exclamation points. No filler.\n`;
+    msg += `Generate a TEXT MESSAGE. CRITICAL: 2-3 sentences MAXIMUM. No more. End with one question unless the rep steer is a decline/no-interest instruction. No exclamation points. No filler. Never let this template override the rep steer.\n`;
     if (hasThreadContext && repSteer) msg += `Rep steer: ${repSteer}\n`;
     else if (!hasThreadContext && repSteer) msg += `Context: ${repSteer}\n`;
   } else if (payload.type === 'email') {

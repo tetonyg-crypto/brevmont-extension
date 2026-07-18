@@ -58,6 +58,9 @@ export interface ThreadContext {
   last_inbound_text: string;
   /** Header/subject line if the surface has one (e.g. Gmail subject, Marketplace listing title). */
   header_text: string;
+  /** Refusal shown by the panel when this visible surface is not a real customer conversation. */
+  blocked_reason?: string | null;
+  is_blocked_context?: boolean | null;
   /** Full URL of the surface. */
   url: string;
   scanned_at?: number;
