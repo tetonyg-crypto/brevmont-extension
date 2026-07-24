@@ -42,6 +42,15 @@ const API_ROOT = IS_WINDOWS
   : join(HOME, 'Projects', 'brevmont-api');
 const API_PUBLIC_ZIP = join(API_ROOT, 'public', 'brevmont-extension-latest.zip');
 const API_PUBLIC_MANIFEST = join(API_ROOT, 'public', 'brevmont-extension-manifest.json');
+// Self-hosted update channel (policy-managed installs). Chrome pulls the
+// signed CRX straight from the API, so an internal ship reaches installed
+// machines with no Chrome Web Store involvement. The product version stays
+// pinned; the 4th segment is the channel build counter Chrome compares.
+const API_PUBLIC_CRX = join(API_ROOT, 'public', 'brevmont-extension.crx');
+const API_PUBLIC_UPDATE_XML = join(API_ROOT, 'public', 'brevmont-extension-update.xml');
+const CRX_CHANNEL_ID = 'nfjpfhmboehhcplpgepcoeblbfpmdkji';
+const CRX_KEY_PATH = join(HOME, 'Projects', 'brevmont-vault', 'infrastructure', 'secrets', 'extension-keypair.pem');
+const CHROME_BIN = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const FORCE = process.argv.includes('--force');
 const VERIFY_LIVE = process.argv.includes('--verify-live') || process.env.VERIFY_LIVE_EXTENSION === '1';
 let versionGateChecked = false;
@@ -275,12 +284,61 @@ if (IS_WINDOWS) {
 log('5/6', `Writing manifest -> ${MANIFEST_PATH}`);
 const buildManifest = writeBuildManifest();
 
+function publishCrxChannel() {
+  if (IS_WINDOWS || !existsSync(CRX_KEY_PATH) || !existsSync(CHROME_BIN)) {
+    console.log('\n[ship] CRX channel skipped (needs macOS Chrome + vault signing key).');
+    return;
+  }
+  log('7/7', 'Packing signed CRX for the self-hosted update channel');
+  const stage = resolve(REPO_ROOT, '.output/crx-stage');
+  rmSync(stage, { recursive: true, force: true });
+  cpSync(BUILD_DIR, stage, { recursive: true });
+
+  // Chrome only updates when the version string increases, while the product
+  // version stays pinned to the CWS-matching number. A 4th segment carries
+  // the channel build counter.
+  let counter = 1;
+  try {
+    const xml = existsSync(API_PUBLIC_UPDATE_XML) ? readFileSync(API_PUBLIC_UPDATE_XML, 'utf8') : '';
+    const m = xml.match(/<updatecheck[^>]*version='([\d.]+)'/);
+    if (m) {
+      const parts = m[1].split('.');
+      if (parts.slice(0, 3).join('.') === VERSION) counter = Number(parts[3] || 0) + 1;
+    }
+  } catch { /* first publish */ }
+  const channelVersion = `${VERSION}.${counter}`;
+
+  const stageManifestPath = join(stage, 'manifest.json');
+  const stageManifest = JSON.parse(readFileSync(stageManifestPath, 'utf8'));
+  stageManifest.version = channelVersion;
+  stageManifest.update_url = 'https://api.brevmont.com/api/extension-update.xml';
+  writeFileSync(stageManifestPath, JSON.stringify(stageManifest, null, 2));
+
+  rmSync(`${stage}.crx`, { force: true });
+  run(`"${CHROME_BIN}"`, ['--no-sandbox', `--pack-extension="${stage}"`, `--pack-extension-key="${CRX_KEY_PATH}"`]);
+  if (!existsSync(`${stage}.crx`)) {
+    console.error('[ship] FAILED: Chrome did not produce a CRX');
+    process.exit(1);
+  }
+  cpSync(`${stage}.crx`, API_PUBLIC_CRX);
+  writeFileSync(API_PUBLIC_UPDATE_XML, `<?xml version='1.0' encoding='UTF-8'?>
+<gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>
+  <app appid='${CRX_CHANNEL_ID}'>
+    <updatecheck codebase='https://api.brevmont.com/api/extension-crx' version='${channelVersion}' />
+  </app>
+</gupdate>
+`);
+  console.log(`[ship] CRX channel published: ${channelVersion} -> ${API_PUBLIC_CRX}`);
+}
+
 log('6/6', `Copying ZIP + manifest -> ${join(API_ROOT, 'public')}`);
 assertApiTarget();
 assertVersionCanShip(buildManifest);
 cpSync(ZIP_PATH, API_PUBLIC_ZIP);
 cpSync(MANIFEST_PATH, API_PUBLIC_MANIFEST);
 verifyLiveManifest(buildManifest);
+
+publishCrxChannel();
 
 console.log(`\n[ship] DONE. v${VERSION} is live at:
   Desktop folder: ${DESKTOP_VERSIONED_FOLDER}
