@@ -117,6 +117,15 @@ let isGenerating = false;
 let challengePollTimer: number | null = null;
 let pinnedCustomer: PinnedCustomer | null = null;
 let pendingCustomerSuggestion: any = null;
+/**
+ * Answers to the "This for <name>?" chip, keyed by the detected thread
+ * fingerprint and scoped to this tab session. Without this the 3s detection
+ * tick re-set pendingCustomerSuggestion and the chip popped straight back after
+ * the rep tapped No. An answered thread never re-prompts; the chip only returns
+ * when the detected thread genuinely changes (new fingerprint). Navigating away
+ * and back to the same thread keeps the answer because the key is the same.
+ */
+const answeredCustomerDetections = new Map<string, 'yes' | 'no'>();
 let customerPickerOpen = false;
 let customerDetectionTimer: number | null = null;
 let customerDetectionUrl = '';
@@ -1432,7 +1441,11 @@ function renderCustomerStamp(root: HTMLElement): void {
         </div>
       </div>
     `;
+    // Key the answer to the thread that is on screen right now, so the 3s
+    // detection tick cannot re-ask it.
+    const answerKey = customerDetectionFingerprint || getContextFingerprint(pendingCustomerSuggestion) || '';
     stamp.querySelector('#o8-customer-yes')?.addEventListener('click', async () => {
+      if (answerKey) answeredCustomerDetections.set(answerKey, 'yes');
       const resolved = await resolveCustomerForDetection(pendingCustomerSuggestion);
       if (resolved) {
         pinCustomer(root, { ...resolved, detectionMethod: 'one_tap' });
@@ -1442,6 +1455,7 @@ function renderCustomerStamp(root: HTMLElement): void {
       }
     });
     stamp.querySelector('#o8-customer-no')?.addEventListener('click', () => {
+      if (answerKey) answeredCustomerDetections.set(answerKey, 'no');
       pendingCustomerSuggestion = null;
       renderCustomerStamp(root);
     });
@@ -1774,6 +1788,13 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
     return;
   }
 
+  // The rep already answered the chip for this exact detected thread. Honor it:
+  // No means never re-ask (and never silently auto-pin over their answer) while
+  // the detection stays on this thread. A genuinely different thread yields a
+  // different fingerprint, so the chip returns there as intended.
+  const priorAnswer = fingerprint ? answeredCustomerDetections.get(fingerprint) : undefined;
+  if (priorAnswer === 'no') return;
+
   if (confidence >= 0.8) {
     const resolved = await resolveCustomerForDetection(ctx);
     if (resolved) {
@@ -1783,6 +1804,7 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
   }
 
   if (!pinnedCustomer && confidence >= 0.5) {
+    if (priorAnswer) return;
     pendingCustomerSuggestion = ctx;
     renderCustomerStamp(root);
   }
