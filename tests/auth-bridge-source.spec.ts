@@ -34,9 +34,23 @@ test('auth trace payloads stamp runtime extension version', () => {
   expect(source).toContain('ext_version: extensionVersion()');
 });
 
-test('sidepanel checks public extension version endpoint for stale-build banner', () => {
-  const source = readFileSync(resolve(process.cwd(), 'entrypoints/sidepanel/main.ts'), 'utf8');
-  expect(source).toContain('https://api.brevmont.com/api/extension/version?current_version=');
-  expect(source).toContain('Update available: reload the extension');
-  expect(source).toContain('refreshVersionStatusFromApi');
+test('extension never surfaces versions to a user: no update banner, no version gate', () => {
+  // Founder standing order (2026-07-23): the extension must never mention a
+  // version, prompt for an update, or block on a version mismatch. These
+  // assertions keep every known banner/gate path from coming back.
+  const sidepanel = readFileSync(resolve(process.cwd(), 'entrypoints/sidepanel/main.ts'), 'utf8');
+  const content = readFileSync(resolve(process.cwd(), 'entrypoints/content.ts'), 'utf8');
+  const background = readFileSync(resolve(process.cwd(), 'entrypoints/background.ts'), 'utf8');
+  for (const source of [sidepanel, content, background]) {
+    expect(source).not.toContain('brevmont_version_status');
+    expect(source).not.toContain('Update available');
+    expect(source).not.toContain('update-available');
+  }
+  expect(sidepanel).not.toContain('/api/extension/version');
+  expect(sidepanel).not.toContain('refreshVersionStatusFromApi');
+  expect(sidepanel).not.toContain('ensureGenerationAllowed');
+  expect(content).not.toContain('brevmont-version-lock');
+  expect(background).not.toContain('checkVersionStatus');
+  expect(background).not.toContain('brevmont-version-check');
+  expect(background).not.toContain('/v1/heartbeat/version');
 });

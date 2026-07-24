@@ -102,18 +102,6 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .review-title { color:#0F1419; font-size:12px; font-weight:700; line-height:1.35; }
 .review-link { margin-top:6px; border:0; background:#0D6E6E; color:white; border-radius:6px; padding:7px 10px; font:700 11px Inter,system-ui,sans-serif; cursor:pointer; }
 .review-dismiss { position:absolute; top:6px; right:8px; border:0; background:transparent; color:#64748b; font-size:18px; cursor:pointer; line-height:1; }
-.version-update-banner { position:relative; margin:8px 12px 0; padding:10px 11px; border:1px solid #D6E4E4; border-radius:9px; background:#F0FAFA; color:#0F1419; font-size:12px; line-height:1.4; }
-.version-update-banner.force { border-color:#FCA5A5; background:#FEF2F2; }
-.version-update-close { position:absolute; top:6px; right:8px; border:0; background:transparent; color:#64748B; cursor:pointer; font-size:15px; line-height:1; padding:2px 4px; }
-.version-update-close:hover { color:#0F1419; }
-.version-update-banner.force .version-update-close { display:none; }
-.version-update-title { font-size:11px; font-weight:800; color:#0D6E6E; text-transform:uppercase; letter-spacing:0.7px; margin-bottom:3px; }
-.version-update-banner.force .version-update-title { color:#991B1B; }
-.version-update-copy { color:#4B5563; margin-bottom:8px; }
-.version-update-btn { border:0; border-radius:7px; background:#0D6E6E; color:#fff; font-size:11px; font-weight:700; padding:7px 9px; cursor:pointer; font-family:inherit; }
-.version-update-btn:hover { background:#0A5555; }
-.version-update-banner.force .version-update-btn { background:#991B1B; }
-.version-update-banner.force .version-update-btn:hover { background:#7F1D1D; }
 .challenge-banner { margin:8px 12px 0; padding:10px 11px; border:1px solid #BAE6FD; border-radius:10px; background:#F0F9FF; color:#0F172A; font-size:12px; line-height:1.35; }
 .challenge-title { font-size:10px; font-weight:800; color:#0369A1; letter-spacing:.08em; text-transform:uppercase; margin-bottom:4px; display:flex; justify-content:space-between; gap:8px; }
 .challenge-close { border:0; background:transparent; color:#64748B; cursor:pointer; font-size:14px; line-height:1; padding:0; }

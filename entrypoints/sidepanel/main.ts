@@ -65,18 +65,6 @@ interface PlatformContext {
   url: string;
 }
 
-interface VersionStatus {
-  locked?: boolean;
-  deprecated?: boolean;
-  updateAvailable?: boolean;
-  updateRequired?: boolean;
-  forceUpdate?: boolean;
-  message?: string | null;
-  latest?: string | null;
-  currentVersion?: string | null;
-  downloadUrl?: string | null;
-}
-
 interface PinnedCustomer {
   id: string;
   name: string;
@@ -1012,6 +1000,35 @@ function leadContextFromAutoThreadScan(scan: AutoThreadScan | null): any {
   };
 }
 
+function leadContextFromSelectedLead(lead: any): any {
+  if (!lead) return {};
+  const name = optionalDisplayText(
+    lead.customer_name || [lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.name,
+  ) || null;
+  const vehicle = optionalDisplayText(lead.vehicle_interest || lead.vehicle_of_interest || lead.vehicle) || null;
+  const stage = lead.pipeline_stage || lead.stage || null;
+  return {
+    customerName: name,
+    customer_name: name,
+    name,
+    phone: lead.phone || null,
+    email: lead.email || null,
+    vehicle,
+    vehicleOfInterest: vehicle,
+    vehicle_interest: vehicle,
+    source: lead.source_platform || lead.source || null,
+    raw_text: lead.raw_text || lead.source_raw_text || null,
+    source_raw_text: lead.raw_text || lead.source_raw_text || null,
+    pipeline_stage: stage,
+    status: stage ? stageLabelMap(stage) : null,
+    customer_id: lead.customer_id || null,
+    detectionMethod: 'selected_lead',
+    detection_method: 'selected_lead',
+    detectionConfidence: 1,
+    detection_confidence: 1,
+  };
+}
+
 function getUsableAutoThreadScan(): AutoThreadScan | null {
   if (!autoThreadScan || autoThreadScanStatus !== 'ready') return null;
   if (autoThreadScanUrl && currentPlatform.url && autoThreadScanUrl !== currentPlatform.url) return null;
@@ -1038,6 +1055,24 @@ function renderAutoThreadScan(root: HTMLElement): void {
     input.placeholder = autoThreadScanStatus === 'ready'
       ? 'Optional: steer it, like "push for appointment"'
       : 'Type context or a direction when Brevmont cannot read the page';
+  }
+
+  // Explicit lead selection: generation runs from the lead card, so the chip
+  // must not claim we're replying to whatever thread happens to be open.
+  if ((root as any).__pendingLeadId) {
+    const pendingLead = (root as any).__pendingLead as any;
+    if (firstUse) firstUse.style.display = 'none';
+    el.style.display = 'block';
+    el.className = 'reply-context reply-context-ready';
+    const leadName = displayText(pendingLead?.customer_name, 'Selected lead');
+    const leadVehicle = optionalDisplayText(pendingLead?.vehicle_interest || pendingLead?.vehicle_of_interest || pendingLead?.vehicle);
+    const leadStage = stageLabelMap(pendingLead?.pipeline_stage || 'captured');
+    el.innerHTML = `
+      <span class="reply-context-label">Lead card:</span>
+      <span class="reply-context-text">${esc([leadName, leadVehicle].filter(Boolean).join(' — '))}</span>
+      <span class="reply-context-surface">${esc(leadStage)}</span>
+    `;
+    return;
   }
 
   if (autoThreadScanStatus === 'idle') {
@@ -1789,137 +1824,6 @@ async function contentForEmailOutput(raw: string): Promise<string> {
   return raw;
 }
 
-function normalizeVersionStatus(raw: unknown): VersionStatus | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const value = raw as VersionStatus & Record<string, unknown>;
-  const forceUpdate = Boolean(value.forceUpdate || value.locked);
-  const updateRequired = Boolean(value.updateRequired || value.update_required || value.required || value.deprecated || forceUpdate);
-  const updateAvailable = Boolean(value.updateAvailable || value.update_available || updateRequired || forceUpdate);
-  if (!updateAvailable && !updateRequired && !forceUpdate) return null;
-  const latest = String(value.latest || value.version || value.latestVersion || '').trim() || null;
-  const currentVersion = String(value.currentVersion || value.current_version || '').trim() || null;
-  // support_download_url (self-hosted, always current) takes priority over
-  // download_url -- the server may still point download_url at the real
-  // Chrome Web Store listing, which is deliberately frozen and never has
-  // the version this banner is telling someone to go get.
-  const downloadUrl = String(value.downloadUrl || value.support_download_url || value.download_url || '').trim();
-  const updateMessage = String(value.message || value.update_message || '').trim();
-  return {
-    ...value,
-    updateAvailable,
-    updateRequired,
-    forceUpdate,
-    latest,
-    currentVersion,
-    message: updateMessage || (forceUpdate ? 'Please update Brevmont to continue.' : `Update available: reload the extension${latest ? ` to v${latest}` : ''}.`),
-    downloadUrl: downloadUrl || 'https://api.brevmont.com/api/extension-download',
-  };
-}
-
-function currentExtensionVersion(): string {
-  try {
-    return chrome.runtime.getManifest().version || 'unknown';
-  } catch {
-    return 'unknown';
-  }
-}
-
-async function refreshVersionStatusFromApi(): Promise<VersionStatus | null> {
-  const currentVersion = currentExtensionVersion();
-  try {
-    const resp = await fetch(`https://api.brevmont.com/api/extension/version?current_version=${encodeURIComponent(currentVersion)}`, {
-      headers: { 'X-Extension-Version': currentVersion },
-    });
-    if (!resp.ok) return null;
-    const raw = await resp.json();
-    const normalized = normalizeVersionStatus({
-      ...raw,
-      currentVersion,
-      updateAvailable: Boolean(raw?.update_available),
-      updateRequired: Boolean(raw?.update_required || raw?.required),
-      forceUpdate: Boolean(raw?.force_update),
-      message: raw?.update_available
-        ? `Update available: reload the extension. Running v${currentVersion}, latest v${raw?.latest || raw?.version || 'current'}.`
-        : raw?.update_message,
-    });
-    await chrome.storage.local.set({
-      brevmont_version_status: normalized || {
-        updateAvailable: false,
-        updateRequired: false,
-        forceUpdate: false,
-        currentVersion,
-        latest: raw?.latest || raw?.version || null,
-      },
-    });
-    return normalized;
-  } catch {
-    return null;
-  }
-}
-
-async function getVersionStatus(refresh = true): Promise<VersionStatus | null> {
-  if (refresh) {
-    const live = await refreshVersionStatusFromApi();
-    if (live) return live;
-  }
-  const data = await chrome.storage.local.get('brevmont_version_status');
-  return normalizeVersionStatus(data.brevmont_version_status);
-}
-
-async function applyVersionStatus(root: HTMLElement): Promise<void> {
-  const existing = root.querySelector('#o8-version-update-banner');
-  if (existing) existing.remove();
-
-  const status = await getVersionStatus();
-  if (!status) return;
-
-  // Distribution is self-hosted, not real Chrome Web Store auto-update --
-  // nobody has a self-service way to act on "update available" (a
-  // sideloaded extension can't update itself from a downloaded zip, and
-  // this repo's convention is to ship fixes under the CWS-matching version
-  // number rather than bumping it, so this should rarely even fire).
-  // Removed entirely 2026-07-09 after it kept firing on stale cached
-  // status and got flatly rejected: "remove this bullshit and stop doing
-  // this shit." A genuine forceUpdate (deprecated/broken build) is the
-  // only thing that still shows -- that blocks generation outright via the
-  // hard-lock overlay, not a dismissible nag, and is a real operational
-  // necessity rather than a routine version ping.
-  if (!status.forceUpdate) return;
-
-  const banner = document.createElement('div');
-  banner.id = 'o8-version-update-banner';
-  banner.className = 'version-update-banner force';
-  banner.innerHTML = `
-    <div class="version-update-title">Update required</div>
-    <div class="version-update-copy">${esc(status.message || '')}</div>
-    <button id="o8-version-download" class="version-update-btn" type="button">Download latest${status.latest ? ` v${esc(String(status.latest))}` : ''}</button>
-  `;
-
-  const header = root.querySelector('.header');
-  if (header) header.insertAdjacentElement('afterend', banner);
-  else root.prepend(banner);
-
-  const download = banner.querySelector('#o8-version-download') as HTMLButtonElement | null;
-  if (download) {
-    download.onclick = () => chrome.tabs.create({ url: status.downloadUrl || 'https://api.brevmont.com/api/extension-download' });
-  }
-
-  root.querySelectorAll<HTMLButtonElement>('#o8-generate,#o8-coach-btn,#o8-cmd-execute,#o8-ctx-generate').forEach((button) => {
-    button.disabled = true;
-    button.title = 'Update Brevmont to keep writing follow-ups.';
-  });
-}
-
-async function ensureGenerationAllowed(root: HTMLElement): Promise<boolean> {
-  const status = await getVersionStatus();
-  if (status?.forceUpdate) {
-    await applyVersionStatus(root);
-    showToast(root, 'Update Brevmont to keep writing follow-ups.');
-    return false;
-  }
-  return true;
-}
-
 // ─── Build panel DOM ─────────────────────────────────────────────────────────
 function setDisplay(root: HTMLElement, selector: string, visible: boolean): void {
   const node = root.querySelector(selector) as HTMLElement | null;
@@ -2146,7 +2050,6 @@ async function renderPanel(): Promise<void> {
   applyFirstUseGuide(root);
   applyFeatureGates(root);
   showAccessEndedBanner(root);
-  applyVersionStatus(root).catch(() => {});
   startChallengePolling(root);
   renderMyLeads(root).catch(() => {});
   renderAccountChip().catch(() => {});
@@ -3524,24 +3427,31 @@ function removeStreamingOutput(root: HTMLElement, generationId?: string): void {
 }
 
 async function doGenerate(root: HTMLElement): Promise<void> {
-  if (!(await ensureGenerationAllowed(root))) return;
   if (isGenerating) return;
   isGenerating = true;
 
   const input = (root.querySelector('#o8-input') as HTMLTextAreaElement)?.value.trim() || '';
+  // Explicit lead selection is the single source of truth: when a lead was
+  // picked from My Leads / a lead card, the open tab is never scanned and
+  // scanner context never reaches the payload — otherwise a different
+  // customer's open thread wins and the draft greets the wrong person.
+  const selectedLeadId: string | null = (root as any).__pendingLeadId || null;
+  const selectedLead: any = selectedLeadId ? (root as any).__pendingLead || null : null;
   let scan: AutoThreadScan | null = null;
-  if (currentPlatform.platform !== 'unknown') {
-    scan = await scanThreadForGenerate(root, true);
-  }
-  if (!scan) scan = getUsableAutoThreadScan();
-  if (!scan && !input) {
-    scan = await scanVisibleTextFallback(root);
-  }
-  if (!scan && !input) {
-    isGenerating = false;
-    renderAutoThreadScan(root);
-    showToast(root, 'Type context or open a supported conversation first.');
-    return;
+  if (!selectedLeadId) {
+    if (currentPlatform.platform !== 'unknown') {
+      scan = await scanThreadForGenerate(root, true);
+    }
+    if (!scan) scan = getUsableAutoThreadScan();
+    if (!scan && !input) {
+      scan = await scanVisibleTextFallback(root);
+    }
+    if (!scan && !input) {
+      isGenerating = false;
+      renderAutoThreadScan(root);
+      showToast(root, 'Type context or open a supported conversation first.');
+      return;
+    }
   }
   const chips = root.querySelectorAll('.chip.on');
   const selectedType = normalizeDefaultOutputChip(Array.from(chips)[0]?.getAttribute('data-type')) || 'text';
@@ -3564,32 +3474,40 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   // Ask content script for lead context (DOM scraping happens there).
   // Zero-context Generate uses the adapter scan as primary context;
   // legacy context is merged underneath for CRM-specific details.
-  let leadContext: any = scan ? leadContextFromAutoThreadScan(scan) : {};
-  try {
-    const ctx = await sendToContent({ type: 'GET_LEAD_CONTEXT' });
-    if (ctx) leadContext = { ...ctx, ...leadContext };
-  } catch {}
-  const generationMismatch = pinMismatchReason(pinnedCustomer, leadContext);
-  if (generationMismatch) {
-    clearStalePinnedCustomer(root, generationMismatch);
-  }
-  if (!pinnedCustomer) {
-    const detectedName = getCustomerNameFromContext(leadContext);
-    const detectedConfidence = Number(leadContext?.detectionConfidence ?? leadContext?.detection_confidence ?? 0);
-    if (detectedName && detectedConfidence >= 0.8) {
-      const resolved = await resolveCustomerForDetection(leadContext);
-      if (resolved) pinCustomer(root, resolved);
-    } else if (detectedName && detectedConfidence >= 0.5) {
-      pendingCustomerSuggestion = leadContext;
-      renderCustomerStamp(root);
+  // Lead mode skips all of it: no scan, no page context, no pinning.
+  let leadContext: any;
+  if (selectedLeadId) {
+    leadContext = leadContextFromSelectedLead(selectedLead);
+  } else {
+    leadContext = scan ? leadContextFromAutoThreadScan(scan) : {};
+    try {
+      const ctx = await sendToContent({ type: 'GET_LEAD_CONTEXT' });
+      if (ctx) leadContext = { ...ctx, ...leadContext };
+    } catch {}
+    const generationMismatch = pinMismatchReason(pinnedCustomer, leadContext);
+    if (generationMismatch) {
+      clearStalePinnedCustomer(root, generationMismatch);
     }
+    if (!pinnedCustomer) {
+      const detectedName = getCustomerNameFromContext(leadContext);
+      const detectedConfidence = Number(leadContext?.detectionConfidence ?? leadContext?.detection_confidence ?? 0);
+      if (detectedName && detectedConfidence >= 0.8) {
+        const resolved = await resolveCustomerForDetection(leadContext);
+        if (resolved) pinCustomer(root, resolved);
+      } else if (detectedName && detectedConfidence >= 0.5) {
+        pendingCustomerSuggestion = leadContext;
+        renderCustomerStamp(root);
+      }
+    }
+    leadContext = enrichLeadContextWithPinnedCustomer(leadContext);
   }
-  leadContext = enrichLeadContextWithPinnedCustomer(leadContext);
 
   const _generationId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const repInputVehicle = extractVehicleMention(input) || extractVehicleMention(scan?.threadContext?.raw_text || '');
   const vehicleForGeneration = leadContext.vehicle || leadContext.vehicleOfInterest || repInputVehicle || null;
-  const stamp = customerStampPayload();
+  // The customer stamp is pin/thread-derived; in lead mode it must not leak
+  // another conversation's identity into the payload.
+  const stamp: any = selectedLeadId ? {} : customerStampPayload();
 
   const _meta: Record<string, any> = {
     workflow_type: 'all',
@@ -3611,6 +3529,8 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     context_fingerprint: stamp.context_fingerprint || leadContext.context_fingerprint || null,
     thread_fingerprint: stamp.thread_fingerprint || leadContext.thread_fingerprint || leadContext.context_fingerprint || null,
     zero_context_generate: !!scan,
+    generation_source: selectedLeadId ? 'selected_lead' : (scan?.source || null),
+    pipeline_stage: leadContext.pipeline_stage || null,
     adapter_id: scan?.adapter_id || leadContext.adapter_id || null,
     surface_kind: scan?.surface_kind || leadContext.surface_kind || null,
     conversation_key: scan?.threadContext?.conversation_key || null,
@@ -3648,8 +3568,10 @@ async function doGenerate(root: HTMLElement): Promise<void> {
         lead_id: (root as any).__pendingLeadId || null,
       },
     });
-    // Clear pending lead_id after sending
+    // Clear pending lead selection after sending; chip reverts to scan mode.
     (root as any).__pendingLeadId = null;
+    (root as any).__pendingLead = null;
+    renderAutoThreadScan(root);
 
     if (response?.queued) {
       showToast(root, response.message || 'Saved. Will sync when online.');
@@ -3955,7 +3877,6 @@ function commandDisplayText(input: string, modelText: string): string {
 }
 
 async function doCoach(root: HTMLElement): Promise<void> {
-  if (!(await ensureGenerationAllowed(root))) return;
   const input = (root.querySelector('#o8-coach-input') as HTMLTextAreaElement)?.value.trim();
   if (!input) {
     showToast(root, 'Type a sales scenario first, then click Coach Me.');
@@ -4046,7 +3967,6 @@ async function loadAlerts(root: HTMLElement): Promise<void> {
 
 // ─── Command ─────────────────────────────────────────────────────────────────
 async function doCommand(root: HTMLElement): Promise<void> {
-  if (!(await ensureGenerationAllowed(root))) return;
   const input = (root.querySelector('#o8-cmd-input') as HTMLTextAreaElement)?.value.trim();
   if (!input) return;
   const status = root.querySelector('#o8-cmd-status') as HTMLElement;
@@ -4171,8 +4091,7 @@ function wireContextTool(root: HTMLElement): void {
 
   if (genBtn) {
     genBtn.onclick = async () => {
-      if (!(await ensureGenerationAllowed(root))) return;
-      if (!screenshotData) return;
+          if (!screenshotData) return;
       const direction = directionInput?.value.trim() || '';
         output.innerHTML = '<div class="tool-result" style="color:#94a3b8">Analyzing screenshot...</div>';
         try {
@@ -4654,7 +4573,9 @@ function wireMyLeadCardActions(root: HTMLElement): void {
             input.focus();
           }
           (root as any).__pendingLeadId = leadId;
+          (root as any).__pendingLead = lead;
           showQuickView(root);
+          renderAutoThreadScan(root);
           showToast(root, 'Lead context loaded. Hit Generate.');
           return;
         }
@@ -4903,10 +4824,15 @@ function showLeadResult(root: HTMLElement, lead: any): void {
           (lead.phone ? `Phone: ${lead.phone}. ` : '') +
           (rawText ? `Original context: ${rawText.substring(0, 200)}` : '');
       }
-      // Store lead_id for doGenerate to include in payload
-      if (leadId) (root as any).__pendingLeadId = leadId;
+      // Store the selected lead for doGenerate: lead mode overrides any
+      // open-tab scan so the draft addresses this lead, not the page.
+      if (leadId) {
+        (root as any).__pendingLeadId = leadId;
+        (root as any).__pendingLead = lead;
+      }
       // Switch to Generate view
       showQuickView(root);
+      renderAutoThreadScan(root);
       if (mainInput) mainInput.focus();
     });
   }

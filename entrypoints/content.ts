@@ -98,34 +98,10 @@ export default defineContentScript({
       /* ignore */
     }
 
-    // ===== VERSION GATE =====
-    try {
-      const vs = await browser.storage.local.get('brevmont_version_status');
-      const status = vs?.brevmont_version_status as { locked?: boolean; forceUpdate?: boolean; latest?: string; message?: string; downloadUrl?: string } | undefined;
-      const forceUpdate = Boolean(status?.forceUpdate || status?.locked);
-      if (forceUpdate && document.body && !document.getElementById('brevmont-version-lock')) {
-        const overlay = document.createElement('div');
-        overlay.id = 'brevmont-version-lock';
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(15,20,25,0.92);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif;';
-        overlay.innerHTML = `
-          <div style="max-width:480px;background:#F8F6F1;color:#0F1419;border-radius:16px;padding:32px 28px;box-shadow:0 24px 60px rgba(0,0,0,0.45);">
-            <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#0D6E6E;margin-bottom:12px;font-weight:700;">BREVMONT UPDATE REQUIRED</div>
-            <h2 style="font-size:22px;font-weight:800;margin:0 0 10px;line-height:1.25;">Please update the extension</h2>
-            <p style="font-size:14px;line-height:1.55;margin:0 0 18px;color:#3A3F43;">${status.message || 'This version of Brevmont is no longer supported.'}</p>
-            <p style="font-size:12px;line-height:1.5;margin:0 0 20px;color:#5A6066;">Download the latest build, then reload this page.</p>
-            <button id="brevmont-version-lock-download" style="background:#0D6E6E;border:0;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">Download latest</button>
-          </div>
-        `;
-        document.body.appendChild(overlay);
-        const download = document.getElementById('brevmont-version-lock-download');
-        if (download) download.addEventListener('click', () => {
-          window.open(status.downloadUrl || 'https://api.brevmont.com/api/extension-download', '_blank', 'noopener');
-        });
-        return;
-      }
-    } catch (_err) {
-      // Version-status read fails → behave as if unlocked
-    }
+    // Version gate removed permanently (2026-07-23, founder standing order):
+    // the extension never mentions versions to a user and never blocks on a
+    // version mismatch. Distribution updates silently; a rep on a live floor
+    // is never locked out of his tool over a version number.
 
     const isVinSolutions = PLATFORM === 'vinsolutions';
     const isGmail = PLATFORM === 'gmail';

@@ -420,6 +420,30 @@ test('Overdrive is rep-facing on/off only with no test-mode or active-hours copy
   expect(stateMachine).not.toContain('active_hours:');
 });
 
+test('explicit lead selection overrides page-scan context in the generate payload', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  const background = read('entrypoints/background.ts');
+  const start = source.indexOf('async function doGenerate');
+  const body = source.slice(start, source.indexOf('// ─── Add output card', start));
+  // Lead selected → the open tab is never scanned and only the lead's own
+  // context reaches the payload; scanner context is stripped, not merged.
+  expect(source).toContain('function leadContextFromSelectedLead');
+  expect(body).toContain("const selectedLeadId: string | null = (root as any).__pendingLeadId || null");
+  expect(body).toContain('if (!selectedLeadId) {');
+  expect(body.indexOf('if (!selectedLeadId) {')).toBeLessThan(body.indexOf('scan = await scanThreadForGenerate(root, true)'));
+  expect(body).toContain('leadContext = leadContextFromSelectedLead(selectedLead)');
+  expect(body).toContain("generation_source: selectedLeadId ? 'selected_lead'");
+  expect(body).toContain('pipeline_stage: leadContext.pipeline_stage || null');
+  expect(body).toContain('const stamp: any = selectedLeadId ? {} : customerStampPayload()');
+  // Both lead entry points stash the full lead record, and the reply chip
+  // shows the lead card instead of claiming we reply to the open thread.
+  expect(source.split('(root as any).__pendingLead = lead;').length).toBe(3);
+  expect(source).toContain("<span class=\"reply-context-label\">Lead card:</span>");
+  // Prompt side: stage rides in the CRM block and lead mode is explicit.
+  expect(background).toContain('Pipeline stage: ${lc.pipeline_stage}');
+  expect(background).toContain('SELECTED LEAD GENERATION');
+});
+
 test('manual customer picker selection wins over auto-detection until thread changes', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   const start = source.indexOf('async function refreshCustomerDetection');

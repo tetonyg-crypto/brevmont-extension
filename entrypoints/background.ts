@@ -2230,8 +2230,6 @@ export default defineBackground(() => {
           }
         }
       });
-    } else if (alarm.name === 'brevmont-version-check') {
-      void checkVersionStatus();
     }
   });
 
@@ -2635,77 +2633,8 @@ export default defineBackground(() => {
   // Bootstrap secret on startup (after heartbeat settles)
   setTimeout(bootstrapLicenseSecret, 15000);
 
-  // ===== ITEM 30: Extension version check =====
-  async function checkVersionStatus() {
-    try {
-      const manifest = browser.runtime.getManifest();
-      const chromeMatch = navigator.userAgent.match(/Chrome\/([\d.]+)/);
-      const settings = await browser.storage.local.get(['dealer_token']);
-
-      const publicStatus = await fetch(
-        `${PROXY_URL}/api/extension-status?current_version=${encodeURIComponent(manifest.version || 'unknown')}`,
-        { headers: { 'X-Extension-Version': manifest.version || 'unknown' } },
-      ).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-
-      if (publicStatus && typeof publicStatus === 'object') {
-        const updateRequired = Boolean(publicStatus.update_required || publicStatus.required);
-        const forceUpdate = Boolean(publicStatus.force_update);
-        await browser.storage.local.set({
-          brevmont_version_status: {
-            locked: forceUpdate,
-            deprecated: updateRequired && !forceUpdate,
-            updateRequired,
-            forceUpdate,
-            message: String(publicStatus.update_message || (forceUpdate ? 'Please update Brevmont to continue.' : 'A new version of Brevmont is available.')),
-            latest: publicStatus.latest || publicStatus.version || null,
-            downloadUrl: publicStatus.download_url || `${PROXY_URL}/api/extension-download`,
-          }
-        });
-        return;
-      }
-
-      const resp = await signedFetch(`${PROXY_URL}/v1/heartbeat/version`, {
-        dealer_token: settings.dealer_token || '',
-        extension_version: manifest.version || '1.9.2',
-        chrome_version: chromeMatch ? chromeMatch[1] : 'unknown',
-      });
-      if (!resp.ok) return;
-      const data = await resp.json();
-
-      // Compare versions
-      const current = (manifest.version || '1.9.2').split('.').map(Number);
-      const minimum = (data.minimum_supported_version || '1.0.0').split('.').map(Number);
-      let belowMinimum = false;
-      for (let i = 0; i < Math.max(current.length, minimum.length); i++) {
-        const diff = (current[i] || 0) - (minimum[i] || 0);
-        if (diff < 0) { belowMinimum = true; break; }
-        if (diff > 0) break;
-      }
-
-      await browser.storage.local.set({
-        brevmont_version_status: {
-          locked: belowMinimum,
-          updateRequired: belowMinimum || Boolean(data.deprecated),
-          forceUpdate: belowMinimum,
-          deprecated: data.deprecated,
-          message: belowMinimum
-            ? `Version ${manifest.version} is no longer supported. Please update to ${data.latest_version}.`
-            : data.deprecated ? data.deprecation_notice : null,
-          latest: data.latest_version,
-          downloadUrl: `${PROXY_URL}/api/extension-download`,
-        }
-      });
-    } catch (e) {
-      // Silent — don't block on version check failure
-    }
-  }
-
-  // Check version on startup (after 20s), then hourly via a chrome.alarm.
-  // A bare setInterval does NOT survive MV3 service-worker suspension, so the
-  // recurring check is registered as an alarm (handled in onAlarm above),
-  // consistent with every other periodic job in this file.
-  setTimeout(checkVersionStatus, 20000);
-  browser.alarms.create('brevmont-version-check', { periodInMinutes: 60 });
+  // Extension version check removed permanently (2026-07-23, founder
+  // standing order): the extension never surfaces or acts on version info.
 
   // Single source of truth for onInstalled. Previously two separate listeners
   // raced: one tried cookie auto-config (silent path), the other unconditionally
@@ -2735,7 +2664,6 @@ export default defineBackground(() => {
         console.error('[Brevmont] Heartbeat on update failed:', e?.message);
       });
       setTimeout(bootstrapLicenseSecret, 5000);
-      setTimeout(checkVersionStatus, 8000);
       return;
     }
 
@@ -2774,9 +2702,8 @@ export default defineBackground(() => {
       }
     }
 
-    // Bootstrap secret + version check on install/update regardless of path.
+    // Bootstrap secret on install/update regardless of path.
     setTimeout(bootstrapLicenseSecret, 5000);
-    setTimeout(checkVersionStatus, 8000);
   });
 
   // Alt+K keyboard shortcut for Command Mode
@@ -3785,6 +3712,7 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
     if (lc.vehicle) msg += `Vehicle: ${lc.vehicle}\n`;
     if (lc.source) msg += `Source: ${lc.source}\n`;
     if (lc.status) msg += `Status: ${lc.status}\n`;
+    if (lc.pipeline_stage) msg += `Pipeline stage: ${lc.pipeline_stage}\n`;
     if (lc.lastContact) msg += `Last contact: ${lc.lastContact}\n`;
     if (lc.lastNote) msg += `Last note: ${lc.lastNote}\n`;
     if (lc.notes?.length) {
@@ -3797,6 +3725,12 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
   }
 
   msg += `Rep: ${repName}\nDealership: ${dealership}\n\n`;
+
+  const fromSelectedLead = payload.metadata?.generation_source === 'selected_lead'
+    || lc.detection_method === 'selected_lead';
+  if (fromSelectedLead) {
+    msg += 'SELECTED LEAD GENERATION: The rep explicitly picked this lead from their saved pipeline; there is no scanned page context and any open browser thread is unrelated. Address the lead above by name and match the draft to the pipeline stage (a contacted lead gets a progression follow-up, never a cold first-touch intro).\n\n';
+  }
 
   if (hasThreadContext) {
     msg += 'SCANNED THREAD CONTEXT (visible conversation on the current page):\n';
