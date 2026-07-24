@@ -3513,10 +3513,15 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     if (!pinnedCustomer) {
       const detectedName = getCustomerNameFromContext(leadContext);
       const detectedConfidence = Number(leadContext?.detectionConfidence ?? leadContext?.detection_confidence ?? 0);
-      if (detectedName && detectedConfidence >= 0.8) {
+      // Same answered-thread contract as refreshCustomerDetection: a No on
+      // the chip holds through a Generate press too — no re-prompt and no
+      // silent auto-pin over the rep's answer while this thread is on screen.
+      const generateAnswerKey = getContextFingerprint(leadContext) || '';
+      const generatePriorAnswer = generateAnswerKey ? answeredCustomerDetections.get(generateAnswerKey) : undefined;
+      if (detectedName && detectedConfidence >= 0.8 && generatePriorAnswer !== 'no') {
         const resolved = await resolveCustomerForDetection(leadContext);
         if (resolved) pinCustomer(root, resolved);
-      } else if (detectedName && detectedConfidence >= 0.5) {
+      } else if (detectedName && detectedConfidence >= 0.5 && !generatePriorAnswer) {
         pendingCustomerSuggestion = leadContext;
         renderCustomerStamp(root);
       }
