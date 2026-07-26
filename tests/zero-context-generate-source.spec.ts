@@ -312,19 +312,33 @@ test('Overdrive blocks unsafe meta replies before injection and clears failed dr
   expect(sender).toContain("k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$')");
 });
 
-test('Overdrive autonomous send runs inside the Messenger tab, not the background worker', () => {
+test('Overdrive Assist Mode: draft is pre-filled, NOTHING is programmatically sent to Facebook', () => {
+  // 2026-07-25: autonomous send was replaced by draft→pre-fill→human-taps-native-send.
+  // The rep taps Facebook's own send button (a genuine isTrusted gesture). This test
+  // guards that no code path programmatically submits a message to Facebook.
   const orchestrator = read('entrypoints/lib/overdrive/orchestrator.ts');
-  const background = read('entrypoints/lib/overdrive/backgroundController.ts');
-  const content = read('entrypoints/content.ts');
-  expect(orchestrator).not.toContain("import { overdriveSend } from './overdriveSend'");
-  expect(orchestrator).not.toContain('const sendResult = await overdriveSend(');
-  expect(orchestrator).toContain('sendText: (text: string) => Promise<OverdriveSendResult>');
-  expect(orchestrator).toContain('const sendResult = await deps.sendText(reply.reply_text ||');
-  expect(background).toContain("type: 'OVERDRIVE_SEND_TEXT'");
-  expect(background).toContain('orchestrator_exception');
-  expect(content).toContain("msg.type === 'OVERDRIVE_SEND_TEXT'");
-  expect(content).toContain("await import('./lib/overdrive/overdriveSend')");
-  expect(content).toContain('const result = await mod.overdriveSend(text)');
+  const overdriveSend = read('entrypoints/lib/overdrive/overdriveSend.ts');
+
+  // The orchestrator pre-fills (inject) and then STOPS — it must NOT call the send.
+  expect(orchestrator).toContain('let injectOk = await deps.injectText('); // pre-fill kept
+  expect(orchestrator).not.toContain('const sendResult = await deps.sendText('); // send removed
+  expect(orchestrator).toContain("type: 'overdrive.assist_prefilled'"); // logs the pre-fill
+  expect(orchestrator).toContain('assist_prefilled: true'); // returns without sending
+  expect(orchestrator).toContain("skipped_reason: 'assist_prefilled_awaiting_human_send'");
+
+  // overdriveSend is neutered: it returns a no-send result BEFORE any synthesized
+  // gesture, so even a legacy caller cannot programmatically send.
+  expect(overdriveSend).toContain("method: 'assist_mode_no_send'");
+  expect(overdriveSend).toContain('programmatic_send_disabled_assist_mode');
+  // Within the overdriveSend() body, the neuter return precedes any invocation of
+  // the send-method helpers (Enter-key / button-click / react-fiber), so they are
+  // unreachable at runtime.
+  const body = overdriveSend.slice(overdriveSend.indexOf('export async function overdriveSend'));
+  const neuterIdx = body.indexOf('assist_mode_no_send');
+  const firstMethodCall = body.indexOf('attemptEnterKey(');
+  expect(neuterIdx).toBeGreaterThan(-1);
+  expect(firstMethodCall).toBeGreaterThan(-1);
+  expect(neuterIdx).toBeLessThan(firstMethodCall);
 });
 
 test('Overdrive ignores Messenger system cards and debounces by inbound hash, not tab', () => {

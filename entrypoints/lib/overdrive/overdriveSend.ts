@@ -230,7 +230,24 @@ async function attemptReactFiber(composer: HTMLElement | null, sentText: string)
  * Returns a structured result so the caller can log which method
  * won and whether the send was DOM-verified.
  */
-export async function overdriveSend(sentText: string): Promise<OverdriveSendResult> {
+export async function overdriveSend(_sentText: string): Promise<OverdriveSendResult> {
+  // ═══ ASSIST MODE (2026-07-25) — NEUTERED, no programmatic send ═════════════
+  // Overdrive no longer sends to Facebook. The draft is pre-filled into the
+  // composer by the orchestrator's inject step and the rep taps Facebook's own
+  // send button (a genuine isTrusted user gesture). This function is retained
+  // only so any legacy caller gets a clean no-op; the isTrusted-defeating
+  // synthesized keypress / synthetic click / React-fiber-onClick paths below
+  // are unreachable and never execute. There is NO code path that
+  // programmatically submits a message to Facebook.
+  return {
+    ok: false,
+    method: 'assist_mode_no_send',
+    verified: false,
+    latency_ms: 0,
+    error: 'programmatic_send_disabled_assist_mode',
+    attempts: [],
+  };
+
   const startedAt = Date.now();
   const composer = findComposer();
   const attempts: OverdriveSendResult['attempts'] = [];

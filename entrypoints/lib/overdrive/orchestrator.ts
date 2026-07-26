@@ -110,7 +110,7 @@ export interface OrchestratorDeps {
    * event_log_v2 forwarding + chrome.notifications.
    */
   emitEvent: (event: {
-    type: 'overdrive.attempted' | 'overdrive.replied' | 'overdrive.escalated' | 'overdrive.send_unverified' | 'overdrive.skipped';
+    type: 'overdrive.attempted' | 'overdrive.replied' | 'overdrive.escalated' | 'overdrive.send_unverified' | 'overdrive.skipped' | 'overdrive.assist_prefilled';
     conversation_key: string;
     payload: Record<string, unknown>;
   }) => void;
@@ -242,11 +242,24 @@ export async function replayPendingConfirms(): Promise<{ replayed: number; dropp
 export interface OrchestratorResult {
   attempted: boolean;
   skipped_reason?: string;
+  // Assist Mode (2026-07-25): the draft was pre-filled into the composer and
+  // the orchestrator stopped — no programmatic send. The rep taps Facebook's
+  // native send. `send` is absent on this path because nothing was sent.
+  assist_prefilled?: boolean;
   qualification?: QualificationResult;
   reply?: OverdriveReplyResponse;
   send?: { ok: boolean; method: string; verified: boolean };
   attach?: { ok: boolean; method: string };
   latency_ms: number;
+}
+
+// Non-crypto short hash of the drafted text for the consent / sender-of-record
+// trail (correlation only, not security). djb2.
+function shortDraftHash(text: string): string {
+  let h = 5381;
+  const s = String(text || '');
+  for (let i = 0; i < s.length; i += 1) h = (((h << 5) + h) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(16);
 }
 
 /**
@@ -594,140 +607,39 @@ async function orchestrateReplyInner(
     };
   }
 
-  // Step 7: typing simulation
-  await delay.waitAfterInject();
-
-  // Step 8: if AI-question, attach photo before send
-  let attach: OrchestratorResult['attach'] | undefined;
-  if (reply.ai_question_triggered && reply.photo_data_url) {
-    const attachResult = deps.attachPhoto
-      ? await deps.attachPhoto(reply.photo_data_url)
-      : {
-          ok: false,
-          method: 'not_attempted' as const,
-          latency_ms: 0,
-          error: 'attach_not_wired',
-          attempts: [],
-        };
-    attach = { ok: attachResult.ok, method: attachResult.method };
-    // If attach failed, we still send the text reply.
-  }
-
-  // Step 9: DOM-verified send
-  const sendResult = await deps.sendText(reply.reply_text || '');
-
-  // Migration 310 write-through: server writes the terminal event
-  // (overdrive.reply_sent | overdrive.appointment_set |
-  // overdrive.photo_sent | overdrive.send_unverified) based on
-  // what we report here. Fire-and-forget — never gate return on
-  // the confirm response.
-  const confirmPayload: OverdriveSendConfirmPayload = {
-    conversation_key: scrape.conversation_key,
-    idempotency_key: reply.idempotency_key,
-    turn_id: reply.turn_id,
-    send_token: reply.send_token,
-    verified: !!(sendResult.ok && sendResult.verified),
-    method: sendResult.method || 'not_attempted',
-    latency_ms: Date.now() - startedAt,
-    attempts: sendResult.attempts || [],
-    ai_output: reply.reply_text || '',
-    next_stage: reply.next_stage,
-    ai_question_triggered: !!reply.ai_question_triggered,
-    attach_ok: attach?.ok || false,
-    attach_method: attach?.method || null,
-  };
-  // Bug B fix (1.16.53): stash the payload to chrome.storage.local
-  // BEFORE the fetch so a worker teardown mid-fetch leaves a record
-  // the next-wake replay pass will re-fire. Await the fetch with a
-  // 3s ceiling; on success clear the pending entry. On timeout, emit
-  // a local event AND leave the pending entry so replay picks it up.
-  await stashPendingConfirm(confirmPayload);
-  const confirmResult = await raceWithTimeout(
-    confirmOverdriveSend(confirmPayload),
-    3000,
-    'confirm_send',
-  );
-  if (confirmResult.ok) {
-    await clearPendingConfirm(reply.idempotency_key);
-  } else {
-    try {
-      deps.emitEvent({
-        type: 'overdrive.send_unverified',
-        conversation_key: scrape.conversation_key,
-        payload: {
-          reason: 'send_confirm_timeout',
-          detail: confirmResult.reason,
-          idempotency_key: reply.idempotency_key,
-          confirm_payload: confirmPayload,
-        },
-      });
-    } catch { /* noop */ }
-  }
-
-  if (!sendResult.ok || !sendResult.verified) {
-    try { await deps.clearInjectedText?.(reply.reply_text || ''); } catch { /* noop */ }
-    deps.emitEvent({
-      type: 'overdrive.send_unverified',
-      conversation_key: scrape.conversation_key,
-      payload: {
-        reason: sendResult.error || 'send_verification_failed',
-        method: sendResult.method,
-        attempts: sendResult.attempts,
-      },
-    });
-    // Record but don't advance replies_today counter — the reply
-    // never landed.
-    await recordReplyOutcome(scrape.conversation_key, {
-      last_inbound_hash: scrape.last_inbound_hash,
-      verified: false,
-      reply_text: reply.reply_text || '',
-    });
-    return {
-      attempted: true,
-      skipped_reason: 'send_unverified',
-      qualification,
-      reply,
-      send: { ok: false, method: sendResult.method, verified: false },
-      attach,
-      latency_ms: Date.now() - startedAt,
-    };
-  }
-
-  // Step 10: persist state + log
-  await recordReplyOutcome(scrape.conversation_key, {
-    stage: reply.next_stage as OverdriveStage,
-    last_inbound_hash: scrape.last_inbound_hash,
-    verified: true,
-    reply_text: reply.reply_text || '',
-    ai_question_triggered: reply.ai_question_triggered,
-    listing_title: ctx.listing?.title || undefined,
-    vehicle_year: ctx.listing?.year || undefined,
-    vehicle_make: ctx.listing?.make || undefined,
-    vehicle_model: ctx.listing?.model || undefined,
-  });
-
+  // ═══ ASSIST MODE (2026-07-25) — pre-fill, don't send ═══════════════════════
+  // The draft is now pre-filled into the Messenger composer (Step 6). We STOP
+  // here. There is NO programmatic send: the rep reads the draft and taps
+  // Facebook's own send button — a genuine isTrusted user gesture. This replaces
+  // the former autonomous send entirely; `deps.sendText` / overdriveSend.ts (the
+  // synthesized-keypress / synthetic-click / React-fiber-onClick isTrusted
+  // bypass) is no longer invoked on this path. The pre-fill event below is the
+  // consent / sender-of-record trail; the human's native tap is what sends.
   deps.emitEvent({
-    type: 'overdrive.replied',
+    type: 'overdrive.assist_prefilled',
     conversation_key: scrape.conversation_key,
     payload: {
       stage: reply.next_stage,
-      ai_question_triggered: reply.ai_question_triggered,
-      method: sendResult.method,
-      latency_ms: Date.now() - startedAt,
-      reply_len: (reply.reply_text || '').length,
-      attach_ok: attach?.ok || false,
-      attach_method: attach?.method || null,
+      draft_hash: shortDraftHash(reply.reply_text || ''),
+      draft_len: (reply.reply_text || '').length,
+      idempotency_key: reply.idempotency_key,
+      human_sends: true,
     },
   });
-
+  await recordReplyOutcome(scrape.conversation_key, {
+    last_inbound_hash: scrape.last_inbound_hash,
+    verified: false,
+    reply_text: reply.reply_text || '',
+  });
   return {
     attempted: true,
+    skipped_reason: 'assist_prefilled_awaiting_human_send',
+    assist_prefilled: true,
     qualification,
     reply,
-    send: { ok: true, method: sendResult.method, verified: true },
-    attach,
     latency_ms: Date.now() - startedAt,
   };
+
 }
 
 /**
