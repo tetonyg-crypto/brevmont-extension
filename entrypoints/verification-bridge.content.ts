@@ -31,6 +31,12 @@ export default defineContentScript({
   world: 'MAIN',
 
   main() {
+    // DEV-ONLY QA harness. In production/store builds import.meta.env.DEV is
+    // false, so esbuild dead-code-eliminates everything below this guard — the
+    // page-callable __brevmontVerify hooks, the console banner, and the
+    // postMessage bridge never ship. Never expose automation hooks in the MAIN
+    // world on Gmail/Facebook/etc. in a released build (store-review + security).
+    if (!import.meta.env.DEV) return;
     const w = window as any;
     if (w.__brevmontVerify?.__pageBridge === true) return;
 

@@ -59,15 +59,25 @@ function scrapeThread(): ThreadContext {
       const bubbles = Array.from(main.querySelectorAll(
         '[role="row"], [aria-label*="Message" i], [data-testid*="message" i]'
       )).slice(-40);
+      // Direction by geometry, not class names. Instagram (like every chat UI)
+      // right-aligns the rep's OWN (outbound) messages and left-aligns the
+      // customer's (inbound). The old `[class*="own"]` selector never matched
+      // IG's obfuscated markup, so every bubble was labeled inbound and the AI
+      // ended up replying to the rep's own last message. Compare each bubble's
+      // horizontal center to the thread container's center; skip full-width rows
+      // (system cards / composer) and mark ambiguous ones 'unknown' so we never
+      // pick the rep's message as the customer's.
+      const mainRect = (main as HTMLElement).getBoundingClientRect();
+      const mid = mainRect.left + mainRect.width / 2;
       for (const b of bubbles) {
         const text = (b as HTMLElement).innerText?.replace(/\s+/g, ' ').trim();
         if (!text || text.length < 2) continue;
-        // Instagram marks own bubbles with align-right styling — no
-        // deterministic aria-label like "You sent" available. Best
-        // heuristic: bubbles inside `[dir="rtl"]` classes are outbound.
-        // Fallback: last bubble is what we probably need to reply to.
-        const outboundHint = !!b.closest('[data-scope="messages"] [class*="own" i]');
-        const direction: ThreadContext['messages'][number]['direction'] = outboundHint ? 'outbound' : 'inbound';
+        const rect = (b as HTMLElement).getBoundingClientRect();
+        let direction: ThreadContext['messages'][number]['direction'] = 'unknown';
+        if (rect.width > 0 && mainRect.width > 0 && rect.width < mainRect.width * 0.9) {
+          const center = rect.left + rect.width / 2;
+          direction = center > mid ? 'outbound' : 'inbound';
+        }
         messages.push({ text: text.slice(0, 600), direction });
         if (direction === 'inbound') last_inbound_text = text.slice(0, 2000);
       }

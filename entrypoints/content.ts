@@ -1218,28 +1218,15 @@ export default defineContentScript({
 
     dlog(`[Brevmont] Relay active — platform: ${PLATFORM}, isTop: ${window === window.top}`);
 
-    // ===== UNIVERSAL CAPTURE VERIFICATION HARNESS =====
-    // Registers window.__brevmontVerify on ANY top-frame that matches
-    // the adapter registry (all 12 platforms). Rep runs from DevTools
-    // console to capture per-platform evidence bundles. Zero effect
-    // on normal extension operation.
-    if (window === window.top && PLATFORM !== 'unknown') {
-      try {
-        import('./lib/platforms/verificationHarness').then((m) => m.installVerificationHarness()).catch(() => {});
-      } catch { /* noop */ }
-    }
-
-    // ===== OVERDRIVE SPIKE HARNESS (Facebook top frame only) =====
-    // Registers window.__overdriveSpike for manual verification of the
-    // send / photo attach / detection layers from DevTools. Zero effect
-    // on normal extension operation — only exposes callables.
-    if (isFacebook && window === window.top) {
-      try {
-        // Dynamic import so non-Facebook frames never pay the parse
-        // cost. WXT/esbuild inlines this at build time.
-        import('./lib/overdrive').then((m) => m.installSpikeHarness()).catch(() => {});
-      } catch { /* noop */ }
-    }
+    // ===== DEBUG HARNESSES REMOVED (2026-07-26, store-safety) =====
+    // The window.__brevmontVerify (verificationHarness) and window.__overdriveSpike
+    // installs were removed from the shipped content script entirely. They exposed
+    // page-callable automation hooks in the content world on Gmail/Facebook/etc. —
+    // a security surface (any page script could drive scan/inject/send) AND a
+    // Chrome Web Store rejection risk. A dev-gate did not reliably strip the
+    // inlined dynamic imports from the store bundle, so the installs are gone.
+    // For local QA, load the dev build (verification-bridge.content.ts is
+    // dev-gated + stripped from the CWS manifest).
 
     // ===== VINSOLUTIONS SCANNING (top frame only) =====
     if (isVinSolutions) {
@@ -2231,12 +2218,16 @@ export default defineContentScript({
             // "brevmont broken" with no way to see WHY. Fire-and-forget
             // so it never gates the error response.
             try {
-              const { captureBundle } = await import('./lib/platforms/verificationHarness');
+              // Import from the extracted captureBundle module (NOT
+              // verificationHarness) so the DevTools debug hooks
+              // (installVerificationHarness / __brevmontVerify) are never pulled
+              // into the shipped content script.
+              const { captureBundle } = await import('./lib/platforms/captureBundle');
               void captureBundle({
                 notes: `adapter_scan_failed:${err?.message || 'unknown'}`,
                 captureDom: true,
               });
-            } catch { /* verification module lazy load may fail on non-adapter pages */ }
+            } catch { /* capture module lazy load may fail on non-adapter pages */ }
             sendResponse({ ok: false, error: err?.message || 'adapter_scan_failed' });
           }
         })();

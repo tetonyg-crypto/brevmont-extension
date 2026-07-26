@@ -11,7 +11,9 @@ export {
   isInstalled as isOverdriveDetectorInstalled,
   overdriveDetectorAlarmTick,
 } from './overdriveDetector';
-export { installSpikeHarness } from './spikeHarness';
+// installSpikeHarness (window.__overdriveSpike DevTools debug hook) is NOT
+// re-exported — its only caller was removed for store safety, so keeping it out
+// of the barrel lets tree-shaking drop the spike harness from the shipped bundle.
 export { scrapeFacebookProfile } from './linkFacebook';
 export type { FacebookProfileScrape } from './linkFacebook';
 export { qualifyThread } from './qualification';

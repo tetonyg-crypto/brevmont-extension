@@ -89,10 +89,13 @@ btn.addEventListener('click', async () => {
   });
 
   try {
-    const stream = await Promise.race([
-      navigator.mediaDevices.getUserMedia({ audio: true }),
-      timeoutPromise,
-    ]);
+    // Attach the teardown to the getUserMedia promise itself so a stream that
+    // resolves AFTER the timeout still gets stopped — otherwise Promise.race
+    // discards the late stream and its mic track stays live (persistent
+    // recording indicator = store-pull risk).
+    const micPromise = navigator.mediaDevices.getUserMedia({ audio: true })
+      .then((s) => { if (timedOut) { s.getTracks().forEach((t) => t.stop()); } return s; });
+    const stream = await Promise.race([micPromise, timeoutPromise]);
 
     // Permission granted — stop the stream immediately
     stream.getTracks().forEach(track => track.stop());

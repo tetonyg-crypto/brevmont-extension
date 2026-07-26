@@ -308,8 +308,13 @@ test('Overdrive blocks unsafe meta replies before injection and clears failed dr
   expect(bridge).toContain('Ambiguous Messenger DOM should never trigger autonomous');
   expect(bridge).toContain('continue;');
   expect(bridge).not.toContain('lastInbound = text.slice(0, 2000);\\n        continue;');
-  expect(sender).toContain('[aria-label*="Press Enter" i]');
-  expect(sender).toContain("k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$')");
+  // Assist Mode (2026-07-26): the sender is a pure no-op stub. The Press-Enter
+  // selector and the __reactProps isTrusted-bypass were physically removed —
+  // Overdrive never programmatically sends. The unsafe-reply guardrails above
+  // still run before the draft is pre-filled.
+  expect(sender).toContain("method: 'assist_mode_no_send'");
+  expect(sender).not.toContain('__reactProps');
+  expect(sender).not.toContain('Press Enter');
 });
 
 test('Overdrive Assist Mode: draft is pre-filled, NOTHING is programmatically sent to Facebook', () => {
@@ -326,19 +331,14 @@ test('Overdrive Assist Mode: draft is pre-filled, NOTHING is programmatically se
   expect(orchestrator).toContain('assist_prefilled: true'); // returns without sending
   expect(orchestrator).toContain("skipped_reason: 'assist_prefilled_awaiting_human_send'");
 
-  // overdriveSend is neutered: it returns a no-send result BEFORE any synthesized
-  // gesture, so even a legacy caller cannot programmatically send.
+  // overdriveSend is a pure no-op stub — the synthesized keypress / synthetic
+  // click / react-fiber isTrusted-bypass methods were PHYSICALLY REMOVED (not
+  // just gated), so no code path can programmatically send to Facebook.
   expect(overdriveSend).toContain("method: 'assist_mode_no_send'");
   expect(overdriveSend).toContain('programmatic_send_disabled_assist_mode');
-  // Within the overdriveSend() body, the neuter return precedes any invocation of
-  // the send-method helpers (Enter-key / button-click / react-fiber), so they are
-  // unreachable at runtime.
-  const body = overdriveSend.slice(overdriveSend.indexOf('export async function overdriveSend'));
-  const neuterIdx = body.indexOf('assist_mode_no_send');
-  const firstMethodCall = body.indexOf('attemptEnterKey(');
-  expect(neuterIdx).toBeGreaterThan(-1);
-  expect(firstMethodCall).toBeGreaterThan(-1);
-  expect(neuterIdx).toBeLessThan(firstMethodCall);
+  expect(overdriveSend).not.toContain('attemptEnterKey');
+  expect(overdriveSend).not.toContain('__reactProps');
+  expect(overdriveSend).not.toContain('dispatchEvent');
 });
 
 test('Overdrive ignores Messenger system cards and debounces by inbound hash, not tab', () => {
@@ -644,6 +644,22 @@ test('Outlook adapter is registered and allowed by manifest/content script', () 
   expect(registry).toContain("return 'outlook'");
   expect(content).toContain('*://outlook.office.com/*');
   expect(config).toContain('*://outlook.office.com/*');
+});
+
+test('production content script installs NO page-callable debug harness (store-safety)', () => {
+  // 2026-07-26: the __brevmontVerify / __overdriveSpike DevTools hooks were
+  // removed from the shipped content script — page-callable automation hooks on
+  // Gmail/Facebook are a security surface + a Chrome Web Store rejection. Guard
+  // that they never come back into content.ts, and that the forensic capture
+  // uses the extracted captureBundle module (not the harness that installs them).
+  const content = read('entrypoints/content.ts');
+  expect(content).not.toContain('installVerificationHarness()');
+  expect(content).not.toContain('installSpikeHarness()');
+  expect(content).toContain("import('./lib/platforms/captureBundle')");
+  expect(content).not.toContain("import('./lib/platforms/verificationHarness')");
+  // The overdrive barrel must not re-export the spike harness.
+  const overdriveIndex = read('entrypoints/lib/overdrive/index.ts');
+  expect(overdriveIndex).not.toContain("export { installSpikeHarness }");
 });
 
 test('sidepanel connection gate includes every adapter surface used for zero-context scan', () => {

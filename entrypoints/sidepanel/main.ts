@@ -437,8 +437,14 @@ function safeSend(msg: any): Promise<any> {
         return;
       }
       // Surface API errors instead of silently swallowing them.
-      // Background handlers send { error: '...' } when the API fails.
-      if (response?.error && typeof response.error === 'string') {
+      // Background handlers send { error: '...' } when the API fails — BUT some
+      // responses carry a string `error` alongside a soft-status the caller must
+      // branch on: `queued` (offline retry-queue → "Saved, will sync") and
+      // `hold`/grounding_hold (422 → the grounding-hold explainer). Rejecting on
+      // those made both branches dead code and showed a generic "Generation
+      // failed" instead. Only reject a genuine hard error.
+      const softStatus = response?.queued || response?.hold || response?.error === 'grounding_hold';
+      if (response?.error && typeof response.error === 'string' && !softStatus) {
         reject(new Error(response.error));
         return;
       }
@@ -3342,13 +3348,16 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
 
   // FULLY SYNCHRONOUS click handler — no async, no await, no silent rejections
   micBtn.addEventListener('click', () => {
-    // If this mic is active — stop it
+    // If this mic is active — stop it. Mark the stop as user-requested so onend
+    // does NOT auto-restart (see onend below).
     if (activeMicBtn === micBtn && activeMicRecognition) {
+      (activeMicRecognition as any).__stopRequested = true;
       activeMicRecognition.stop();
       return;
     }
-    // If another mic is active — stop that one first
+    // If another mic is active — stop that one first (also user-intent, no restart).
     if (activeMicRecognition) {
+      (activeMicRecognition as any).__stopRequested = true;
       activeMicRecognition.stop();
     }
 
@@ -3425,7 +3434,11 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
 
     recognition.onerror = (event: any) => {
       clearTimeout(startTimeout);
+      // no-speech = a silence pause; let onend auto-restart (keep listening).
+      // aborted = we called stop(); onend handles teardown.
       if (event.error === 'aborted' || event.error === 'no-speech') return;
+      // A real error ends the session — mark it so onend does not auto-restart.
+      (recognition as any).__stopRequested = true;
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         micPermGranted = false;
         try { chrome.storage.local.remove(MIC_PERM_KEY); } catch {}
@@ -3437,15 +3450,21 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
         if (root) showToast(root, 'Mic error: ' + event.error);
       }
       micBtn.classList.remove('mic-active');
-      activeMicRecognition = null;
-      activeMicBtn = null;
+      // Only clear the globals if THIS recognition still owns them (guards the
+      // mic-switch race where a newer mic already took over).
+      if (activeMicRecognition === recognition) { activeMicRecognition = null; activeMicBtn = null; }
     };
 
     recognition.onend = () => {
       clearTimeout(startTimeout);
+      // Bug 1: Chrome ends the session on a silence pause. Keep the mic on until
+      // the rep explicitly taps stop — restart unless a stop was requested (user
+      // tap, real error, or a newer mic took over).
+      if (!(recognition as any).__stopRequested && activeMicRecognition === recognition) {
+        try { recognition.start(); return; } catch { /* fall through to teardown */ }
+      }
       micBtn.classList.remove('mic-active');
-      activeMicRecognition = null;
-      activeMicBtn = null;
+      if (activeMicRecognition === recognition) { activeMicRecognition = null; activeMicBtn = null; }
     };
 
     try {
