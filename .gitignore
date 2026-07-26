@@ -30,3 +30,4 @@ dev-screenshots/
 # Legacy popup (migrated to popup/)
 entrypoints/popup-legacy/
 test-results/
+node_modules
