@@ -1280,6 +1280,28 @@ function getContextFingerprint(ctx: any): string {
   return String(ctx?.context_fingerprint || ctx?.thread_fingerprint || '').trim();
 }
 
+// Stable key for the "This for <name>?" answer memory. The content-script
+// fingerprint (getContextFingerprint) hashes volatile thread content —
+// document.title unread counts and the first 900 chars of [role=main]
+// (rolling timestamps, "Active now", typing indicators, new messages) — so it
+// mutates every 3s detection tick and orphaned a stored "No", re-firing the
+// chip. This key uses only stable thread identity: platform + the thread's URL
+// (pathname covers Messenger/IG/Marketplace thread ids, hash covers the Gmail
+// thread id) + the detected name. It stays constant across ticks in the same
+// conversation, and changes only on a genuinely different thread or person.
+function stableAnswerKey(ctx: any): string {
+  const platform = String(currentPlatform.platform || ctx?.platform || 'unknown').toLowerCase();
+  let thread = '';
+  try {
+    const u = new URL(currentPlatform.url || '');
+    thread = `${u.pathname}${u.hash}`;
+  } catch {
+    thread = String(currentPlatform.url || '');
+  }
+  const name = getCustomerNameFromContext(ctx).toLowerCase();
+  return `${platform}|${thread}|${name}`;
+}
+
 function vehiclesConflict(a: unknown, b: unknown): boolean {
   const left = normalizeComparable(a);
   const right = normalizeComparable(b);
@@ -1441,9 +1463,9 @@ function renderCustomerStamp(root: HTMLElement): void {
         </div>
       </div>
     `;
-    // Key the answer to the thread that is on screen right now, so the 3s
-    // detection tick cannot re-ask it.
-    const answerKey = customerDetectionFingerprint || getContextFingerprint(pendingCustomerSuggestion) || '';
+    // Key the answer to the stable thread identity (not the volatile content
+    // fingerprint) so the 3s detection tick and a Generate press cannot re-ask it.
+    const answerKey = stableAnswerKey(pendingCustomerSuggestion);
     stamp.querySelector('#o8-customer-yes')?.addEventListener('click', async () => {
       if (answerKey) answeredCustomerDetections.set(answerKey, 'yes');
       const resolved = await resolveCustomerForDetection(pendingCustomerSuggestion);
@@ -1790,9 +1812,11 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
 
   // The rep already answered the chip for this exact detected thread. Honor it:
   // No means never re-ask (and never silently auto-pin over their answer) while
-  // the detection stays on this thread. A genuinely different thread yields a
-  // different fingerprint, so the chip returns there as intended.
-  const priorAnswer = fingerprint ? answeredCustomerDetections.get(fingerprint) : undefined;
+  // the detection stays on this thread. Keyed on the STABLE thread identity, not
+  // the volatile content fingerprint — otherwise a rolling timestamp or new
+  // message changed the key every tick and orphaned the stored "No", re-firing
+  // the chip. A genuinely different thread/person yields a different key.
+  const priorAnswer = answeredCustomerDetections.get(stableAnswerKey(ctx));
   if (priorAnswer === 'no') return;
 
   if (confidence >= 0.8) {
@@ -3516,8 +3540,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       // Same answered-thread contract as refreshCustomerDetection: a No on
       // the chip holds through a Generate press too — no re-prompt and no
       // silent auto-pin over the rep's answer while this thread is on screen.
-      const generateAnswerKey = getContextFingerprint(leadContext) || '';
-      const generatePriorAnswer = generateAnswerKey ? answeredCustomerDetections.get(generateAnswerKey) : undefined;
+      const generatePriorAnswer = answeredCustomerDetections.get(stableAnswerKey(leadContext));
       if (detectedName && detectedConfidence >= 0.8 && generatePriorAnswer !== 'no') {
         const resolved = await resolveCustomerForDetection(leadContext);
         if (resolved) pinCustomer(root, resolved);

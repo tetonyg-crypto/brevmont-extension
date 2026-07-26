@@ -460,6 +460,29 @@ test('manual customer picker selection wins over auto-detection until thread cha
   expect(source).not.toContain("showToast(root, 'Customer context refreshed')");
 });
 
+test('answered-chip "No" is keyed by stable thread identity, not the volatile fingerprint', () => {
+  // Root cause of the re-firing "This for <name>?" chip: the answer memory was
+  // keyed on the content-script fingerprint, which hashes document.title +
+  // [role=main] innerText — volatile across the 3s tick (rolling timestamps,
+  // new messages), so the stored "No" was orphaned and the chip returned.
+  const source = read('entrypoints/sidepanel/main.ts');
+  // A stable key helper exists and uses thread identity, not content.
+  expect(source).toContain('function stableAnswerKey(ctx: any): string');
+  const keyFn = source.slice(source.indexOf('function stableAnswerKey'), source.indexOf('function stableAnswerKey') + 600);
+  expect(keyFn).toContain('currentPlatform.url');
+  expect(keyFn).toContain('u.pathname');
+  expect(keyFn).toContain('u.hash'); // Gmail thread id lives in the hash
+  expect(keyFn).not.toContain('context_fingerprint');
+  expect(keyFn).not.toContain('document.title');
+  // Every set AND read site uses the stable key — no site keys on the fingerprint.
+  expect(source).toContain('const answerKey = stableAnswerKey(pendingCustomerSuggestion)');
+  expect(source).toContain('answeredCustomerDetections.get(stableAnswerKey(ctx))');
+  expect(source).toContain('answeredCustomerDetections.get(stableAnswerKey(leadContext))');
+  // The old volatile-key patterns must be gone from the guard.
+  expect(source).not.toContain('answeredCustomerDetections.get(fingerprint)');
+  expect(source).not.toContain('getContextFingerprint(leadContext) || \'\'');
+});
+
 test('sidepanel rejects Brevmont company labels before stamping customers', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   const gate = read('entrypoints/lib/leadContextScan.ts');
