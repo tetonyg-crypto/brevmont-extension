@@ -230,7 +230,7 @@ async function attemptReactFiber(composer: HTMLElement | null, sentText: string)
  * Returns a structured result so the caller can log which method
  * won and whether the send was DOM-verified.
  */
-export async function overdriveSend(_sentText: string): Promise<OverdriveSendResult> {
+export async function overdriveSend(sentText: string): Promise<OverdriveSendResult> {
   // ═══ ASSIST MODE (2026-07-25) — NEUTERED, no programmatic send ═════════════
   // Overdrive no longer sends to Facebook. The draft is pre-filled into the
   // composer by the orchestrator's inject step and the rep taps Facebook's own
