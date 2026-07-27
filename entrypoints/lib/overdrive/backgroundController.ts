@@ -18,10 +18,12 @@
 
 import type { OrchestratorSettings, OrchestratorDeps, OrchestratorResult, ThreadScrape } from './orchestrator';
 import { orchestrateReply, isHeroStage, replayPendingConfirms } from './orchestrator';
-import { reportOverdriveBlocked, reportOverdriveDetection } from './apiClient';
+import { reportOverdriveBlocked, reportOverdriveDetection, reportOverdriveDraftPrefilled } from './apiClient';
 import { radarCapture, radarSweepDone } from './radarClient';
 import { getOverdriveSettings } from './apiClient';
 import { extractVehicleHint } from '../platforms/shared';
+import { atomicStorageUpdate } from './atomicStorage';
+import { acquireConversationLock, releaseConversationLock } from './conversationLock';
 
 const KEEPALIVE_ALARM = 'overdrive-keepalive';
 const RADAR_SWEEP_ALARM = 'radar-catchup-sweep';
@@ -177,8 +179,13 @@ async function getRepRepliesTodayCount(): Promise<number> {
 }
 
 async function bumpRepRepliesTodayCount(): Promise<void> {
-  const current = await getRepRepliesTodayCount();
-  await chrome.storage.local.set({ [REP_REPLIES_TODAY_KEY]: { ymd: todayYmd(), count: current + 1 } });
+  // Serialized read-modify-write: two threads finishing near-simultaneously
+  // must not both read the same count and lose an increment.
+  await atomicStorageUpdate<{ ymd: string; count: number }>(REP_REPLIES_TODAY_KEY, (current) => {
+    const today = todayYmd();
+    if (!current || current.ymd !== today) return { ymd: today, count: 1 };
+    return { ymd: today, count: current.count + 1 };
+  });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -534,6 +541,23 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
       // Fire chrome.notifications on escalation with fallback to badge.
       if (event.type === 'overdrive.escalated') {
         fireEscalationNotification(event.conversation_key, event.payload as any);
+      } else if (event.type === 'overdrive.draft_ready') {
+        // Draft-and-approve (1.16.87+): Overdrive staged a draft in the
+        // composer but did NOT send. Notify the rep to review and tap the
+        // platform's own Send button — the rep is the sender of record.
+        fireDraftReadyNotification(event.conversation_key, event.payload as any);
+        // Forward to server so event_log_v2 records overdrive.assist_prefilled.
+        // This is what the manager dashboard needs-answering feed and
+        // drafts_awaiting_send counter query for. Fire-and-forget.
+        const draftPayload = (event.payload || {}) as any;
+        reportOverdriveDraftPrefilled({
+          conversation_key: event.conversation_key,
+          idempotency_key: draftPayload.idempotency_key || null,
+          turn_id: draftPayload.turn_id || null,
+          drafted_text_sha256: draftPayload.drafted_text_sha256 || null,
+          preview: draftPayload.preview || null,
+          stage: draftPayload.stage || null,
+        }).catch(() => { /* fire-and-forget */ });
       } else if (event.type === 'overdrive.replied' && isHeroStage(String((event.payload as any).stage || ''))) {
         // Nudge the badge to signal a hero event.
         try {
@@ -548,8 +572,38 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
     getRepRepliesTodayCount,
   };
 
+  // Per-conversation in-flight lock: prevents a second detection signal for the
+  // same conversation (e.g. Messenger DOM churn during the 15-60s pending-send
+  // window) from starting a concurrent pipeline that double-sends the reply.
+  const conversationKey = scrape.scrape.conversation_key;
+  const locked = await acquireConversationLock(conversationKey);
+  if (!locked) {
+    await overdriveLog({
+      event: 'skip_conversation_locked',
+      tab_id: tabId,
+      conversation_key: conversationKey,
+      inbound_hash: scrape.scrape.last_inbound_hash || null,
+    });
+    // Also report server-side so the skip is observable on the manager
+    // dashboard, consistent with every other skip reason. Sent as a free-text
+    // `reason` (stored in action_metadata) — NOT a new event_type, which the
+    // event_log_v2 enum would reject.
+    reportOverdriveBlocked({
+      conversation_key: conversationKey,
+      inbound_hash: scrape.scrape.last_inbound_hash || null,
+      source: 'conversation_lock',
+      reason: 'conversation_locked',
+    }).catch(() => { /* fire-and-forget */ });
+    return;
+  }
+
   let result: OrchestratorResult;
   try {
+    // Carry the detection signal's trigger_origin into the orchestrator so
+    // shouldReply() can block auto-fire when the rep merely opened an old
+    // thread (trigger_origin='thread_open_or_focus') rather than a new
+    // customer message arriving.
+    scrape.scrape.trigger_origin = signal.trigger_origin;
     result = await orchestrateReply(scrape.scrape, cached!.settings, deps);
   } catch (err: any) {
     await overdriveLog({
@@ -566,6 +620,8 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
       reason: err?.message || 'unknown',
     }).catch(() => { /* fire-and-forget */ });
     return;
+  } finally {
+    await releaseConversationLock(conversationKey);
   }
   if (result.attempted && result.send?.verified) {
     await bumpRepRepliesTodayCount();
@@ -598,6 +654,48 @@ function fireEscalationNotification(conversationKey: string, payload: { reason?:
     }
   } catch { /* noop */ }
   fallbackBadgeAlert(payload?.reason);
+}
+
+/**
+ * Draft-and-approve notification — Overdrive drafted a reply and staged
+ * it in the composer, but the send is the rep's own tap. Prompt the rep
+ * to review and send. Falls back to a green review badge if the
+ * notifications permission wasn't granted.
+ */
+function fireDraftReadyNotification(conversationKey: string, payload: { preview?: string }): void {
+  const notifId = `${NOTIFICATION_ID_PREFIX}draft-${conversationKey.slice(0, 28)}`;
+  const preview = String(payload?.preview || '').trim();
+  try {
+    if (chrome.notifications?.create) {
+      chrome.notifications.create(notifId, {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
+        title: 'Draft ready — review and send',
+        message: preview
+          ? `"${preview.slice(0, 120)}${preview.length > 120 ? '…' : ''}" — read it, then tap Send.`
+          : 'Overdrive drafted a reply in the thread. Read it, then tap Send.',
+        priority: 2,
+        requireInteraction: true,
+      }, () => {
+        if (chrome.runtime.lastError) {
+          fallbackDraftReadyBadge();
+        }
+      });
+      return;
+    }
+  } catch { /* noop */ }
+  fallbackDraftReadyBadge();
+}
+
+function fallbackDraftReadyBadge(): void {
+  try {
+    chrome.action?.setBadgeBackgroundColor?.({ color: '#15803D' });
+    chrome.action?.setBadgeText?.({ text: '✍' });
+    setTimeout(() => {
+      chrome.action?.setBadgeText?.({ text: '' }).catch?.(() => {});
+    }, 30000);
+    void overdriveLog({ event: 'draft_ready_badge' });
+  } catch { /* noop */ }
 }
 
 function fallbackBadgeAlert(reason?: string): void {

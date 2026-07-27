@@ -229,6 +229,16 @@ export interface OverdriveReplyResponse {
   ai_question_triggered: boolean;
   photo_data_url: string | null;
   pending_window_seconds?: number;
+  /**
+   * Draft-and-approve (1.16.87+). When true, the server authorized a
+   * DRAFT for this (real) thread but NOT an autonomous send: the client
+   * must stage the draft for the rep and never call overdriveSend. The
+   * rep's own tap on the platform Send button is the actual send. The
+   * server only sets this for callers that declared the capability, so
+   * the frozen client can never receive it — its autonomous path stays
+   * hard-blocked server-side exactly as before.
+   */
+  approval_required?: boolean;
   server_ts: string;
 }
 
@@ -238,10 +248,47 @@ export async function requestOverdriveReply(
   return overdriveFetch<OverdriveReplyResponse>('/api/overdrive/reply', {
     method: 'POST',
     body: JSON.stringify(ctx),
+    // Declare the draft-and-approve capability. The frozen client never
+    // sends this header, so the server keeps auto-send hard-blocked for
+    // it; only a caller that declares this can be handed a real-thread
+    // draft (and only ever as a draft, never an authorized send).
+    headers: { 'X-Overdrive-Capabilities': 'draft_and_approve' },
     // Server generates the deterministic Idempotency-Key from the body;
     // we could also generate it client-side and pass in via header, but
     // keeping the source of truth server-side avoids drift.
   });
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Draft-and-approve consent log (1.16.87+)
+// ─────────────────────────────────────────────────────────────────
+// Records the rep's explicit human decision on a staged draft as a
+// DISCRETE event (distinct from send-confirm, which records the DOM
+// send). Logs that a human reviewed a specific drafted text (by hash)
+// and approved (or dismissed) it. The rep's own Send tap remains the
+// actual send — this never sends anything.
+export interface OverdriveApprovalPayload {
+  conversation_key: string;
+  idempotency_key: string;
+  turn_id?: string;
+  drafted_text_sha256: string;
+  human_approved: boolean;
+  method: 'rep_tap' | 'rep_dismiss' | string;
+  next_stage?: string;
+}
+
+export async function confirmOverdriveApproval(
+  payload: OverdriveApprovalPayload
+): Promise<{ ok: boolean }> {
+  try {
+    await overdriveFetch('/api/overdrive/approve', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -309,6 +356,29 @@ export async function reportOverdriveBlocked(
   payload: OverdriveBlockedPayload,
 ): Promise<{ ok: boolean }> {
   return overdriveFetch<{ ok: boolean }>('/api/overdrive/blocked', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+// Draft-prefilled receipt — fires when the orchestrator stages a draft under
+// draft-and-approve (approval_required=true). The server writes
+// overdrive.assist_prefilled to event_log_v2 so the needs-answering feed and
+// drafts_awaiting_send counter show the draft correctly.
+export interface OverdriveDraftPrefilledPayload {
+  conversation_key: string;
+  idempotency_key?: string | null;
+  turn_id?: string | null;
+  drafted_text_sha256?: string | null;
+  preview?: string | null;
+  stage?: string | null;
+  customer_name?: string | null;
+}
+
+export async function reportOverdriveDraftPrefilled(
+  payload: OverdriveDraftPrefilledPayload,
+): Promise<{ ok: boolean }> {
+  return overdriveFetch<{ ok: boolean }>('/api/overdrive/draft-prefilled', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
