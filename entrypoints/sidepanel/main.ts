@@ -574,6 +574,10 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
   const refreshBtn = document.getElementById('sp-signin-refresh');
   if (signInBtn) {
     signInBtn.onclick = () => {
+      // Explicit sign-in gesture: tell the background to clear any stale cookie
+      // and open the sign-in window so the poll below can adopt the fresh
+      // session even if the SESSION_READY message is dropped.
+      try { chrome.runtime.sendMessage({ type: 'BREVMONT_PANEL_SIGN_IN_STARTED' }); } catch { /* noop */ }
       openAuthExtensionTab();
       // Restart the waiting lifecycle from scratch.
       renderSignedOutScreen();
@@ -581,6 +585,7 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
   }
   if (startOverBtn) {
     startOverBtn.onclick = () => {
+      try { chrome.runtime.sendMessage({ type: 'BREVMONT_PANEL_SIGN_IN_STARTED' }); } catch { /* noop */ }
       // Force account picker via ?force=1 — clears any lingering
       // Supabase session before restarting sign-in.
       try { chrome.tabs.create({ url: `${AUTH_APP_URL}?force=1`, active: true }); } catch { /* noop */ }
@@ -598,6 +603,19 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
   };
 
   const pollId = window.setInterval(async () => {
+    // Actively PULL the freshly-written .brevmont.com session cookie every
+    // cycle — not just re-read storage. The session only reaches storage on
+    // its own if the one-shot externally_connectable SESSION_READY message
+    // landed; if that was dropped (MV3 service-worker cold start, transient
+    // config failure), storage stays empty forever and the old poll waited
+    // forever. Asking the background to sync from the cookie is the recovery
+    // path: during an explicit sign-in window it adopts the cookie past the
+    // signed-out sentinel (see BREVMONT_PANEL_SIGN_IN_STARTED); otherwise it's
+    // a safe no-op.
+    try {
+      const resp: any = await chrome.runtime.sendMessage({ type: 'SYNC_AUTH_FROM_COOKIE' });
+      if (resp?.configured && (await hasStoredSession())) { goSignedIn(); return; }
+    } catch { /* noop */ }
     if (await hasStoredSession()) goSignedIn();
   }, 3000);
   (window as any).__brevmontSignInPollId = pollId;
