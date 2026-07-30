@@ -23,8 +23,10 @@ interface JwtCacheEntry {
 }
 
 let memoryCache: JwtCacheEntry | null = null;
-let inflight: Promise<string | null> | null = null;
-let inflightRepToken: string | null = null;
+// Keyed by rep_auth_token so an in-flight refresh for one token can't have its
+// tracking clobbered by a concurrent refresh for a different token (rapid
+// logout/login), which previously caused a redundant duplicate token fetch.
+const inflightByToken = new Map<string, Promise<string | null>>();
 
 async function markRepAccessEnded(errorCode: string, accessState: 'revoked' | 'trial_ended' = 'revoked'): Promise<void> {
   memoryCache = null;
@@ -152,10 +154,10 @@ export async function getJWT(apiBase: string): Promise<string | null> {
     return stored.token;
   }
 
-  if (inflight && inflightRepToken === repToken) return inflight;
+  const existing = inflightByToken.get(repToken);
+  if (existing) return existing;
 
-  inflightRepToken = repToken;
-  inflight = (async () => {
+  const fetchPromise = (async () => {
     try {
       const fresh = await fetchFreshJwt(repToken, apiBase);
       if (!fresh) return null;
@@ -163,17 +165,17 @@ export async function getJWT(apiBase: string): Promise<string | null> {
       await persist(fresh, repToken);
       return memoryCache.token;
     } finally {
-      inflight = null;
-      inflightRepToken = null;
+      inflightByToken.delete(repToken);
     }
   })();
+  inflightByToken.set(repToken, fetchPromise);
 
-  return inflight;
+  return fetchPromise;
 }
 
 export async function clearJwtCache(): Promise<void> {
   memoryCache = null;
-  inflightRepToken = null;
+  inflightByToken.clear();
   try {
     await browser.storage.local.remove(STORAGE_KEY);
   } catch {

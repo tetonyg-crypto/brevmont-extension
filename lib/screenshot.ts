@@ -32,6 +32,9 @@
 
 const MAX_DIMENSION = 1920;
 const RESIZE_QUALITY = 0.85;
+// Stay under the backend's 6MB decoded cap with margin. PNG ignores the quality
+// arg, so anything over this is re-encoded as JPEG (where quality applies).
+const MAX_SCREENSHOT_BYTES = 4 * 1024 * 1024;
 
 export interface ScreenshotResult {
   dataUrl: string | null;
@@ -62,9 +65,11 @@ async function resize(dataUrl: string, maxDim: number): Promise<string> {
   const img = await loadImage(dataUrl);
   const w = img.naturalWidth;
   const h = img.naturalHeight;
-  if (Math.max(w, h) <= maxDim) return dataUrl; // No resize needed.
 
-  const scale = maxDim / Math.max(w, h);
+  // Downscale only if over the dimension budget, but still redraw + size-check
+  // even when dimensions are fine — a visually complex screenshot can be a
+  // multi-MB PNG at ≤1920px, which the old early-return shipped unchecked.
+  const scale = Math.max(w, h) > maxDim ? maxDim / Math.max(w, h) : 1;
   const newW = Math.round(w * scale);
   const newH = Math.round(h * scale);
 
@@ -74,8 +79,13 @@ async function resize(dataUrl: string, maxDim: number): Promise<string> {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('canvas_2d_unavailable');
   ctx.drawImage(img, 0, 0, newW, newH);
-  // PNG keeps text crisper than JPEG; budget allows it.
-  return canvas.toDataURL('image/png', RESIZE_QUALITY);
+
+  // PNG keeps text crispest, but its quality arg is a no-op — so if the PNG is
+  // over the size budget, re-encode as JPEG (where RESIZE_QUALITY applies) to
+  // guarantee the payload stays under the backend cap.
+  const png = canvas.toDataURL('image/png');
+  if (decodeBase64Length(png) <= MAX_SCREENSHOT_BYTES) return png;
+  return canvas.toDataURL('image/jpeg', RESIZE_QUALITY);
 }
 
 /**

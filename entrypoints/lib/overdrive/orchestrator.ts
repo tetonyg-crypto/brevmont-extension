@@ -42,6 +42,7 @@ import {
   sleep,
 } from './safetyEnvelope';
 import { requestOverdriveReply, confirmOverdriveSend, pauseThread } from './apiClient';
+import { atomicStorageUpdate } from './atomicStorage';
 import type { OverdriveReplyResponse, OverdriveSendConfirmPayload } from './apiClient';
 import type { OverdriveAttachResult, OverdriveSendResult, OverdriveStage, OverdriveThreadContext } from './types';
 
@@ -57,6 +58,12 @@ export interface ThreadScrape {
   message_count?: number;
   rep_currently_typing: boolean;
   existing_stamp?: { source_platform?: string; vehicle_interest?: string | null } | null;
+  /**
+   * Why this orchestration was triggered. 'thread_open_or_focus' means the
+   * rep merely opened/focused an old thread (no new inbound) — Overdrive must
+   * NOT auto-fire in that case. Set at the call site from the detection signal.
+   */
+  trigger_origin?: 'unread_or_new_inbound' | 'thread_open_or_focus' | 'manual_overdrive_click';
 }
 
 export interface OrchestratorSettings {
@@ -110,7 +117,7 @@ export interface OrchestratorDeps {
    * event_log_v2 forwarding + chrome.notifications.
    */
   emitEvent: (event: {
-    type: 'overdrive.attempted' | 'overdrive.replied' | 'overdrive.escalated' | 'overdrive.send_unverified' | 'overdrive.skipped';
+    type: 'overdrive.attempted' | 'overdrive.replied' | 'overdrive.escalated' | 'overdrive.send_unverified' | 'overdrive.skipped' | 'overdrive.draft_ready';
     conversation_key: string;
     payload: Record<string, unknown>;
   }) => void;
@@ -133,6 +140,21 @@ const UNSAFE_OVERDRIVE_REPLY_PATTERNS: Array<{ reason: string; re: RegExp }> = [
   { reason: 'internal_label', re: /\b(?:TEXT|EMAIL|CRM NOTE)\b[\s:]/ },
   { reason: 'ai_meta', re: /\b(?:as an ai|i am an ai|i'm an ai|language model|assistant)\b/i },
 ];
+
+// SHA-256 hex of a drafted reply, for the draft-and-approve consent log.
+// Mirrors contentBridge's helper; falls back to a stable non-crypto hash
+// where subtle is unavailable so the log always has an identifier.
+async function hashDraft(input: string): Promise<string> {
+  try {
+    const enc = new TextEncoder().encode(input);
+    const buf = await crypto.subtle.digest('SHA-256', enc);
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    let h = 0;
+    for (let i = 0; i < input.length; i += 1) { h = (h * 31 + input.charCodeAt(i)) | 0; }
+    return `nz_${(h >>> 0).toString(16)}`;
+  }
+}
 
 export function unsafeOverdriveReplyReason(text: string): string | null {
   const body = String(text || '').trim();
@@ -160,21 +182,24 @@ interface PendingConfirmEntry {
 
 async function stashPendingConfirm(payload: OverdriveSendConfirmPayload): Promise<void> {
   try {
-    const stored = await chrome.storage.local.get([PENDING_CONFIRMS_KEY]);
-    const map = (stored?.[PENDING_CONFIRMS_KEY] as Record<string, PendingConfirmEntry>) || {};
-    map[payload.idempotency_key] = { queued_at: Date.now(), payload };
-    await chrome.storage.local.set({ [PENDING_CONFIRMS_KEY]: map });
+    // Serialized read-modify-write so a concurrent stash/clear on another
+    // thread can't clobber this entry (which would defeat the whole
+    // persist-and-replay recovery this map exists for).
+    await atomicStorageUpdate<Record<string, PendingConfirmEntry>>(PENDING_CONFIRMS_KEY, (current) => {
+      const map = current || {};
+      map[payload.idempotency_key] = { queued_at: Date.now(), payload };
+      return map;
+    });
   } catch { /* storage full, non-fatal */ }
 }
 
 async function clearPendingConfirm(idempotencyKey: string): Promise<void> {
   try {
-    const stored = await chrome.storage.local.get([PENDING_CONFIRMS_KEY]);
-    const map = (stored?.[PENDING_CONFIRMS_KEY] as Record<string, PendingConfirmEntry>) || {};
-    if (map[idempotencyKey]) {
+    await atomicStorageUpdate<Record<string, PendingConfirmEntry>>(PENDING_CONFIRMS_KEY, (current) => {
+      const map = current || {};
       delete map[idempotencyKey];
-      await chrome.storage.local.set({ [PENDING_CONFIRMS_KEY]: map });
-    }
+      return map;
+    });
   } catch { /* noop */ }
 }
 
@@ -379,6 +404,7 @@ async function orchestrateReplyInner(
     },
     rep_replies_today,
     rep_currently_typing_in_thread: rep_typing,
+    trigger_origin: scrape.trigger_origin,
   });
   if (!decision.should) {
     deps.emitEvent({
@@ -611,6 +637,38 @@ async function orchestrateReplyInner(
         };
     attach = { ok: attachResult.ok, method: attachResult.method };
     // If attach failed, we still send the text reply.
+  }
+
+  // Step 8.5 — Draft-and-approve gate (1.16.87+). When the server
+  // authorized this real-thread reply under draft-and-approve, the draft
+  // (and any photo) is now staged in the composer and we STOP. We never
+  // call deps.sendText, so overdriveSend — including the synthesized,
+  // isTrusted-defeating fiber path — is unreachable for real customers.
+  // The rep reads the staged draft and taps the platform's own Send
+  // button; that tap is the only send, and the rep is the sender of
+  // record. We surface the draft and log nothing as sent. The rep's
+  // Approve/Dismiss decision is logged separately via the approve route.
+  if (reply.approval_required) {
+    const draftHash = await hashDraft(reply.reply_text || '');
+    deps.emitEvent({
+      type: 'overdrive.draft_ready',
+      conversation_key: scrape.conversation_key,
+      payload: {
+        stage: reply.next_stage,
+        idempotency_key: reply.idempotency_key,
+        turn_id: reply.turn_id || null,
+        drafted_text_sha256: draftHash,
+        attach_ok: attach?.ok || false,
+        preview: (reply.reply_text || '').slice(0, 280),
+      },
+    });
+    return {
+      attempted: true,
+      skipped_reason: 'awaiting_rep_approval',
+      qualification,
+      reply,
+      latency_ms: Date.now() - startedAt,
+    };
   }
 
   // Step 9: DOM-verified send

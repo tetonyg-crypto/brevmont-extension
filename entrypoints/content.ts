@@ -23,6 +23,21 @@ import { withInjectInFlight as overdriveWithInjectInFlight } from './lib/overdri
 
 type Platform = 'vinsolutions' | 'gmail' | 'outlook' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'google-messages' | 'cargurus' | 'carsdotcom' | 'autotrader' | 'dealersocket' | 'elead' | 'unknown';
 
+/**
+ * Return the first element matching any selector, honoring selector ORDER.
+ * document.querySelector('A, B, C') returns the first match in DOM order across
+ * ALL selectors — not "try A, then B, then C" — so it cannot express priority.
+ * This tries each selector in turn and returns the first hit, so a specific
+ * customer-name selector genuinely wins over a broad fallback like `h1`.
+ */
+function firstMatchingElement(selectors: string[]): Element | null {
+  for (const sel of selectors) {
+    const el = document.querySelector(sel);
+    if (el) return el;
+  }
+  return null;
+}
+
 export default defineContentScript({
   matches: [
     '*://*.vinsolutions.com/*',
@@ -902,7 +917,7 @@ export default defineContentScript({
         btn.textContent = 'Generating...'; btn.disabled = true;
 
         try {
-          const customerEl = document.querySelector('[id*="customer"], [id*="CustomerName"], [id*="name"], .customer-name, h1, h2, [class*="header"] span');
+          const customerEl = firstMatchingElement(['[id*="customer"]', '[id*="CustomerName"]', '[id*="name"]', '.customer-name', 'h1', 'h2', '[class*="header"] span']);
           const customerName = customerEl?.textContent?.trim() || '';
           const toField = qSel(vinSelectors, 'email_to_input', 'input[id*="to"], input[id*="To"], input[name*="to"], input[type="email"]') as HTMLInputElement;
           const toEmail = toField?.value || '';
@@ -975,12 +990,19 @@ export default defineContentScript({
             if (bodyTextarea) {
               safeInjectText(bodyTextarea, emailBody);
             } else {
-              navigator.clipboard.writeText(emailBody);
-              const toast = document.createElement('div');
-              toast.textContent = 'Email copied to clipboard. Paste into body field.';
-              Object.assign(toast.style, { position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background:'#C4841D', color:'#fff', padding:'8px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:'500', zIndex:'99999' });
-              document.body.appendChild(toast);
-              setTimeout(() => toast.remove(), 4000);
+              // Only claim success once the clipboard write actually resolves —
+              // it can reject if the popup lost focus, and telling the rep it
+              // was copied when it wasn't loses the whole email silently.
+              const showClipboardToast = (message: string) => {
+                const toast = document.createElement('div');
+                toast.textContent = message;
+                Object.assign(toast.style, { position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background:'#C4841D', color:'#fff', padding:'8px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:'500', zIndex:'99999' });
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 4000);
+              };
+              navigator.clipboard.writeText(emailBody)
+                .then(() => showClipboardToast('Email copied to clipboard. Paste into body field.'))
+                .catch(() => showClipboardToast('Could not copy automatically — click the body field, then paste manually.'));
             }
           }
 
@@ -1052,7 +1074,7 @@ export default defineContentScript({
         btn.textContent = 'Generating...'; btn.disabled = true;
 
         try {
-          const customerEl = document.querySelector('[id*="customer"], [id*="CustomerName"], [id*="name"], .customer-name, h1, h2');
+          const customerEl = firstMatchingElement(['[id*="customer"]', '[id*="CustomerName"]', '[id*="name"]', '.customer-name', 'h1', 'h2']);
           const customerName = customerEl?.textContent?.trim() || '';
 
           const response: any = await browser.runtime.sendMessage({
@@ -1136,7 +1158,7 @@ export default defineContentScript({
         btn.textContent = 'Generating...'; btn.disabled = true;
 
         try {
-          const customerEl = document.querySelector('[id*="customer" i], [id*="CustomerName" i], h1, h2, [class*="header" i] span');
+          const customerEl = firstMatchingElement(['[id*="customer" i]', '[id*="CustomerName" i]', 'h1', 'h2', '[class*="header" i] span']);
           const customerName = customerEl?.textContent?.trim() || '';
           const phoneField = document.querySelector('input[id*="phone" i], input[id*="Phone" i], input[name*="phone" i]') as HTMLInputElement | null;
           const phone = phoneField?.value || '';
@@ -1279,13 +1301,17 @@ export default defineContentScript({
           const allText = gatherAllText();
           s.vehicle = extractVehicle(allText) || null;
         }
+        // Save vehicle info unconditionally — it must not be dropped just
+        // because the customer-name sanity check below fails (the name and the
+        // vehicle are independent scans; a whitespace mismatch on the name
+        // should not lose a correctly-detected vehicle).
+        if (s.vehicle) browser.storage.local.set({ brevmont_vehicle_info: s.vehicle, brevmont_vehicle_info_time: Date.now() });
         if (s.customerName) {
           const allPageText = gatherAllText();
           if (!allPageText.includes(s.customerName)) return;
           leadData = s;
           browser.storage.local.set({ brevmont_lead: s, brevmont_lead_time: Date.now() });
         }
-        if (s.vehicle) browser.storage.local.set({ brevmont_vehicle_info: s.vehicle, brevmont_vehicle_info_time: Date.now() });
       }
       attemptScan();
       let lastScannedName = '';
@@ -2126,10 +2152,10 @@ export default defineContentScript({
               return null;
             };
             const customerName = pickCleanName(
-              leadData?.customerName,
               detected?.name,
               extractFacebookConversationName(),
               safeExtractContactName(),
+              leadData?.customerName,
             );
             const vehicle = leadData?.vehicle || detected?.vehicle || null;
             const fingerprint = buildContextFingerprint({
@@ -2357,7 +2383,11 @@ export default defineContentScript({
           if (linkedinSignal.rawPrefix) {
             rawText = `${linkedinSignal.rawPrefix}\n\n${rawText}`.slice(0, 5000);
           }
-          const rawName = scanned.customerName || leadData?.customerName || gmailSignal.customerName || linkedinSignal.customerName || detected?.name || extractFacebookConversationName() || safeExtractContactName() || partialSignal.customerName;
+          // Fresh live-scan sources take priority; leadData?.customerName is a
+          // cache that can be up to ~3s stale (see the 3s name-watcher interval)
+          // and must be last-resort only, or a rep switching threads can send
+          // content addressed to the previous customer.
+          const rawName = scanned.customerName || gmailSignal.customerName || linkedinSignal.customerName || detected?.name || extractFacebookConversationName() || safeExtractContactName() || partialSignal.customerName || leadData?.customerName;
           const cleanedName = cleanCustomerNameCandidate(rawName);
           const name = cleanedName && !isLikelyUiName(cleanedName) ? cleanedName : null;
           const phone = scanned.phone || leadData?.phone || detected?.phone || partialSignal.phone || null;
@@ -2474,9 +2504,18 @@ export default defineContentScript({
         script.onload = () => script.remove();
       } catch(e) {}
       window.addEventListener('message', (event) => {
-        if (event.data?.type === 'BREVMONT_LEAD_DATA' && event.data?.data?.customerName) {
-          leadData = event.data.data;
-        }
+        // Only accept messages from this same window — rejects cross-frame /
+        // cross-origin spoofing. brevmont-intercept.js runs in this window's
+        // main world, so a legitimate post has event.source === window. This
+        // does NOT stop a co-resident main-world script on the same page
+        // (postMessage from an injected script is inherently spoofable by
+        // same-window code), so also sanity-check the payload shape.
+        if (event.source !== window) return;
+        const incoming = event.data;
+        if (incoming?.type !== 'BREVMONT_LEAD_DATA') return;
+        const name = incoming?.data?.customerName;
+        if (typeof name !== 'string' || !name.trim() || name.length > 200) return;
+        leadData = incoming.data;
       });
     }
 

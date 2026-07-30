@@ -35,9 +35,13 @@
 
 export const PII_PATTERNS = {
   ssn: /\b\d{3}-\d{2}-\d{4}\b/g,
-  phone: /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
+  // Leading \b dropped so a parenthesized area code — "(307) 690-0291", an
+  // extremely common US format — still matches (\b before "(" never holds).
+  phone: /\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
   email: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
-  credit_card: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g,
+  // 4-4-4-4 (Visa/MC/Discover) OR 4-6-5 (Amex). credit_card runs before phone
+  // in redactText's ordered pass, so a card can't be partially eaten as a phone.
+  credit_card: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b|\b\d{4}[\s-]?\d{6}[\s-]?\d{5}\b/g,
   license_plate: /\b[A-Z]{2,3}[-\s]?\d{3,4}\b/g,
 } as const;
 

@@ -68,7 +68,9 @@ export async function syncPendingLeads(): Promise<{ synced: number; failed: numb
         .where('id')
         .anyOf(ids)
         .modify({ sync_status: 'synced', updated_at: Date.now() });
-      totalSynced = result.synced_count || ids.length;
+      // Prefer the server's explicit count; only fall back to ids.length when
+      // it's genuinely absent (not when it's a legitimate 0).
+      totalSynced = typeof result.synced_count === 'number' ? result.synced_count : ids.length;
     } else {
       // Mark as error so they don't block future syncs forever
       const ids = pending.map((l) => l.id);

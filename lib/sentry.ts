@@ -3,6 +3,7 @@
  */
 
 import * as Sentry from '@sentry/browser';
+import { redactText, redactObject } from './redact';
 
 let sentryReady = false;
 
@@ -30,6 +31,20 @@ export function initSentry(): void {
       beforeSend(event) {
         if (event.request?.data) {
           event.request.data = '[REDACTED]';
+        }
+        // Breadcrumbs and extras carry rep-typed free text (e.g. Command-Mode
+        // input can contain a customer name + phone). Scrub them through the
+        // same PII redaction the support-ticket path uses before anything
+        // leaves the device.
+        if (event.breadcrumbs) {
+          event.breadcrumbs = event.breadcrumbs.map((b) => ({
+            ...b,
+            message: b.message ? redactText(b.message) : b.message,
+            data: b.data ? redactObject(b.data) : b.data,
+          }));
+        }
+        if (event.extra) {
+          event.extra = redactObject(event.extra);
         }
         return event;
       },

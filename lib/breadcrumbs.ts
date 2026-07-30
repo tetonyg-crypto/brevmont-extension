@@ -95,9 +95,29 @@ function scheduleFlush() {
   }, 100);
 }
 
+// Persist the current buffer immediately, cancelling any pending debounce.
+// Used for high-value crumbs that must survive an imminent SW suspension.
+async function flushNow(): Promise<void> {
+  if (writeTimer) {
+    clearTimeout(writeTimer);
+    writeTimer = null;
+  }
+  writePending = false;
+  if (!cachedBuffer) return;
+  try {
+    await new Promise<void>((resolve) => {
+      chrome.storage.local.set({ [STORAGE_KEY]: { version: 1, breadcrumbs: cachedBuffer } }, () => resolve());
+    });
+  } catch {
+    // ignore — breadcrumbs are best-effort
+  }
+}
+
 /**
- * Record a breadcrumb. Returns immediately — write happens on the next
- * debounce tick. Safe to call from hot paths.
+ * Record a breadcrumb. Non-error crumbs write on the next debounce tick (keeps
+ * hot DOM-mutation paths from storming storage). 'error' crumbs — the ones most
+ * likely to immediately precede an SW teardown or a support ticket — flush
+ * synchronously, since a bare setTimeout debounce doesn't survive suspension.
  */
 export async function addBreadcrumb(crumb: Omit<Breadcrumb, 'timestamp'>): Promise<void> {
   await ensureLoaded();
@@ -106,7 +126,11 @@ export async function addBreadcrumb(crumb: Omit<Breadcrumb, 'timestamp'>): Promi
   if (cachedBuffer.length > MAX_BREADCRUMBS) {
     cachedBuffer = cachedBuffer.slice(-MAX_BREADCRUMBS);
   }
-  scheduleFlush();
+  if (crumb.category === 'error') {
+    await flushNow();
+  } else {
+    scheduleFlush();
+  }
 }
 
 /**

@@ -239,17 +239,34 @@ export function watch<K extends StorageKey>(key: K, handler: WatchHandler<K>): (
 // every keystroke without burning IPC. Default 250ms debounce.
 // =============================================================================
 
-const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const debounceTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; updates: Partial<BrevmontStorage> }>();
 
 export function debouncedPatch(updates: Partial<BrevmontStorage>, debounceMs = 250, bucket = '__default__'): void {
   const existing = debounceTimers.get(bucket);
-  if (existing) clearTimeout(existing);
-  debounceTimers.set(bucket, setTimeout(() => {
+  if (existing) clearTimeout(existing.timer);
+  const timer = setTimeout(() => {
     debounceTimers.delete(bucket);
     void patch(updates).catch((err) => {
       console.error('[Brevmont storage] debouncedPatch failed:', err);
     });
-  }, debounceMs));
+  }, debounceMs);
+  debounceTimers.set(bucket, { timer, updates });
+}
+
+/**
+ * Flush every pending debounced write immediately. Call from a page/tab
+ * lifecycle handler (pagehide / visibilitychange→hidden) so a debounce window
+ * that's still open when the document unloads doesn't silently drop the last
+ * edit — a bare setTimeout is torn down with the page and never fires.
+ */
+export function flushDebounced(): void {
+  for (const [, entry] of debounceTimers) {
+    clearTimeout(entry.timer);
+    void patch(entry.updates).catch((err) => {
+      console.error('[Brevmont storage] flushDebounced failed:', err);
+    });
+  }
+  debounceTimers.clear();
 }
 
 // =============================================================================

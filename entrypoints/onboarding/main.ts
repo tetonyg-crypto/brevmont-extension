@@ -474,14 +474,22 @@ async function tryAutoConfigFromCookie(): Promise<boolean> {
 function saveProgress() {
   collectCurrentStep();
   // Sticky persistence: debounced write to chrome.storage.local. 250ms debounce
-  // is enough that 8 keystrokes in a row coalesce into one IPC, and short
-  // enough that a tab close 300ms later still saves.
+  // coalesces a burst of keystrokes into one IPC. A tab close within that window
+  // would otherwise drop the last edit (the timer dies with the page), so the
+  // pagehide/visibilitychange handlers below flush any pending write.
   storage.debouncedPatch(
     { profile_onboarding: JSON.stringify({ step: currentStep, data: profileData, last_saved_at: Date.now() }) },
     250,
     'profile_onboarding'
   );
 }
+
+// Flush any in-flight debounced onboarding write before the page goes away, so
+// closing the tab mid-debounce doesn't lose the rep's last field.
+window.addEventListener('pagehide', () => storage.flushDebounced());
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') storage.flushDebounced();
+});
 
 function collectCurrentStep() {
   if (currentStep === 1) {

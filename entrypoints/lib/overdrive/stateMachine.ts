@@ -130,6 +130,10 @@ export interface ShouldReplyInput {
   };
   rep_replies_today: number; // aggregated across all threads for this rep
   rep_currently_typing_in_thread: boolean;
+  // Why this orchestration fired. 'thread_open_or_focus' = rep opened/focused
+  // an old thread with no new inbound message → auto-fire must be blocked.
+  // undefined is treated as allowed (legacy callers / manual paths).
+  trigger_origin?: 'unread_or_new_inbound' | 'thread_open_or_focus' | 'manual_overdrive_click';
 }
 
 export interface ShouldReplyResult {
@@ -148,13 +152,19 @@ export function normalizeOverdriveEchoText(value: unknown): string {
 }
 
 export function shouldReply(input: ShouldReplyInput): ShouldReplyResult {
-  const { state, last_inbound_hash, last_inbound_text, now, caps, rep_replies_today, rep_currently_typing_in_thread } = input;
+  const { state, last_inbound_hash, last_inbound_text, now, caps, rep_replies_today, rep_currently_typing_in_thread, trigger_origin } = input;
 
   if (isTerminal(state.stage)) {
     return { should: false, reason: `terminal_stage:${state.stage}` };
   }
   if (state.paused) {
     return { should: false, reason: `thread_paused:${state.paused_reason || 'unknown'}` };
+  }
+  // Auto-fire is only permitted for a real new inbound (or an explicit rep
+  // action). Opening/focusing an old thread must never trigger an autonomous
+  // reply, regardless of whether this thread has prior local state.
+  if (trigger_origin === 'thread_open_or_focus') {
+    return { should: false, reason: 'thread_opened_not_new_message' };
   }
   if (rep_currently_typing_in_thread) {
     return { should: false, reason: 'rep_actively_typing' };
