@@ -179,7 +179,7 @@ async function runInject(text = TEST_INJECT_TEXT): Promise<HarnessResult> {
   return { ok: true, platform: adapter.id, adapter_present: true, scan, inject };
 }
 
-async function captureBundle(opts: { text?: string; notes?: string; captureDom?: boolean } = {}): Promise<HarnessResult> {
+export async function captureBundle(opts: { text?: string; notes?: string; captureDom?: boolean } = {}): Promise<HarnessResult> {
   const { adapter, scan } = await runScanInternal();
   if (!adapter) {
     return { ok: false, reason: 'no_adapter_for_current_url', scan };

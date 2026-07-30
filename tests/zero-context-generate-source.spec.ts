@@ -38,7 +38,7 @@ test('manual Generate reads output chips after forced scan applies surface defau
   expect(body).toContain("const type = 'all'");
   expect(body).toContain("workflow_type: 'all'");
   expect(body).toContain('setActiveOutputTab(root, selectedReady || firstReady!)');
-  expect(body).toContain('/v1/generate records one generation.created event for the one paid request');
+  expect(body).toContain('paying for one bundled generation');
   expect(body).not.toContain("selected.includes('text')");
 });
 
