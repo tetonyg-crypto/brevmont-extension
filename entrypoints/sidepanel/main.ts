@@ -1583,6 +1583,46 @@ function pendingCountdownText(decision: any): string {
   return remaining > 0 ? ` · ${remaining}s` : '';
 }
 
+// ─── Needs-answering feed (draft-and-approve alert layer) ────────────────────
+// Renders held drafts + owed-a-reply leads inside the expanded Overdrive pill:
+// customer, their message, stage/heat, and a "Draft held — review & tap Send"
+// badge when Overdrive staged a reply awaiting the rep's own tap. Reads the
+// same /api/overdrive/needs-answering spine as the rep app and manager feed.
+async function renderNeedsAnswering(root: HTMLElement): Promise<void> {
+  const mount = root.querySelector('#o8-needs-answering') as HTMLElement | null;
+  if (!mount) return;
+  mount.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:4px 0">Checking who needs answering…</div>';
+  try {
+    const { getNeedsAnswering } = await import('../lib/overdrive/apiClient');
+    const feed = await getNeedsAnswering();
+    const items = (feed?.items || []).slice(0, 5);
+    if (!items.length) {
+      mount.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:4px 0">Nobody is waiting on a reply right now.</div>';
+      return;
+    }
+    const heat = (n: number | null) => (Number(n) >= 70 ? '🔥' : Number(n) >= 40 ? '·' : '');
+    mount.innerHTML = `
+      <div style="font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin:2px 0 4px">
+        Needs answering${feed.drafts_awaiting_send ? ` · ${feed.drafts_awaiting_send} draft${feed.drafts_awaiting_send === 1 ? '' : 's'} held` : ''}
+      </div>
+      ${items.map((it) => `
+        <div style="padding:6px 8px;border:1px solid rgba(0,0,0,.07);border-radius:8px;margin-bottom:5px;background:#fafafa">
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#0f172a">
+            <span>${esc(it.customer_name || 'Marketplace customer')}</span>
+            ${it.draft_ready ? '<span style="font-size:10px;font-weight:700;color:#0D6E6E;background:#0D6E6E1a;border-radius:4px;padding:1px 5px">Draft held — review &amp; tap Send</span>' : ''}
+            ${it.going_dark ? '<span style="font-size:10px;color:#b45309">going dark</span>' : ''}
+            <span style="margin-left:auto;font-size:10px;color:#94a3b8">${esc(it.last_activity_age_label || '')}</span>
+          </div>
+          ${it.customer_message ? `<div style="font-size:11px;color:#475569;margin-top:2px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">“${esc(it.customer_message.slice(0, 160))}”</div>` : ''}
+          <div style="font-size:10px;color:#64748b;margin-top:2px">${esc([it.vehicle, it.stage ? it.stage.replace(/_/g, ' ') : null].filter(Boolean).join(' · '))} ${heat(it.heat_score)}</div>
+        </div>
+      `).join('')}
+    `;
+  } catch {
+    mount.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:4px 0">Feed unavailable right now.</div>';
+  }
+}
+
 async function renderOverdriveHeartbeatStrip(root: HTMLElement): Promise<void> {
   const strip = root.querySelector('#o8-overdrive-heartbeat-strip') as HTMLElement | null;
   if (!strip) return;
@@ -2243,7 +2283,9 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
 
   if (summary && details) {
     summary.onclick = () => {
-      details.style.display = details.style.display === 'none' || !details.style.display ? 'block' : 'none';
+      const opening = details.style.display === 'none' || !details.style.display;
+      details.style.display = opening ? 'block' : 'none';
+      if (opening) void renderNeedsAnswering(root);
     };
   }
 

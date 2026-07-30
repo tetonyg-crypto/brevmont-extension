@@ -138,6 +138,7 @@ export function getPanelHTML(platform: Platform): string {
   </div>
   <div id="o8-overdrive-pill-details" class="overdrive-pill-details" style="display:none">
     <div id="o8-overdrive-pill-sub" class="overdrive-pill-sub">Drafts Marketplace replies for your review</div>
+    <div id="o8-needs-answering" style="margin-top:6px"></div>
   </div>
 </div>
 <div id="o8-challenge-banner" class="challenge-banner" style="display:none"></div>

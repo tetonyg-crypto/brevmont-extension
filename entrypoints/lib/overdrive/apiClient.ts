@@ -383,3 +383,33 @@ export async function reportOverdriveDraftPrefilled(
     body: JSON.stringify(payload),
   });
 }
+
+// Needs-answering feed — the single data spine for held drafts across the
+// extension side panel, the rep app, and the manager dashboard. Rep-scoped:
+// returns leads owed a human reply, with draft_ready true when Overdrive has
+// a held draft awaiting the rep's own tap on the platform send button.
+export interface NeedsAnsweringItem {
+  lead_id: string;
+  customer_name: string | null;
+  vehicle: string | null;
+  platform: string | null;
+  customer_message: string | null;
+  stage: string | null;
+  heat_score: number | null;
+  going_dark: boolean;
+  last_activity_age_label: string | null;
+  draft_ready: boolean;
+  conversation_key: string | null;
+}
+
+export interface NeedsAnsweringResponse {
+  scope: 'rep' | 'dealership';
+  count: number;
+  drafts_awaiting_send: number;
+  going_dark: number;
+  items: NeedsAnsweringItem[];
+}
+
+export async function getNeedsAnswering(): Promise<NeedsAnsweringResponse> {
+  return overdriveFetch<NeedsAnsweringResponse>('/api/overdrive/needs-answering');
+}
