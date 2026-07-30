@@ -3475,6 +3475,12 @@ function removeStreamingOutput(root: HTMLElement, generationId?: string): void {
 async function doGenerate(root: HTMLElement): Promise<void> {
   stopActiveMic();
   if (isGenerating) return;
+  // Outputs are editable; regenerating wipes them all. Confirm before
+  // discarding hand-tuned drafts so a Regen on one card can't silently lose
+  // edits the rep made to the others.
+  if (hasUnsavedOutputEdits(root) && !confirm('Regenerating will discard your edits to the current drafts. Continue?')) {
+    return;
+  }
   isGenerating = true;
 
   const input = (root.querySelector('#o8-input') as HTMLTextAreaElement)?.value.trim() || '';
@@ -3822,7 +3828,26 @@ function addOutput(root: HTMLElement, label: string, content: string, outputType
   if (regenBtn) regenBtn.addEventListener('click', () => doGenerate(root));
 
   outputs.appendChild(card);
+  // Record the generated value so we can detect rep edits before a Regen /
+  // re-Generate wipes the outputs (see hasUnsavedOutputEdits).
+  const outTa = card.querySelector('.out-textarea') as HTMLTextAreaElement | null;
+  if (outTa) outTa.dataset.original = outTa.value;
   fitOutputTextarea(card, outputType);
+}
+
+// True if any rendered output card's textarea has been edited by the rep since
+// it was generated. Used to guard the destructive outputs-wipe in doGenerate:
+// outputs are now editable, so a Regen / re-Generate must not silently discard
+// hand-tuned drafts. Only textareas stamped with `dataset.original` count, so
+// transient placeholders never trigger a false prompt.
+function hasUnsavedOutputEdits(root: HTMLElement): boolean {
+  const areas = root.querySelectorAll('#o8-outputs .out-textarea');
+  for (const el of Array.from(areas)) {
+    const ta = el as HTMLTextAreaElement;
+    if (ta.dataset.original === undefined) continue;
+    if (ta.value !== ta.dataset.original) return true;
+  }
+  return false;
 }
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
@@ -4182,8 +4207,17 @@ function wireContextTool(root: HTMLElement): void {
         }
         const cleanReply = displayText(replyText, 'No screenshot reply returned.');
         output.innerHTML = `<div class="out-card"><div class="out-label">Screenshot reply</div><textarea class="out-textarea" rows="5">${esc(cleanReply)}</textarea><div class="out-actions"><button class="out-action out-primary">Copy</button><button class="out-action out-regen">Regen</button></div></div>`;
+        const shotTa = output.querySelector('.out-textarea') as HTMLTextAreaElement | null;
+        if (shotTa) shotTa.dataset.original = shotTa.value;
         output.querySelector('.out-primary')?.addEventListener('click', async () => { const ta = output.querySelector('.out-textarea') as HTMLTextAreaElement | null; await navigator.clipboard.writeText(ta?.value ?? cleanReply); const b = output.querySelector('.out-primary'); if (b) { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 2000); } });
-        output.querySelector('.out-regen')?.addEventListener('click', () => genBtn.click());
+        output.querySelector('.out-regen')?.addEventListener('click', () => {
+          const ta = output.querySelector('.out-textarea') as HTMLTextAreaElement | null;
+          if (ta && ta.dataset.original !== undefined && ta.value !== ta.dataset.original
+            && !confirm('Regenerating will discard your edits to this reply. Continue?')) {
+            return;
+          }
+          genBtn.click();
+        });
       } catch (e: any) {
         output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
       }
