@@ -446,8 +446,14 @@ function safeSend(msg: any): Promise<any> {
         return;
       }
       // Surface API errors instead of silently swallowing them.
-      // Background handlers send { error: '...' } when the API fails.
-      if (response?.error && typeof response.error === 'string') {
+      // Background handlers send { error: '...' } when the API fails — BUT some
+      // responses carry a string `error` alongside a soft-status the caller must
+      // branch on: `queued` (offline retry-queue → "Saved, will sync") and
+      // `hold`/grounding_hold (422 → the grounding-hold explainer). Rejecting on
+      // those made both branches dead code and showed a generic "Generation
+      // failed" instead. Only reject a genuine hard error.
+      const softStatus = response?.queued || response?.hold || response?.error === 'grounding_hold';
+      if (response?.error && typeof response.error === 'string' && !softStatus) {
         reject(new Error(response.error));
         return;
       }
@@ -577,6 +583,10 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
   const refreshBtn = document.getElementById('sp-signin-refresh');
   if (signInBtn) {
     signInBtn.onclick = () => {
+      // Explicit sign-in gesture: tell the background to clear any stale cookie
+      // and open the sign-in window so the poll below can adopt the fresh
+      // session even if the SESSION_READY message is dropped.
+      try { chrome.runtime.sendMessage({ type: 'BREVMONT_PANEL_SIGN_IN_STARTED' }); } catch { /* noop */ }
       openAuthExtensionTab();
       // Restart the waiting lifecycle from scratch.
       renderSignedOutScreen();
@@ -584,6 +594,7 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
   }
   if (startOverBtn) {
     startOverBtn.onclick = () => {
+      try { chrome.runtime.sendMessage({ type: 'BREVMONT_PANEL_SIGN_IN_STARTED' }); } catch { /* noop */ }
       // Force account picker via ?force=1 — clears any lingering
       // Supabase session before restarting sign-in.
       try { chrome.tabs.create({ url: `${AUTH_APP_URL}?force=1`, active: true }); } catch { /* noop */ }
@@ -601,6 +612,19 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
   };
 
   const pollId = window.setInterval(async () => {
+    // Actively PULL the freshly-written .brevmont.com session cookie every
+    // cycle — not just re-read storage. The session only reaches storage on
+    // its own if the one-shot externally_connectable SESSION_READY message
+    // landed; if that was dropped (MV3 service-worker cold start, transient
+    // config failure), storage stays empty forever and the old poll waited
+    // forever. Asking the background to sync from the cookie is the recovery
+    // path: during an explicit sign-in window it adopts the cookie past the
+    // signed-out sentinel (see BREVMONT_PANEL_SIGN_IN_STARTED); otherwise it's
+    // a safe no-op.
+    try {
+      const resp: any = await chrome.runtime.sendMessage({ type: 'SYNC_AUTH_FROM_COOKIE' });
+      if (resp?.configured && (await hasStoredSession())) { goSignedIn(); return; }
+    } catch { /* noop */ }
     if (await hasStoredSession()) goSignedIn();
   }, 3000);
   (window as any).__brevmontSignInPollId = pollId;
@@ -1289,6 +1313,28 @@ function getContextFingerprint(ctx: any): string {
   return String(ctx?.context_fingerprint || ctx?.thread_fingerprint || '').trim();
 }
 
+// Stable key for the "This for <name>?" answer memory. The content-script
+// fingerprint (getContextFingerprint) hashes volatile thread content —
+// document.title unread counts and the first 900 chars of [role=main]
+// (rolling timestamps, "Active now", typing indicators, new messages) — so it
+// mutates every 3s detection tick and orphaned a stored "No", re-firing the
+// chip. This key uses only stable thread identity: platform + the thread's URL
+// (pathname covers Messenger/IG/Marketplace thread ids, hash covers the Gmail
+// thread id) + the detected name. It stays constant across ticks in the same
+// conversation, and changes only on a genuinely different thread or person.
+function stableAnswerKey(ctx: any): string {
+  const platform = String(currentPlatform.platform || ctx?.platform || 'unknown').toLowerCase();
+  let thread = '';
+  try {
+    const u = new URL(currentPlatform.url || '');
+    thread = `${u.pathname}${u.hash}`;
+  } catch {
+    thread = String(currentPlatform.url || '');
+  }
+  const name = getCustomerNameFromContext(ctx).toLowerCase();
+  return `${platform}|${thread}|${name}`;
+}
+
 function vehiclesConflict(a: unknown, b: unknown): boolean {
   const left = normalizeComparable(a);
   const right = normalizeComparable(b);
@@ -1450,9 +1496,9 @@ function renderCustomerStamp(root: HTMLElement): void {
         </div>
       </div>
     `;
-    // Key the answer to the thread that is on screen right now, so the 3s
-    // detection tick cannot re-ask it.
-    const answerKey = customerDetectionFingerprint || getContextFingerprint(pendingCustomerSuggestion) || '';
+    // Key the answer to the stable thread identity (not the volatile content
+    // fingerprint) so the 3s detection tick and a Generate press cannot re-ask it.
+    const answerKey = stableAnswerKey(pendingCustomerSuggestion);
     stamp.querySelector('#o8-customer-yes')?.addEventListener('click', async () => {
       if (answerKey) answeredCustomerDetections.set(answerKey, 'yes');
       const resolved = await resolveCustomerForDetection(pendingCustomerSuggestion);
@@ -1799,9 +1845,11 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
 
   // The rep already answered the chip for this exact detected thread. Honor it:
   // No means never re-ask (and never silently auto-pin over their answer) while
-  // the detection stays on this thread. A genuinely different thread yields a
-  // different fingerprint, so the chip returns there as intended.
-  const priorAnswer = fingerprint ? answeredCustomerDetections.get(fingerprint) : undefined;
+  // the detection stays on this thread. Keyed on the STABLE thread identity, not
+  // the volatile content fingerprint — otherwise a rolling timestamp or new
+  // message changed the key every tick and orphaned the stored "No", re-firing
+  // the chip. A genuinely different thread/person yields a different key.
+  const priorAnswer = answeredCustomerDetections.get(stableAnswerKey(ctx));
   if (priorAnswer === 'no') return;
 
   if (confidence >= 0.8) {
@@ -3342,13 +3390,16 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
 
   // FULLY SYNCHRONOUS click handler — no async, no await, no silent rejections
   micBtn.addEventListener('click', () => {
-    // If this mic is active — stop it
+    // If this mic is active — stop it. Mark the stop as user-requested so onend
+    // does NOT auto-restart (see onend below).
     if (activeMicBtn === micBtn && activeMicRecognition) {
+      (activeMicRecognition as any).__stopRequested = true;
       activeMicRecognition.stop();
       return;
     }
-    // If another mic is active — stop that one first
+    // If another mic is active — stop that one first (also user-intent, no restart).
     if (activeMicRecognition) {
+      (activeMicRecognition as any).__stopRequested = true;
       activeMicRecognition.stop();
     }
 
@@ -3425,7 +3476,11 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
 
     recognition.onerror = (event: any) => {
       clearTimeout(startTimeout);
+      // no-speech = a silence pause; let onend auto-restart (keep listening).
+      // aborted = we called stop(); onend handles teardown.
       if (event.error === 'aborted' || event.error === 'no-speech') return;
+      // A real error ends the session — mark it so onend does not auto-restart.
+      (recognition as any).__stopRequested = true;
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         micPermGranted = false;
         try { chrome.storage.local.remove(MIC_PERM_KEY); } catch {}
@@ -3437,15 +3492,21 @@ function attachMic(input: HTMLTextAreaElement | HTMLInputElement, micBtn: HTMLEl
         if (root) showToast(root, 'Mic error: ' + event.error);
       }
       micBtn.classList.remove('mic-active');
-      activeMicRecognition = null;
-      activeMicBtn = null;
+      // Only clear the globals if THIS recognition still owns them (guards the
+      // mic-switch race where a newer mic already took over).
+      if (activeMicRecognition === recognition) { activeMicRecognition = null; activeMicBtn = null; }
     };
 
     recognition.onend = () => {
       clearTimeout(startTimeout);
+      // Bug 1: Chrome ends the session on a silence pause. Keep the mic on until
+      // the rep explicitly taps stop — restart unless a stop was requested (user
+      // tap, real error, or a newer mic took over).
+      if (!(recognition as any).__stopRequested && activeMicRecognition === recognition) {
+        try { recognition.start(); return; } catch { /* fall through to teardown */ }
+      }
       micBtn.classList.remove('mic-active');
-      activeMicRecognition = null;
-      activeMicBtn = null;
+      if (activeMicRecognition === recognition) { activeMicRecognition = null; activeMicBtn = null; }
     };
 
     try {
@@ -3544,10 +3605,14 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     if (!pinnedCustomer) {
       const detectedName = getCustomerNameFromContext(leadContext);
       const detectedConfidence = Number(leadContext?.detectionConfidence ?? leadContext?.detection_confidence ?? 0);
-      if (detectedName && detectedConfidence >= 0.8) {
+      // Same answered-thread contract as refreshCustomerDetection: a No on
+      // the chip holds through a Generate press too — no re-prompt and no
+      // silent auto-pin over the rep's answer while this thread is on screen.
+      const generatePriorAnswer = answeredCustomerDetections.get(stableAnswerKey(leadContext));
+      if (detectedName && detectedConfidence >= 0.8 && generatePriorAnswer !== 'no') {
         const resolved = await resolveCustomerForDetection(leadContext);
         if (resolved) pinCustomer(root, resolved);
-      } else if (detectedName && detectedConfidence >= 0.5) {
+      } else if (detectedName && detectedConfidence >= 0.5 && !generatePriorAnswer) {
         pendingCustomerSuggestion = leadContext;
         renderCustomerStamp(root);
       }

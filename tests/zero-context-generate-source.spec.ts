@@ -308,23 +308,37 @@ test('Overdrive blocks unsafe meta replies before injection and clears failed dr
   expect(bridge).toContain('Ambiguous Messenger DOM should never trigger autonomous');
   expect(bridge).toContain('continue;');
   expect(bridge).not.toContain('lastInbound = text.slice(0, 2000);\\n        continue;');
-  expect(sender).toContain('[aria-label*="Press Enter" i]');
-  expect(sender).toContain("k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$')");
+  // Assist Mode (2026-07-26): the sender is a pure no-op stub. The Press-Enter
+  // selector and the __reactProps isTrusted-bypass were physically removed —
+  // Overdrive never programmatically sends. The unsafe-reply guardrails above
+  // still run before the draft is pre-filled.
+  expect(sender).toContain("method: 'assist_mode_no_send'");
+  expect(sender).not.toContain('__reactProps');
+  expect(sender).not.toContain('Press Enter');
 });
 
-test('Overdrive autonomous send runs inside the Messenger tab, not the background worker', () => {
+test('Overdrive Assist Mode: draft is pre-filled, NOTHING is programmatically sent to Facebook', () => {
+  // 2026-07-25: autonomous send was replaced by draft→pre-fill→human-taps-native-send.
+  // The rep taps Facebook's own send button (a genuine isTrusted gesture). This test
+  // guards that no code path programmatically submits a message to Facebook.
   const orchestrator = read('entrypoints/lib/overdrive/orchestrator.ts');
-  const background = read('entrypoints/lib/overdrive/backgroundController.ts');
-  const content = read('entrypoints/content.ts');
-  expect(orchestrator).not.toContain("import { overdriveSend } from './overdriveSend'");
-  expect(orchestrator).not.toContain('const sendResult = await overdriveSend(');
-  expect(orchestrator).toContain('sendText: (text: string) => Promise<OverdriveSendResult>');
-  expect(orchestrator).toContain('const sendResult = await deps.sendText(reply.reply_text ||');
-  expect(background).toContain("type: 'OVERDRIVE_SEND_TEXT'");
-  expect(background).toContain('orchestrator_exception');
-  expect(content).toContain("msg.type === 'OVERDRIVE_SEND_TEXT'");
-  expect(content).toContain("await import('./lib/overdrive/overdriveSend')");
-  expect(content).toContain('const result = await mod.overdriveSend(text)');
+  const overdriveSend = read('entrypoints/lib/overdrive/overdriveSend.ts');
+
+  // The orchestrator pre-fills (inject) and then STOPS — it must NOT call the send.
+  expect(orchestrator).toContain('let injectOk = await deps.injectText('); // pre-fill kept
+  expect(orchestrator).not.toContain('const sendResult = await deps.sendText('); // send removed
+  expect(orchestrator).toContain("type: 'overdrive.assist_prefilled'"); // logs the pre-fill
+  expect(orchestrator).toContain('assist_prefilled: true'); // returns without sending
+  expect(orchestrator).toContain("skipped_reason: 'assist_prefilled_awaiting_human_send'");
+
+  // overdriveSend is a pure no-op stub — the synthesized keypress / synthetic
+  // click / react-fiber isTrusted-bypass methods were PHYSICALLY REMOVED (not
+  // just gated), so no code path can programmatically send to Facebook.
+  expect(overdriveSend).toContain("method: 'assist_mode_no_send'");
+  expect(overdriveSend).toContain('programmatic_send_disabled_assist_mode');
+  expect(overdriveSend).not.toContain('attemptEnterKey');
+  expect(overdriveSend).not.toContain('__reactProps');
+  expect(overdriveSend).not.toContain('dispatchEvent');
 });
 
 test('Overdrive ignores Messenger system cards and debounces by inbound hash, not tab', () => {
@@ -458,6 +472,29 @@ test('manual customer picker selection wins over auto-detection until thread cha
   expect(body.indexOf('if (isManualCustomerOverride(pinnedCustomer))')).toBeLessThan(body.indexOf('if (confidence >= 0.8)'));
   expect(source.slice(source.indexOf('function pinMismatchReason'), source.indexOf('function clearStalePinnedCustomer'))).toContain('if (isManualCustomerOverride(customer)) return null;');
   expect(source).not.toContain("showToast(root, 'Customer context refreshed')");
+});
+
+test('answered-chip "No" is keyed by stable thread identity, not the volatile fingerprint', () => {
+  // Root cause of the re-firing "This for <name>?" chip: the answer memory was
+  // keyed on the content-script fingerprint, which hashes document.title +
+  // [role=main] innerText — volatile across the 3s tick (rolling timestamps,
+  // new messages), so the stored "No" was orphaned and the chip returned.
+  const source = read('entrypoints/sidepanel/main.ts');
+  // A stable key helper exists and uses thread identity, not content.
+  expect(source).toContain('function stableAnswerKey(ctx: any): string');
+  const keyFn = source.slice(source.indexOf('function stableAnswerKey'), source.indexOf('function stableAnswerKey') + 600);
+  expect(keyFn).toContain('currentPlatform.url');
+  expect(keyFn).toContain('u.pathname');
+  expect(keyFn).toContain('u.hash'); // Gmail thread id lives in the hash
+  expect(keyFn).not.toContain('context_fingerprint');
+  expect(keyFn).not.toContain('document.title');
+  // Every set AND read site uses the stable key — no site keys on the fingerprint.
+  expect(source).toContain('const answerKey = stableAnswerKey(pendingCustomerSuggestion)');
+  expect(source).toContain('answeredCustomerDetections.get(stableAnswerKey(ctx))');
+  expect(source).toContain('answeredCustomerDetections.get(stableAnswerKey(leadContext))');
+  // The old volatile-key patterns must be gone from the guard.
+  expect(source).not.toContain('answeredCustomerDetections.get(fingerprint)');
+  expect(source).not.toContain('getContextFingerprint(leadContext) || \'\'');
 });
 
 test('sidepanel rejects Brevmont company labels before stamping customers', () => {
@@ -607,6 +644,22 @@ test('Outlook adapter is registered and allowed by manifest/content script', () 
   expect(registry).toContain("return 'outlook'");
   expect(content).toContain('*://outlook.office.com/*');
   expect(config).toContain('*://outlook.office.com/*');
+});
+
+test('production content script installs NO page-callable debug harness (store-safety)', () => {
+  // 2026-07-26: the __brevmontVerify / __overdriveSpike DevTools hooks were
+  // removed from the shipped content script — page-callable automation hooks on
+  // Gmail/Facebook are a security surface + a Chrome Web Store rejection. Guard
+  // that they never come back into content.ts, and that the forensic capture
+  // uses the extracted captureBundle module (not the harness that installs them).
+  const content = read('entrypoints/content.ts');
+  expect(content).not.toContain('installVerificationHarness()');
+  expect(content).not.toContain('installSpikeHarness()');
+  expect(content).toContain("import('./lib/platforms/captureBundle')");
+  expect(content).not.toContain("import('./lib/platforms/verificationHarness')");
+  // The overdrive barrel must not re-export the spike harness.
+  const overdriveIndex = read('entrypoints/lib/overdrive/index.ts');
+  expect(overdriveIndex).not.toContain("export { installSpikeHarness }");
 });
 
 test('sidepanel connection gate includes every adapter surface used for zero-context scan', () => {

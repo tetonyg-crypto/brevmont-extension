@@ -13,6 +13,19 @@ const PROXY_URL = 'https://api.brevmont.com';
 const GENERATION_POLL_TIMEOUT_MS = 60_000;
 const SIGNED_OUT_SENTINEL_KEY = 'brevmont_signed_out_at';
 const FRESH_SIGN_IN_INTENTS = new Set(['google_resolved', 'manual_sign_in', 'store_picker']);
+// When the rep explicitly starts sign-in from the side panel ("Sign in with
+// Google" → app.brevmont.com/auth/extension?force=1, which shows the Google
+// account picker), the panel opens this short window. While it is fresh, the
+// COOKIE-only adoption path is allowed past the signed-out sentinel — so the
+// panel can recover the freshly-written session even if the one-shot
+// externally_connectable SESSION_READY message was dropped (MV3 SW cold start,
+// transient config failure). Cross-account safe: force=1 wipes the prior
+// cookie AND the panel handler clears it before opening the window, and the
+// picker guarantees a deliberate account, so the only cookie that can appear
+// during the window is the freshly-chosen one. A genuine sign-out never opens
+// this window, so it stays guarded.
+const SIGN_IN_WINDOW_KEY = 'brevmont_signin_window_at';
+const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
 const BLANK_CONTEXT_IMAGE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 
@@ -891,6 +904,27 @@ export default defineBackground(() => {
           sendResponse({ ok: true, data_url: dataUrl });
         } catch (err: any) {
           sendResponse({ ok: false, error: err?.message || 'capture_threw' });
+        }
+      })();
+      return true; // async
+    }
+
+    if (msg.type === 'BREVMONT_PANEL_SIGN_IN_STARTED') {
+      // The rep explicitly clicked "Sign in with Google" in the side panel,
+      // which opens app.brevmont.com/auth/extension?force=1 (Google account
+      // picker). Clear any stale session cookie FIRST so nothing stale can be
+      // adopted, THEN open a short sign-in window during which the cookie-poll
+      // fallback may adopt the freshly-written session past the signed-out
+      // sentinel (see SIGN_IN_WINDOW_KEY). This is the recovery path for a
+      // dropped one-shot SESSION_READY message. Order matters: cookie cleared
+      // before the window opens.
+      (async () => {
+        try {
+          try { await browser.cookies.remove({ url: 'https://app.brevmont.com', name: 'brevmont_rep_session' }); } catch { /* noop */ }
+          await browser.storage.local.set({ [SIGN_IN_WINDOW_KEY]: Date.now() });
+          sendResponse({ ok: true });
+        } catch (e: any) {
+          sendResponse({ ok: false, error: e?.message || 'signin_window_failed' });
         }
       })();
       return true; // async
@@ -2364,20 +2398,32 @@ export default defineBackground(() => {
 
       let cookieValue = String(repAuthTokenOverride || '').trim();
       if (!cookieValue) {
-        const signedOutState = await browser.storage.local.get([SIGNED_OUT_SENTINEL_KEY]);
-        if (signedOutState[SIGNED_OUT_SENTINEL_KEY]) {
+        const guardState = await browser.storage.local.get([SIGNED_OUT_SENTINEL_KEY, SIGN_IN_WINDOW_KEY]);
+        const signInWindowFresh = !!guardState[SIGN_IN_WINDOW_KEY]
+          && (Date.now() - Number(guardState[SIGN_IN_WINDOW_KEY])) < SIGN_IN_WINDOW_MS;
+        if (guardState[SIGNED_OUT_SENTINEL_KEY] && !signInWindowFresh) {
           trace({
             surface: 'background',
             step: 'try_cookie_share_signed_out_blocked',
             event_type: 'decision',
             payload: {
-              signed_out_at: signedOutState[SIGNED_OUT_SENTINEL_KEY],
+              signed_out_at: guardState[SIGNED_OUT_SENTINEL_KEY],
               call_site: callSite,
             },
             reason: 'explicit sign-out sentinel present; refusing cookie-only adoption until app bridge sends a fresh session',
             call_stack_tag: 'background.ts:tryCookieShareAutoConfig:signed_out_blocked',
           });
           return false;
+        }
+        if (guardState[SIGNED_OUT_SENTINEL_KEY] && signInWindowFresh) {
+          trace({
+            surface: 'background',
+            step: 'try_cookie_share_signin_window_override',
+            event_type: 'decision',
+            payload: { call_site: callSite, signin_window_at: guardState[SIGN_IN_WINDOW_KEY] },
+            reason: 'explicit in-panel sign-in window fresh; adopting the freshly-written cookie past the sentinel',
+            call_stack_tag: 'background.ts:tryCookieShareAutoConfig:signin_window_override',
+          });
         }
         // Read the cookie set by /join/:id/complete OR /activate/:token on app.brevmont.com.
         const cookie = await browser.cookies.get({
@@ -2528,6 +2574,9 @@ export default defineBackground(() => {
       await browser.storage.local.remove(SETUP_KEY);
       await browser.storage.local.remove(['license_revoked_at', 'license_revoked_message', 'license_access_state']);
       await browser.storage.local.remove(SIGNED_OUT_SENTINEL_KEY);
+      // Session adopted — close the explicit sign-in window so the sentinel
+      // guard resumes for any future non-gesture cookie adoption.
+      await browser.storage.local.remove(SIGN_IN_WINDOW_KEY);
 
       await browser.storage.sync.set(storage.sanitizeSyncPayload({
         dealer_token: dealerToken,

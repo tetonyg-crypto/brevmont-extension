@@ -24,12 +24,18 @@ export default defineConfig({
       }
       if (chromeWebStoreBuild) {
         delete (manifest as Record<string, unknown>).key;
-        const cs = (manifest as Record<string, unknown>).content_scripts as Array<{ matches?: string[] }> | undefined;
+        const cs = (manifest as Record<string, unknown>).content_scripts as Array<{ matches?: string[]; js?: string[]; world?: string }> | undefined;
         if (Array.isArray(cs)) {
           const broad = new Set(['http://*/*', 'https://*/*', '<all_urls>']);
-          (manifest as Record<string, unknown>).content_scripts = cs.filter(
-            (entry) => !entry.matches?.some((m) => broad.has(m)),
-          );
+          (manifest as Record<string, unknown>).content_scripts = cs.filter((entry) => {
+            // Drop broad-match content scripts (lead-form-autofill).
+            if (entry.matches?.some((m) => broad.has(m))) return false;
+            // Drop the MAIN-world verification/QA harness — it must never ship to
+            // the store (page-callable automation hooks on Gmail/Facebook = a
+            // security surface + a store-review rejection). Dev builds keep it.
+            if (entry.js?.some((j) => /verification-bridge/.test(j))) return false;
+            return true;
+          });
         }
       }
     },
