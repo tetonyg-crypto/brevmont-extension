@@ -3449,6 +3449,14 @@ function removeStreamingOutput(root: HTMLElement, generationId?: string): void {
 }
 
 async function doGenerate(root: HTMLElement): Promise<void> {
+  if (activeMicRecognition) {
+    activeMicRecognition.stop();
+    activeMicRecognition = null;
+  }
+  if (activeMicBtn) {
+    activeMicBtn.classList.remove('mic-active');
+    activeMicBtn = null;
+  }
   if (isGenerating) return;
   isGenerating = true;
 
@@ -3698,7 +3706,7 @@ function addOutput(root: HTMLElement, label: string, content: string, outputType
   }
   card.innerHTML = `
     <div class="out-label">${esc(getDisplayLabel(label) || label)}</div>
-    <textarea class="out-textarea" rows="${outputType === 'email' ? 16 : outputType === 'crm' ? 8 : 5}" readonly>${esc(visibleContent)}</textarea>
+    <textarea class="out-textarea" rows="${outputType === 'email' ? 16 : outputType === 'crm' ? 8 : 5}">${esc(visibleContent)}</textarea>
     <div class="out-actions">
       <button class="out-action out-primary">Copy</button>
       ${currentPlatform.platform !== 'unknown' ? '<button class="out-action out-primary">Inject</button>' : ''}

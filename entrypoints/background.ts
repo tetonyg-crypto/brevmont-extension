@@ -3739,7 +3739,11 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
     if (thread?.conversation_key) msg += `Conversation key: ${thread.conversation_key}\n`;
     const history = threadMessages || rawThread;
     if (history) msg += `Visible history:\n${history}\n`;
-    msg += 'Use the scanned thread as the primary source of truth. Answer the latest customer message directly, keep the customer name clean, and do not invent vehicle specs, prices, availability, or financing terms not present in the vehicle/dealership context.\n\n';
+    if (repSteer) {
+      msg += 'The thread above is background context only. The REP INSTRUCTION below is the primary directive — follow it exactly instead of answering the customer\'s latest message.\n\n';
+    } else {
+      msg += 'Use the scanned thread as the primary source of truth. Answer the latest customer message directly, keep the customer name clean, and do not invent vehicle specs, prices, availability, or financing terms not present in the vehicle/dealership context.\n\n';
+    }
     msg += directVehicleConditionInstruction(lastInbound);
     msg += directFinanceInstruction(lastInbound);
   }
@@ -3750,7 +3754,11 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
 
   if (payload.type === 'all') {
     if (hasThreadContext) {
-      msg += `REP STEER / OPTIONAL DIRECTION:\n${repSteer || 'No extra direction. Use the scanned thread.'}\n\n`;
+      if (repSteer) {
+        msg += `REP INSTRUCTION - PRIMARY DIRECTIVE (follow this instead of answering the thread):\n${repSteer}\n\n`;
+      } else {
+        msg += `REP STEER / OPTIONAL DIRECTION:\nNo extra direction. Use the scanned thread.\n\n`;
+      }
     } else {
       msg += `REP VOICE/TYPED INPUT:\n${repSteer || payload.repInput || ''}\n\n`;
     }
