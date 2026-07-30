@@ -1,6 +1,6 @@
 {
   "name": "brevmont-extension",
-  "version": "1.16.86",
+  "version": "1.16.87",
   "description": "Brevmont Chrome extension for dealership browser workflows",
   "main": "index.js",
   "scripts": {
