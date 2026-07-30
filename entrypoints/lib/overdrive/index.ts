@@ -1,5 +1,7 @@
 /**
- * Overdrive — rep-facing autonomous Messenger responder.
+ * Overdrive — draft-and-approve Messenger assistant.
+ * Drafts a grounded reply into the composer and HOLDS it; the rep reviews
+ * and taps Facebook's own send button. Nothing sends without a human tap.
  * Public exports.
  */
 

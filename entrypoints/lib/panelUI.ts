@@ -72,7 +72,7 @@ function getSettingsHTML(): string {
     </div>
     <div class="settings-card settings-note-card">
       <div class="settings-note-title">Disclosure</div>
-      <div class="settings-note-copy">Overdrive only reads supported customer conversations and logs autonomous activity to the manager view.</div>
+      <div class="settings-note-copy">Overdrive only reads supported customer conversations and logs every held draft and rep-approved reply to the manager view.</div>
     </div>
     <button id="sp-settings-sign-out" class="settings-secondary" type="button">Sign out</button>
     <div class="settings-divider"></div>
@@ -137,7 +137,7 @@ export function getPanelHTML(platform: Platform): string {
     <button id="o8-overdrive-pill-toggle" type="button" class="overdrive-pill-toggle">Turn on</button>
   </div>
   <div id="o8-overdrive-pill-details" class="overdrive-pill-details" style="display:none">
-    <div id="o8-overdrive-pill-sub" class="overdrive-pill-sub">Auto-answers your Marketplace leads</div>
+    <div id="o8-overdrive-pill-sub" class="overdrive-pill-sub">Drafts Marketplace replies for your review</div>
   </div>
 </div>
 <div id="o8-challenge-banner" class="challenge-banner" style="display:none"></div>

@@ -1830,25 +1830,12 @@ export default defineContentScript({
       }
 
       if (msg.type === 'OVERDRIVE_SEND_TEXT') {
-        (async () => {
-          try {
-            if (!isFacebook || window !== window.top) {
-              sendResponse({ ok: false, error: 'not_facebook_top_frame' });
-              return;
-            }
-            const text = String(msg.payload?.text || '');
-            if (!text) {
-              sendResponse({ ok: false, error: 'empty_text' });
-              return;
-            }
-            const mod = await import('./lib/overdrive/overdriveSend');
-            const result = await mod.overdriveSend(text);
-            sendResponse({ ok: true, result });
-          } catch (err: any) {
-            sendResponse({ ok: false, error: err?.message || 'send_failed' });
-          }
-        })();
-        return true;
+        // RETIRED (draft-and-approve). Overdrive never sends. The draft is
+        // pre-filled into the composer and the rep taps Facebook's own send
+        // button. This handler answers any legacy caller with a hard no-op —
+        // it does not import, reference, or execute any send machinery.
+        sendResponse({ ok: false, error: 'autonomous_send_retired_draft_and_approve' });
+        return false;
       }
 
       if (msg.type === 'OVERDRIVE_ATTACH_PHOTO') {

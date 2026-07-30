@@ -406,7 +406,7 @@ test('Overdrive header dot paints from the same state as the pill', () => {
   const css = read('entrypoints/lib/panelCSS.ts');
   expect(source).toContain("root.querySelector('#o8-account-btn')");
   expect(source).toContain('paintHeaderDot');
-  expect(source).toContain('Overdrive on and armed');
+  expect(source).toContain('Overdrive on — drafting for review');
   expect(css).toContain('.account-btn.overdrive-dot-on');
   expect(css).toContain('.account-btn.overdrive-dot-on::after');
   expect(css).not.toContain('.account-btn.overdrive-dot-solo');

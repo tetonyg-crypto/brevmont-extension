@@ -1544,11 +1544,13 @@ function heartbeatToneForDecision(decision: string, reason: string): 'quiet' | '
 
 function renderHeartbeatRecovery(decision: any): string {
   const recovery = Array.isArray(decision?.recovery) ? decision.recovery : [];
+  // Draft-and-approve: "Send now" is retired — nothing sends without the rep's
+  // own tap on Facebook's send button. A server that still pushes `send_now`
+  // (older heartbeat copy) gets only the Take over control.
   if (recovery.includes('take_over') || recovery.includes('send_now')) {
     return `
       <span class="overdrive-heartbeat-actions">
         <button class="overdrive-heartbeat-action" data-heartbeat-action="take-over" type="button">Take over</button>
-        <button class="overdrive-heartbeat-action" data-heartbeat-action="send-now" type="button">Send now</button>
       </span>
     `;
   }
@@ -1564,11 +1566,11 @@ function renderHeartbeatRecovery(decision: any): string {
   return '';
 }
 
-async function queuePendingOverdriveAction(idempotencyKey: string, action: 'send_now' | 'take_over'): Promise<void> {
+async function queuePendingOverdriveAction(idempotencyKey: string, action: 'take_over'): Promise<void> {
   if (!idempotencyKey) return;
   const key = 'overdrive_pending_actions';
   const stored = await chrome.storage.local.get([key]);
-  const map = (stored?.[key] as Record<string, { action: 'send_now' | 'take_over'; at: number }>) || {};
+  const map = (stored?.[key] as Record<string, { action: 'take_over'; at: number }>) || {};
   map[idempotencyKey] = { action, at: Date.now() };
   await chrome.storage.local.set({ [key]: map });
 }
@@ -1666,11 +1668,6 @@ async function renderOverdriveHeartbeatStrip(root: HTMLElement): Promise<void> {
           await pauseThread(conversationKey, { paused_by: 'takeover', reason: 'rep_takeover_pending_window' }).catch(() => null);
           showToast(root, 'Overdrive held');
           await renderOverdriveHeartbeatStrip(root);
-        } else if (action === 'send-now') {
-          const idempotencyKey = String(latest?.metadata?.idempotency_key || '');
-          await queuePendingOverdriveAction(idempotencyKey, 'send_now');
-          showToast(root, 'Sending now');
-          button.setAttribute('disabled', 'true');
         } else if (action === 'open-draft') {
           const input = root.querySelector('#o8-input') as HTMLTextAreaElement | null;
           if (input && latest.draft) {
@@ -2207,16 +2204,16 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
       sub.style.fontWeight = 'normal';
       sub.style.color = 'rgba(15,20,25,0.55)';
       sub.textContent = state.hasFired
-        ? 'Auto-answers your Marketplace leads'
-        : 'On and waiting. It will answer the next new Marketplace inquiry automatically.';
+        ? 'Drafts Marketplace replies for your review'
+        : 'On and waiting. It will draft a held reply for the next new Marketplace inquiry — you review and tap Send.';
       actionLabel.textContent = 'Turn off';
       btn.textContent = 'Turn off';
       btn.classList.remove('is-primary');
-      paintHeaderDot('on', 'Overdrive on and armed');
+      paintHeaderDot('on', 'Overdrive on — drafting for review');
     } else {
       dot.style.background = '#94a3b8';
       title.textContent = 'Overdrive: off';
-      sub.textContent = 'Auto-answers your Marketplace leads';
+      sub.textContent = 'Drafts Marketplace replies for your review';
       actionLabel.textContent = 'Turn on';
       btn.textContent = 'Turn on';
       btn.classList.add('is-primary');

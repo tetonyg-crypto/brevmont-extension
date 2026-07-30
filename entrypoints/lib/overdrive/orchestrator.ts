@@ -101,13 +101,6 @@ export interface OrchestratorDeps {
   reacquireComposer?: () => Promise<boolean>;
 
   /**
-   * Attempt the DOM send inside the target page. The orchestrator runs
-   * in the MV3 background worker, so it cannot touch Messenger's
-   * document directly.
-   */
-  sendText: (text: string) => Promise<OverdriveSendResult>;
-
-  /**
    * Optional page-side attachment hook for AI-question selfie replies.
    */
   attachPhoto?: (photoDataUrl: string) => Promise<OverdriveAttachResult>;
@@ -203,17 +196,21 @@ async function clearPendingConfirm(idempotencyKey: string): Promise<void> {
   } catch { /* noop */ }
 }
 
-type PendingSendAction = 'send_now' | 'take_over';
+// Draft-and-approve: 'send_now' is retired — there is no send to fast-forward.
+// The only pending-window action is take_over (rep claims the thread and
+// Overdrive stands down). A stale 'send_now' entry left in storage by an older
+// build is ignored and treated as "let the draft-hold proceed".
+type PendingSendAction = 'take_over';
 
 async function readPendingSendAction(idempotencyKey: string): Promise<PendingSendAction | null> {
   try {
     const stored = await chrome.storage.local.get([PENDING_ACTIONS_KEY]);
-    const map = (stored?.[PENDING_ACTIONS_KEY] as Record<string, { action: PendingSendAction; at: number }>) || {};
+    const map = (stored?.[PENDING_ACTIONS_KEY] as Record<string, { action: string; at: number }>) || {};
     const entry = map[idempotencyKey];
     if (!entry?.action) return null;
     delete map[idempotencyKey];
     await chrome.storage.local.set({ [PENDING_ACTIONS_KEY]: map });
-    return entry.action;
+    return entry.action === 'take_over' ? 'take_over' : null;
   } catch {
     return null;
   }
@@ -536,10 +533,10 @@ async function orchestrateReplyInner(
     };
   }
 
-  // Step 4: server-owned pending-send window. During this window the
-  // sidepanel heartbeat strip can either let Overdrive send, take over,
-  // or tell it to send immediately. This keeps the existing send token
-  // path intact while making the wait visible and controllable.
+  // Step 4: server-owned pending window. During this short delay the
+  // sidepanel heartbeat strip lets the rep take over before the draft is
+  // staged; otherwise the flow proceeds to prefill-and-HOLD. Nothing sends
+  // at the end of this window — it only paces the draft.
   const pendingSeconds = Number.isFinite(reply.pending_window_seconds)
     ? Math.max(0, Math.min(60, Number(reply.pending_window_seconds)))
     : 15;

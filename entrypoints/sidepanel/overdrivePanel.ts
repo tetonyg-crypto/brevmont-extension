@@ -80,14 +80,14 @@ const DISCLOSURE_TEXT = [
   '- Marketplace/Messenger threads only, on facebook.com/messenger.com only.',
   '- Buyer name, vehicle listing, and thread history of qualified conversations.',
   '',
-  'What Overdrive sends:',
-  '- One reply per inbound, driving toward an in-store appointment.',
-  '- A thumbs-up selfie only if the customer asks if you are a bot.',
+  'What Overdrive drafts:',
+  '- One held reply per inbound, driving toward an in-store appointment.',
+  '- You review every draft and tap Send yourself — nothing sends on its own.',
   '- Never negotiates prices or trade values. Never quotes rates.',
   '',
   'What your GM sees:',
-  '- Every autonomous message on the manager dashboard live feed.',
-  '- Escalations, appointment sets, and any send that failed verification.',
+  '- Every held draft and rep-approved reply on the manager dashboard live feed.',
+  '- Escalations, appointment sets, and drafts held for review.',
   '',
   'Overdrive works only while Chrome is open with a Facebook tab available.',
 ].join('\n');
@@ -255,7 +255,7 @@ function renderPanelHTML(data: OverdrivePanelState['data'], currentThread: Overd
       <style>${STYLES}</style>
       <div class="overdrive-header">
         <span class="overdrive-title">Overdrive</span>
-        <span class="overdrive-subtitle">Answers Marketplace inquiries for you</span>
+        <span class="overdrive-subtitle">Drafts Marketplace replies for your review</span>
       </div>
       ${dealerBanner}
       ${activeStatus}
@@ -319,7 +319,7 @@ function wireEvents(container: HTMLElement, state: OverdrivePanelState, paint: (
   container.querySelector('[data-action="thread-resume"]')?.addEventListener('click', async (ev) => {
     const key = (ev.currentTarget as HTMLElement).dataset.key || state.currentThreadKey;
     if (!key) return;
-    if (!confirm('Resume Overdrive on this conversation? The AI will start replying again.')) return;
+    if (!confirm('Resume Overdrive on this conversation? It will start drafting replies for your review again.')) return;
     try {
       await resumeThread(key);
       await loadCurrentThread(state);

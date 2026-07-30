@@ -497,21 +497,8 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
       });
       return !!r?.ok;
     },
-    sendText: async (text: string) => {
-      const r = await sendToTab<{ ok: boolean; result?: any; error?: string }>(tabId, {
-        type: 'OVERDRIVE_SEND_TEXT',
-        payload: { text },
-      });
-      if (r?.result) return r.result;
-      return {
-        ok: false,
-        method: 'not_attempted',
-        verified: false,
-        latency_ms: 0,
-        error: r?.error || 'send_bridge_failed',
-        attempts: [],
-      };
-    },
+    // sendText dep RETIRED (draft-and-approve): the orchestrator never sends;
+    // no send bridge exists between background and page anymore.
     attachPhoto: async (photoDataUrl: string) => {
       const r = await sendToTab<{ ok: boolean; result?: any; error?: string }>(tabId, {
         type: 'OVERDRIVE_ATTACH_PHOTO',
