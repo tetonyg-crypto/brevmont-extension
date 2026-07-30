@@ -385,8 +385,17 @@ function hasVehicleOrBuyingSignal(rawText: unknown): boolean {
 function extractVehicleMention(rawText: unknown): string | null {
   const raw = String(rawText || '');
   const yearMakeModel = raw.match(/\b((?:19|20)\d{2}\s+(?:Chevrolet|Chevy|Subaru|Toyota|Ford|Ram|Dodge|Jeep|GMC|Honda|Nissan|Hyundai|Kia|BMW|Mercedes|Buick|Cadillac|Lexus|Acura|Audi|Volvo|Mazda|Chrysler|Lincoln|Infiniti|Volkswagen|VW|Porsche|Tesla|Rivian)\s+[A-Za-z0-9-]+(?:\s+[A-Za-z0-9-]+){0,2})\b/i);
-  const yearModel = raw.match(/\b((?:19|20)\d{2}\s+(?:Tacoma|Tundra|Camry|Corolla|RAV4|Highlander|Silverado|Sierra|Suburban|Tahoe|Colorado|Equinox|Malibu|F-?150|F-?250|Explorer|Escape|Bronco|Wrangler|Cherokee|Grand Cherokee|Pilot|Civic|Accord|CR-V|Telluride|Sorento|Sportage|Outback|Forester|Crosstrek|Ascent|Model [3YSX]))\b/i);
-  const modelOnly = raw.match(/\b(Silverado|Telluride|Tahoe|Suburban|Tacoma|Tundra|Camry|Corolla|RAV4|Highlander|Sierra|Colorado|Equinox|Malibu|F-?150|F-?250|Explorer|Escape|Bronco|Wrangler|Grand Cherokee|Cherokee|Pilot|Civic|Accord|CR-V|Sorento|Sportage|Outback|Forester|Crosstrek|Ascent|Model [3YSX])\b/i);
+  // Two tiers. UNAMBIG models are distinctive enough to match as a bare word.
+  // Multi-word variants are listed BEFORE their shorter prefixes so alternation
+  // (first-match-wins) returns the full trim ("Bronco Sport" not "Bronco").
+  const UNAMBIG = 'Grand Cherokee|Grand Wagoneer|Bronco Sport|Escalade ESV|Santa Fe|Model [3YSX]|Silverado|Telluride|Tahoe|Suburban|Traverse|Trailblazer|Camaro|Corvette|Tacoma|Tundra|4Runner|Sequoia|Camry|Corolla|RAV4|Highlander|Sienna|Venza|Yukon|Acadia|Terrain|Canyon|Colorado|Equinox|Malibu|Impala|Cruze|F-?150|F-?250|F-?350|Explorer|Expedition|Bronco|Mustang|Wrangler|Cherokee|Wagoneer|Gladiator|Durango|ProMaster|Pacifica|Ridgeline|Odyssey|Civic|Accord|CR-V|HR-V|Sorento|Sportage|Seltos|Carnival|K5|Outback|Forester|Crosstrek|Ascent|Impreza|WRX|Sentra|Altima|Maxima|Pathfinder|Murano|Armada|Elantra|Sonata|Tucson|Palisade|Ioniq|Enclave|Envision|Escalade|XT4|XT5|XT6|CT4|CT5';
+  // AMBIG models double as ordinary English words ("charger", "focus", "escape",
+  // "soul", "edge", "pilot", "rogue", "sierra"...). Match these ONLY with a year
+  // or make in front, so casual thread prose doesn't set a bogus vehicle on the
+  // generation payload.
+  const AMBIG = 'Blazer|Trax|Escape|Edge|Ranger|Maverick|Fusion|Focus|Compass|Renegade|Charger|Challenger|Soul|Forte|Legacy|Kicks|Kona|Venue|Encore|Passport|Frontier|Pilot|Rogue|Sierra';
+  const yearModel = raw.match(new RegExp(`\\b((?:19|20)\\d{2}\\s+(?:${UNAMBIG}|${AMBIG}))\\b`, 'i'));
+  const modelOnly = raw.match(new RegExp(`\\b(${UNAMBIG})\\b`, 'i'));
   return (yearMakeModel?.[1] || yearModel?.[1] || modelOnly?.[1] || null)?.replace(/\s+/g, ' ').trim() || null;
 }
 
@@ -3257,6 +3266,21 @@ function updatePlatformBadge(root: HTMLElement): void {
 // 5. Timeout guard catches revoked permission (onstart doesn't fire in 1500ms)
 let activeMicRecognition: any = null;
 let activeMicBtn: HTMLElement | null = null;
+
+// Stop whatever mic is currently listening and clear its UI state. Called at
+// the top of every submit path (Generate, Coach, Set Alert, Command) so the
+// mic always deactivates the moment the rep commits — no manual second click.
+function stopActiveMic(): void {
+  if (activeMicRecognition) {
+    try { activeMicRecognition.stop(); } catch {}
+    activeMicRecognition = null;
+  }
+  if (activeMicBtn) {
+    activeMicBtn.classList.remove('mic-active');
+    activeMicBtn = null;
+  }
+}
+
 const MIC_PERM_KEY = 'brevmont_mic_granted';
 let micPermGranted = false; // sync module-level flag, loaded at boot
 
@@ -3449,14 +3473,7 @@ function removeStreamingOutput(root: HTMLElement, generationId?: string): void {
 }
 
 async function doGenerate(root: HTMLElement): Promise<void> {
-  if (activeMicRecognition) {
-    activeMicRecognition.stop();
-    activeMicRecognition = null;
-  }
-  if (activeMicBtn) {
-    activeMicBtn.classList.remove('mic-active');
-    activeMicBtn = null;
-  }
+  stopActiveMic();
   if (isGenerating) return;
   isGenerating = true;
 
@@ -3615,8 +3632,20 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       if (sec?.text) addOutput(root, 'MESSAGE', sec.text, 'text', _generationId);
       if (sec?.email) addOutput(root, 'EMAIL', await contentForEmailOutput(sec.email), 'email', _generationId);
       if (sec?.crm) {
-        if (sec.crm.trim() === 'NO_NEW_NOTE') showToast(root, 'Nothing new to log. Last note covers this.');
-        else addOutput(root, 'CRM NOTE', sec.crm, 'crm', _generationId);
+        // Catch the sentinel so the literal token never leaks into the rep's
+        // CRM field. Two forms: the machine token `NO_NEW_NOTE` as a prefix
+        // (safe even with a trailing "— last note covers it", because real
+        // prose never uses the underscored form), or the spaced words alone
+        // ("No new note.") anchored end-to-end (so a genuine note that merely
+        // starts "No new note needed, customer..." is NOT swallowed).
+        const crmTrimmed = sec.crm.trim();
+        const isNoNewNote = /^["'\s]*NO_NEW_NOTE\b/i.test(crmTrimmed)
+          || /^["'\s]*NO NEW NOTE[.!"'\s]*$/i.test(crmTrimmed);
+        if (isNoNewNote) {
+          showToast(root, 'Nothing new to log. Last note covers this.');
+        } else {
+          addOutput(root, 'CRM NOTE', sec.crm, 'crm', _generationId);
+        }
       }
       if (!sec?.text && !sec?.email && !sec?.crm) addOutput(root, 'GENERATION', response.text || 'Generation returned empty.', 'text', _generationId);
 
@@ -3907,6 +3936,7 @@ function commandDisplayText(input: string, modelText: string): string {
 }
 
 async function doCoach(root: HTMLElement): Promise<void> {
+  stopActiveMic();
   const input = (root.querySelector('#o8-coach-input') as HTMLTextAreaElement)?.value.trim();
   if (!input) {
     showToast(root, 'Type a sales scenario first, then click Coach Me.');
@@ -3963,6 +3993,7 @@ function parseAlertTime(text: string): number {
 
 // ─── Set Alert ───────────────────────────────────────────────────────────────
 async function doSetAlert(root: HTMLElement): Promise<void> {
+  stopActiveMic();
   const input = (root.querySelector('#o8-alert-input') as HTMLInputElement)?.value.trim();
   if (!input) return;
   try {
@@ -3997,6 +4028,7 @@ async function loadAlerts(root: HTMLElement): Promise<void> {
 
 // ─── Command ─────────────────────────────────────────────────────────────────
 async function doCommand(root: HTMLElement): Promise<void> {
+  stopActiveMic();
   const input = (root.querySelector('#o8-cmd-input') as HTMLTextAreaElement)?.value.trim();
   if (!input) return;
   const status = root.querySelector('#o8-cmd-status') as HTMLElement;
@@ -4149,8 +4181,8 @@ function wireContextTool(root: HTMLElement): void {
           return;
         }
         const cleanReply = displayText(replyText, 'No screenshot reply returned.');
-        output.innerHTML = `<div class="out-card"><div class="out-label">Screenshot reply</div><textarea class="out-textarea" rows="5" readonly>${esc(cleanReply)}</textarea><div class="out-actions"><button class="out-action out-primary">Copy</button><button class="out-action out-regen">Regen</button></div></div>`;
-        output.querySelector('.out-primary')?.addEventListener('click', async () => { await navigator.clipboard.writeText(replyText); const b = output.querySelector('.out-primary'); if (b) { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 2000); } });
+        output.innerHTML = `<div class="out-card"><div class="out-label">Screenshot reply</div><textarea class="out-textarea" rows="5">${esc(cleanReply)}</textarea><div class="out-actions"><button class="out-action out-primary">Copy</button><button class="out-action out-regen">Regen</button></div></div>`;
+        output.querySelector('.out-primary')?.addEventListener('click', async () => { const ta = output.querySelector('.out-textarea') as HTMLTextAreaElement | null; await navigator.clipboard.writeText(ta?.value ?? cleanReply); const b = output.querySelector('.out-primary'); if (b) { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 2000); } });
         output.querySelector('.out-regen')?.addEventListener('click', () => genBtn.click());
       } catch (e: any) {
         output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;

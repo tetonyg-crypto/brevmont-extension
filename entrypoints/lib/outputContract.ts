@@ -18,7 +18,15 @@ const SECTION_BOUNDARY_RE = /^(?:TEXT(?:\s+MESSAGE)?|MESSAGE|EMAIL(?:\s+REPLY)?|
 // model wrote all three sections as one continuous paragraph and the
 // line-based heading parser below silently collapsed everything into
 // `sections.text`.
-const FENCE_MARKER_RE = /\[{3}\s*(TEXT|EMAIL|CRM(?:\s+NOTE)?)\s*\]{3}/gi;
+// Tolerant of bracket-count / whitespace / case drift (`[[TEXT]]`,
+// `[[[ EMAIL ]]]`, lowercase `[[[email]]]`). The model is told to emit exactly
+// three uppercase brackets, but a slip on a single marker previously caused
+// that whole section to be dropped. Case-insensitive so a lowercase/mixed-case
+// marker set still parses instead of collapsing to nothing. Requiring the
+// TEXT|EMAIL|CRM token inside, AND requiring >=2 markers before entering the
+// fenced path (see parseFencedSections), keeps a stray single `[[EMAIL]]` in
+// ordinary prose from being mistaken for a section boundary.
+const FENCE_MARKER_RE = /\[{2,4}\s*(TEXT|EMAIL|CRM(?:\s+NOTE)?)\s*\]{2,4}/gi;
 
 // Rescue boundary for partial fence-marker compliance: if the model emits
 // [[[TEXT]]] and [[[EMAIL]]] correctly but drifts back to a bare "CRM NOTE:"
@@ -111,7 +119,12 @@ interface SectionBoundary {
 // line-heading parser.
 function parseFencedSections(text: string): Record<GenerationSectionKey, string[]> | null {
   const fenceMatches = Array.from(text.matchAll(FENCE_MARKER_RE));
-  if (!fenceMatches.length) return null;
+  // Require at least two markers to treat this as a fenced multi-section
+  // output. A single bracketed token (e.g. "Reply with [[EMAIL]] to get...")
+  // is almost always ordinary prose, not a section boundary; splitting on it
+  // fabricates an empty section and truncates the real draft. A genuine
+  // type=all response always emits >=2 markers.
+  if (fenceMatches.length < 2) return null;
 
   const boundaries: SectionBoundary[] = fenceMatches.map((match) => ({
     start: match.index ?? 0,
@@ -130,6 +143,20 @@ function parseFencedSections(text: string): Record<GenerationSectionKey, string[
   boundaries.sort((a, b) => a.start - b.start);
 
   const sections: Record<GenerationSectionKey, string[]> = { text: [], email: [], crm: [] };
+  // Rescue a leading unlabeled chunk: if the first marker isn't at the very
+  // start, the content before it is usually the TEXT draft whose own marker was
+  // malformed or missing (the model is instructed to emit TEXT first). But a
+  // model preamble ("Sure, here is the email you asked for:") also lands here,
+  // and must NOT become a sendable text draft. Only rescue a chunk that reads
+  // like a real customer-facing message: ends in sentence punctuation and does
+  // not open with a lead-in phrase or end with a colon.
+  if (boundaries.length && boundaries[0].start > 0 && boundaries[0].key !== 'text') {
+    const lead = text.slice(0, boundaries[0].start).trim();
+    const looksLikePreamble = /:$/.test(lead)
+      || /^(?:sure|here(?:'s| is| are)?|okay|ok|got it|absolutely|of course|no problem|happy to|sounds good)\b/i.test(lead)
+      || /\byou asked for\b/i.test(lead);
+    if (lead && /[.?!]["']?$/.test(lead) && !looksLikePreamble) sections.text.push(lead);
+  }
   for (let index = 0; index < boundaries.length; index += 1) {
     const boundary = boundaries[index];
     const end = index + 1 < boundaries.length ? boundaries[index + 1].start : text.length;

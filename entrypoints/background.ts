@@ -2966,11 +2966,32 @@ async function handleGenerate(payload: {
       payload.metadata?.last_inbound_text ||
       payload.threadContext?.last_inbound_text ||
       null;
-    if (isVehicleConditionQuestionText(latestInbound) && sections?.text && looksLikeGenericAvailabilityFollowup(sections.text)) {
-      sections.text = vehicleConditionFallbackReply();
-    }
-    if (isFinanceQuestionText(latestInbound) && sections?.text && looksLikeGenericFollowupForDirectQuestion(sections.text, latestInbound)) {
-      sections.text = financeFallbackReply(latestInbound);
+    // When the rep typed an explicit instruction, the draft is deliberately
+    // steered away from just answering the last inbound message. In that case
+    // the condition/finance "honesty fallback" must NOT overwrite the draft --
+    // doing so silently discards the rep's instruction (the exact bug class
+    // fixed in buildUserMessage). The fallback only applies to unsteered,
+    // thread-driven replies.
+    const hasRepInstruction = Boolean(cleanRepSteer(payload.repInput));
+    if (!hasRepInstruction) {
+      if (isVehicleConditionQuestionText(latestInbound)) {
+        if (sections?.text && looksLikeGenericAvailabilityFollowup(sections.text)) {
+          sections.text = vehicleConditionFallbackReply();
+        }
+        // The evasive non-answer can appear in the email too; a rep who copies
+        // the email must not send a dodge the text just corrected.
+        if (sections?.email && looksLikeGenericAvailabilityFollowup(sections.email)) {
+          sections.email = vehicleConditionFallbackReply();
+        }
+      }
+      if (isFinanceQuestionText(latestInbound)) {
+        if (sections?.text && looksLikeGenericFollowupForDirectQuestion(sections.text, latestInbound)) {
+          sections.text = financeFallbackReply(latestInbound);
+        }
+        if (sections?.email && looksLikeGenericFollowupForDirectQuestion(sections.email, latestInbound)) {
+          sections.email = financeFallbackReply(latestInbound);
+        }
+      }
     }
     return { text: result.text, sections, guard_metrics: result.guard_metrics || null };
   } catch (err: any) {

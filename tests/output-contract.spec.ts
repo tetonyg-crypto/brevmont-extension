@@ -89,6 +89,66 @@ test('does not mis-split on ordinary mid-sentence phrasing that happens to conta
   expect(parsed.crm).toBe('');
 });
 
+test('recovers the text draft when its fence marker uses the wrong bracket count', () => {
+  // Malformed-fence resilience: the model slips to two brackets on the TEXT
+  // marker but keeps EMAIL/CRM correct. Before the tolerant regex + leading-
+  // chunk rescue, the entire text draft (the most-used output) was silently
+  // dropped and the rep saw only email + CRM with no error.
+  const raw = "[[TEXT]]Hey Dana, still have the Traverse ready for you. Want to come take a look? [[[EMAIL]]]Subject: Your Traverse Hi Dana, it's ready. [[[CRM NOTE]]]Dana following up on Traverse.";
+  const parsed = parseGenerationSections(raw, 'all');
+
+  expect(parsed.text).toContain('Hey Dana, still have the Traverse ready');
+  expect(parsed.text).not.toContain('Subject:');
+  expect(parsed.email).toContain('Subject: Your Traverse');
+  expect(parsed.crm).toContain('Dana following up on Traverse');
+});
+
+test('recovers a leading text draft that has no marker at all before EMAIL', () => {
+  // The model forgets the TEXT marker entirely and just starts writing, then
+  // emits [[[EMAIL]]] and [[[CRM NOTE]]]. The leading unlabeled chunk is the
+  // text draft and must be rescued into `text`, not discarded.
+  const raw = "Hey Sam, the Suburban is still on the lot. Can you swing by this week? [[[EMAIL]]]Subject: Suburban Hi Sam, still available. [[[CRM NOTE]]]Sam asked about Suburban availability.";
+  const parsed = parseGenerationSections(raw, 'all');
+
+  expect(parsed.text).toContain('Hey Sam, the Suburban is still on the lot');
+  expect(parsed.email).toContain('Subject: Suburban');
+  expect(parsed.crm).toContain('Sam asked about Suburban availability');
+});
+
+test('does NOT rescue a conversational preamble as the text draft', () => {
+  // Regression guard: a model lead-in before the first fence must not become a
+  // sendable text message. Only genuine customer-facing drafts get rescued.
+  const raw = "Sure, here is the email you asked for: [[[EMAIL]]]Subject: Your Traverse Hi Dana, it's ready. [[[CRM NOTE]]]Dana following up.";
+  const parsed = parseGenerationSections(raw, 'all');
+
+  expect(parsed.text).toBe('');
+  expect(parsed.email).toContain('Subject: Your Traverse');
+  expect(parsed.crm).toContain('Dana following up');
+});
+
+test('a single stray bracket token in prose is not treated as a fence marker', () => {
+  // Only >=2 markers trigger the fenced path, so one bracketed token mid-reply
+  // (even uppercase) stays part of the text instead of fabricating an empty
+  // email section and truncating the real draft.
+  const raw = 'Yes it is available. Reply with [[EMAIL]] to get the full breakdown.';
+  const parsed = parseGenerationSections(raw, 'text');
+
+  expect(parsed.text).toContain('Reply with [[EMAIL]] to get the full breakdown');
+  expect(parsed.email).toBe('');
+});
+
+test('parses lowercase / mixed-case fence markers instead of losing all content', () => {
+  // Case-drift tolerance: a full lowercase or mixed-case marker set must still
+  // split correctly rather than collapse to empty (the regression that dropping
+  // the case-insensitive flag would have caused).
+  const raw = '[[[text]]]Hey Dana, still available. Want to come by? [[[email]]]Subject: Ready Hi Dana. [[[crm note]]]Dana following up.';
+  const parsed = parseGenerationSections(raw, 'all');
+
+  expect(parsed.text).toContain('Hey Dana, still available');
+  expect(parsed.email).toContain('Subject: Ready');
+  expect(parsed.crm).toContain('Dana following up');
+});
+
 test('customer-facing sanitizer strips CRM/meta references and banned separators', () => {
   const text = sanitizeCustomerFacingOutput(`
 Yes, it is available.
