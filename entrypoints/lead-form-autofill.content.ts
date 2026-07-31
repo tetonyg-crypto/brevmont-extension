@@ -114,12 +114,17 @@ function fillVisibleForm(message: string, identity: Required<OutreachIdentity>) 
     if (type === 'hidden' || type === 'file' || type === 'submit' || type === 'button') continue;
 
     if (field instanceof HTMLInputElement && (type === 'checkbox' || type === 'radio')) {
-      // Audit 100-4: NEVER auto-tick a legal consent / agreement / privacy / terms
-      // box — that is the human's affirmative act (TCPA/consent posture), and the
-      // notice already tells them to review + submit. Only a pure contact-CHANNEL
-      // preference (how to reach me: email/phone/text) is auto-selected.
-      if (/agree|consent|privacy|terms|policy|opt.?in|subscribe/i.test(label)) continue;
-      if (/^(?:.*\b)?(?:email|phone|text|contact method|preferred)\b/i.test(label) && !/consent|agree/i.test(label)) {
+      // Audit 100-4 (+ self-review): a checkbox/radio is auto-selected ONLY when
+      // it is unambiguously a contact-METHOD preference (a radio choosing HOW to
+      // be reached), never a consent/agreement box AND never a bare "email/text
+      // me ..." which is almost always a MARKETING opt-in. The affirmative act of
+      // opting into anything stays the human's — the notice says review + submit.
+      // Require an explicit method-preference cue ("preferred", "contact method",
+      // "how should we contact you") to auto-select; a lone email/phone/text or a
+      // "send me / email me / text me <marketing>" label is left untouched.
+      if (/agree|consent|privacy|terms|policy|opt.?in|subscrib|sign me up|send me|email me|text me|notify me|updates|offers|deals|newsletter|marketing|promotion/i.test(label)) continue;
+      const isMethodPreference = /(?:preferred|contact method|method of contact|how (?:should|would|can|do) (?:we|you))/i.test(label) && /(?:email|phone|text|sms|call)/i.test(label);
+      if (field.type === 'radio' && isMethodPreference) {
         field.checked = true;
         dispatchFieldEvents(field);
         filledCount += 1;
