@@ -1,3 +1,11 @@
+type OutreachIdentity = {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  company?: string;
+};
+
 type LeadFormAutofillPayload = {
   requestId?: string;
   prospectId?: string;
@@ -6,6 +14,24 @@ type LeadFormAutofillPayload = {
   rootUrl?: string;
   message?: string;
   queuedAt?: number;
+  // Who the form is filled AS. This flow is Brevmont's dealership-PROSPECTING
+  // autofill (Yancy reaching out to a prospect dealer's contact form), so it
+  // defaults to the founder outreach identity below. Payload-overridable so the
+  // caller — not a hardcoded literal — owns the identity, and so a non-founder
+  // sender never accidentally submits the founder's contact info.
+  senderIdentity?: OutreachIdentity;
+};
+
+// Audit 100-4: single documented source for the outreach identity (was four
+// scattered hardcoded literals). This is the founder's dealership-prospecting
+// sender identity — intentional for outreach, NOT a rep's lead data. Overridden
+// by payload.senderIdentity when the caller supplies one.
+const DEFAULT_OUTREACH_IDENTITY: Required<OutreachIdentity> = {
+  firstName: 'Yancy',
+  lastName: 'Garcia',
+  email: 'founder@brevmont.com',
+  phone: '307-690-0291',
+  company: 'Brevmont Labs',
 };
 
 const AUTOFILL_KEY = 'brevmont_lead_form_autofill';
@@ -27,7 +53,8 @@ async function maybeFillLeadForm() {
   if (Date.now() - pending.queuedAt > TWO_HOURS_MS) return;
   if (!matchesPendingTarget(pending, window.location.href)) return;
 
-  const result = fillVisibleForm(pending.message);
+  const identity: Required<OutreachIdentity> = { ...DEFAULT_OUTREACH_IDENTITY, ...(pending.senderIdentity || {}) };
+  const result = fillVisibleForm(pending.message, identity);
   if (result.filledCount === 0) return;
 
   await browser.storage.local.set({
@@ -78,7 +105,7 @@ function hostMatches(currentHost: string, targetHost: string) {
   return current === target || current.endsWith(`.${target}`) || target.endsWith(`.${current}`);
 }
 
-function fillVisibleForm(message: string) {
+function fillVisibleForm(message: string, identity: Required<OutreachIdentity>) {
   const fields = [...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select')].filter(isVisibleField);
   let filledCount = 0;
   for (const field of fields) {
@@ -87,7 +114,12 @@ function fillVisibleForm(message: string) {
     if (type === 'hidden' || type === 'file' || type === 'submit' || type === 'button') continue;
 
     if (field instanceof HTMLInputElement && (type === 'checkbox' || type === 'radio')) {
-      if (/agree|consent|contact|privacy|terms|email|phone|text/i.test(label)) {
+      // Audit 100-4: NEVER auto-tick a legal consent / agreement / privacy / terms
+      // box — that is the human's affirmative act (TCPA/consent posture), and the
+      // notice already tells them to review + submit. Only a pure contact-CHANNEL
+      // preference (how to reach me: email/phone/text) is auto-selected.
+      if (/agree|consent|privacy|terms|policy|opt.?in|subscribe/i.test(label)) continue;
+      if (/^(?:.*\b)?(?:email|phone|text|contact method|preferred)\b/i.test(label) && !/consent|agree/i.test(label)) {
         field.checked = true;
         dispatchFieldEvents(field);
         filledCount += 1;
@@ -95,7 +127,7 @@ function fillVisibleForm(message: string) {
       continue;
     }
 
-    const value = valueForField(field, label, message);
+    const value = valueForField(field, label, message, identity);
     if (!value) continue;
     setFieldValue(field, value);
     filledCount += 1;
@@ -127,15 +159,15 @@ function fieldLabel(field: HTMLElement) {
     .toLowerCase();
 }
 
-function valueForField(field: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, label: string, message: string) {
+function valueForField(field: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, label: string, message: string, identity: Required<OutreachIdentity>) {
   const type = field instanceof HTMLInputElement ? field.type.toLowerCase() : '';
   if (field instanceof HTMLTextAreaElement || /comment|message|question|note|details|additional|request/.test(label)) return message;
-  if (/first/.test(label) && /name/.test(label)) return 'Yancy';
-  if (/last/.test(label) && /name/.test(label)) return 'Garcia';
-  if (/full.?name|your name|contact name|name/.test(label)) return 'Yancy Garcia';
-  if (/email|e-mail/.test(label) || type === 'email') return 'founder@brevmont.com';
-  if (/phone|mobile|cell|tel/.test(label) || type === 'tel') return '307-690-0291';
-  if (/company|business|organization|dealership/.test(label)) return 'Brevmont Labs';
+  if (/first/.test(label) && /name/.test(label)) return identity.firstName;
+  if (/last/.test(label) && /name/.test(label)) return identity.lastName;
+  if (/full.?name|your name|contact name|name/.test(label)) return `${identity.firstName} ${identity.lastName}`.trim();
+  if (/email|e-mail/.test(label) || type === 'email') return identity.email;
+  if (/phone|mobile|cell|tel/.test(label) || type === 'tel') return identity.phone;
+  if (/company|business|organization|dealership/.test(label)) return identity.company;
   if (field instanceof HTMLSelectElement && /contact/.test(label)) return selectOptionValue(field, /email/i);
   return '';
 }

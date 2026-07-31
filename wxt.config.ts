@@ -15,28 +15,34 @@ const chromeWebStoreBuild =
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   hooks: {
-    'build:manifestGenerated': (_, manifest) => {
+    'build:manifestGenerated': (wxt, manifest) => {
       // WXT auto-discovers entrypoints/popup and wires it as default_popup.
       // Brevmont uses the Chrome side panel as the toolbar click surface, so
       // remove the popup binding from the generated manifest.
       if (manifest.action) {
         delete (manifest.action as Record<string, unknown>).default_popup;
       }
+      const isProd = (wxt as { config?: { mode?: string } })?.config?.mode
+        ? (wxt as { config?: { mode?: string } }).config?.mode === 'production'
+        : process.env.NODE_ENV !== 'development';
+      const cs = (manifest as Record<string, unknown>).content_scripts as Array<{ matches?: string[]; js?: string[]; world?: string }> | undefined;
+      if (Array.isArray(cs)) {
+        const broad = new Set(['http://*/*', 'https://*/*', '<all_urls>']);
+        (manifest as Record<string, unknown>).content_scripts = cs.filter((entry) => {
+          // Audit 100-4: drop the DEV-ONLY MAIN-world verification/QA harness from
+          // EVERY production build (sideload AND store), not just CWS. Its body is
+          // already dead-code-eliminated in prod, but the empty MAIN-world
+          // registration on Gmail/Facebook/etc. is a needless injection surface —
+          // it should not ship in what reps sideload. `wxt dev` keeps it.
+          if (isProd && entry.js?.some((j) => /verification-bridge/.test(j))) return false;
+          // Store-only: drop broad-match content scripts (lead-form-autofill) so a
+          // CWS build passes review; the sideload build intentionally keeps them.
+          if (chromeWebStoreBuild && entry.matches?.some((m) => broad.has(m))) return false;
+          return true;
+        });
+      }
       if (chromeWebStoreBuild) {
         delete (manifest as Record<string, unknown>).key;
-        const cs = (manifest as Record<string, unknown>).content_scripts as Array<{ matches?: string[]; js?: string[]; world?: string }> | undefined;
-        if (Array.isArray(cs)) {
-          const broad = new Set(['http://*/*', 'https://*/*', '<all_urls>']);
-          (manifest as Record<string, unknown>).content_scripts = cs.filter((entry) => {
-            // Drop broad-match content scripts (lead-form-autofill).
-            if (entry.matches?.some((m) => broad.has(m))) return false;
-            // Drop the MAIN-world verification/QA harness — it must never ship to
-            // the store (page-callable automation hooks on Gmail/Facebook = a
-            // security surface + a store-review rejection). Dev builds keep it.
-            if (entry.js?.some((j) => /verification-bridge/.test(j))) return false;
-            return true;
-          });
-        }
       }
     },
   },
