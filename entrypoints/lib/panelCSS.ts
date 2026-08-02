@@ -448,6 +448,60 @@ ${domMode && isLinkedIn ? `
 }
 .account-btn.overdrive-dot-setup::after { background: #94A3B8; box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.18); }
 @keyframes overdrive-dot-pulse { 0%,100%{ box-shadow:0 0 0 3px rgba(16,185,129,.12); } 50%{ box-shadow:0 0 0 6px rgba(16,185,129,.20); } }
+
+/* ── Inventory → Marketplace (Phase 1) ───────────────────────────── */
+.inventory-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px; border: 1px solid #D6E4E4; border-radius: 8px;
+  background: #fff; color: #0D6E6E; font-family: inherit; font-size: 11px;
+  font-weight: 700; cursor: pointer; flex-shrink: 0; line-height: 1;
+}
+.inventory-btn:hover, .inventory-btn:focus-visible { border-color: #0D6E6E; background: #F0FAFA; outline: none; }
+.inventory-btn-caret { font-size: 9px; opacity: 0.8; }
+.inv-dropdown {
+  position: fixed; z-index: 2147483000; min-width: 168px;
+  background: #fff; border: 1px solid #E5E7EB; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16); padding: 6px; display: flex;
+  flex-direction: column; gap: 2px;
+}
+.inv-dropdown-item {
+  text-align: left; padding: 9px 12px; border: 0; border-radius: 7px;
+  background: transparent; color: #0f172a; font-family: inherit; font-size: 13px;
+  font-weight: 600; cursor: pointer;
+}
+.inv-dropdown-item:hover { background: #F0FAFA; color: #0D6E6E; }
+.inv-scan-overlay {
+  position: fixed; inset: 0; z-index: 2147483001; display: flex;
+  align-items: flex-start; justify-content: center; padding: 56px 16px 16px;
+  background: rgba(15, 23, 42, 0.28);
+}
+.inv-scan-card {
+  width: 100%; max-width: 360px; background: #fff; border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.28); overflow: hidden;
+}
+.inv-scan-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid #EEF2F2;
+}
+.inv-scan-title { font-size: 14px; font-weight: 800; color: #0f172a; }
+.inv-scan-close {
+  width: 26px; height: 26px; border: 0; border-radius: 999px; background: #F1F5F5;
+  color: #475569; font-size: 18px; line-height: 1; cursor: pointer;
+}
+.inv-scan-close:hover { background: #E2E8E8; }
+.inv-scan-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.inv-scan-hint { font-size: 13px; color: #334155; font-weight: 600; }
+.inv-scan-help { font-size: 12px; color: #64748b; line-height: 1.5; }
+.inv-scan-btn {
+  width: 100%; padding: 13px 16px; border: 0; border-radius: 10px;
+  background: #0D6E6E; color: #fff; font-family: inherit; font-size: 15px;
+  font-weight: 800; cursor: pointer;
+}
+.inv-scan-btn:hover:not(:disabled) { background: #0a5a5a; }
+.inv-scan-btn:disabled { opacity: 0.7; cursor: default; }
+.inv-scan-btn.secondary { background: #fff; color: #0D6E6E; border: 1px solid #0D6E6E; font-size: 13px; padding: 10px 14px; margin-top: 10px; }
+.inv-scan-progress { font-size: 13px; color: #0f172a; font-weight: 600; }
+.inv-scan-done { font-size: 14px; color: #0D6E6E; font-weight: 800; }
 .account-chip-plan {
   flex-shrink: 0;
   font-size: 9px;

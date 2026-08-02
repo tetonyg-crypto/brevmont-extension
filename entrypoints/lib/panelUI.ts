@@ -106,6 +106,7 @@ export function getPanelHTML(platform: Platform): string {
 
   return `
 <div class="header">
+  <button id="o8-inventory-btn" class="inventory-btn" type="button" title="Inventory → Marketplace" aria-label="Inventory menu">Inventory <span class="inventory-btn-caret">&#9662;</span></button>
   <span class="version-badge" id="o8-version-badge"></span>
   <span style="flex:1"></span>
   ${badge.label ? `<span id="o8-platform-badge" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;color:${badge.color};background:${badge.bg}">${esc(badge.label)}</span>` : '<span id="o8-platform-badge" style="display:none"></span>'}

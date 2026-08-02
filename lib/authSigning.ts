@@ -142,6 +142,22 @@ export async function signedGet(
   return resp;
 }
 
+export async function signedDelete(
+  url: string,
+  extraHeaders?: Record<string, string>,
+): Promise<Response> {
+  const auth = await buildAuthHeaders();
+  const resp = await fetchWithTimeout(url, {
+    method: 'DELETE',
+    headers: {
+      ...auth,
+      ...extraHeaders,
+    },
+  });
+  await handleIdentityMismatch(resp);
+  return resp;
+}
+
 // Legacy: kept exported for any in-flight call sites that pull credentials
 // directly. Returns null in v1.16.0+ since license_secret is no longer issued.
 export async function getLicenseCredentials(): Promise<null> {

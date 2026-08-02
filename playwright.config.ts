@@ -26,6 +26,9 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
+  // tests/unit/** are vitest specs (pure logic, jsdom-free); Playwright must
+  // not try to run them. `npm run test:unit` runs vitest against that dir.
+  testIgnore: ['**/unit/**'],
   timeout: 30_000,
   expect: { timeout: 8_000 },
   fullyParallel: false,

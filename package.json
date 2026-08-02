@@ -14,6 +14,7 @@
     "dev": "wxt dev",
     "zip": "wxt zip",
     "test": "playwright test",
+    "test:unit": "vitest run",
     "test:platform-smoke": "node scripts/smoke-platforms.mjs",
     "test:mock-dom": "playwright test tests/mock-vinsolutions.spec.ts",
     "lint:brand": "node scripts/brand-lint.js",
@@ -38,6 +39,7 @@
     "clsx": "^2.1.1",
     "dexie": "^4.0.11",
     "lucide-react": "^1.7.0",
+    "pica": "^9.0.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "wxt": "^0.20.26"
@@ -50,12 +52,14 @@
     "@types/react-dom": "^19.2.3",
     "@wxt-dev/module-react": "^1.2.2",
     "autoprefixer": "^10.4.27",
+    "happy-dom": "^15.11.7",
     "postcss": "^8.5.15",
     "stylelint": "^16.10.0",
     "stylelint-config-standard": "^36.0.1",
     "tailwindcss": "^4.2.2",
     "terser": "^5.46.1",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "vitest": "^2.1.9"
   },
   "overrides": {
     "uuid": "^11.1.1"
