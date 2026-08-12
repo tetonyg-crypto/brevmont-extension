@@ -2933,18 +2933,34 @@ async function assertNotRevoked(): Promise<void> {
 }
 
 // --- Build rep context from profile for prompt injection ---
+// Prefer chrome.storage.local identity (cookie-share / live session) over
+// sync profile so drafts speak as the salesperson, not a stale store name.
 async function buildRepContext(): Promise<{ repName: string; dealership: string; contextBlock: string }> {
-  const data = await browser.storage.sync.get(['profile', 'rep_name', 'dealership']);
+  const [local, sync] = await Promise.all([
+    browser.storage.local.get(['rep_name', 'dealership', 'dealership_name', 'profile', 'brevmont_tone']),
+    browser.storage.sync.get(['profile', 'rep_name', 'dealership']),
+  ]);
   let profile: any = null;
-  try { profile = data.profile ? JSON.parse(data.profile) : null; } catch(e) {}
+  try {
+    const raw = local.profile || sync.profile;
+    profile = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+  } catch (e) { profile = null; }
+
+  const localRepName = String(local.rep_name || '').trim();
+  const syncRepName = String(sync.rep_name || '').trim();
+  const localDealership = String(local.dealership_name || local.dealership || '').trim();
+  const syncDealership = String(sync.dealership || '').trim();
 
   if (!profile) {
-    // Fallback: old-style fields
-    return {
-      repName: data.rep_name || 'Sales Rep',
-      dealership: data.dealership || 'Dealership',
-      contextBlock: ''
-    };
+    const repName = localRepName || syncRepName || 'Sales Rep';
+    // Optional dealership: never invent "Dealership" as a speaking identity.
+    const dealership = localDealership || syncDealership || '';
+    let contextBlock = 'SPEAKING IDENTITY:\n';
+    contextBlock += `You are ${repName}, an individual automotive salesperson.\n`;
+    contextBlock += 'Write in first person as this salesperson. Do not speak as the dealership brand or a BDC bot.\n';
+    if (dealership) contextBlock += `Optional store affiliation (secondary only): ${dealership}\n`;
+    if (local.brevmont_tone) contextBlock += `Tone: ${local.brevmont_tone}\n`;
+    return { repName, dealership, contextBlock };
   }
 
   const id = profile.identity || {};
@@ -2952,14 +2968,18 @@ async function buildRepContext(): Promise<{ repName: string; dealership: string;
   const vc = profile.voice || {};
   const mk = profile.market || {};
 
-  const repName = `${id.firstName || ''} ${id.lastName || ''}`.trim() || 'Sales Rep';
-  const dealership = dl.name || 'Dealership';
+  const profileName = `${id.firstName || ''} ${id.lastName || ''}`.trim();
+  const repName = localRepName || profileName || syncRepName || 'Sales Rep';
+  const dealership = localDealership || dl.name || syncDealership || '';
 
-  let ctx = 'REP PROFILE:\n';
+  let ctx = 'SPEAKING IDENTITY:\n';
+  ctx += `You are ${repName}, an individual automotive salesperson.\n`;
+  ctx += 'Write in first person as this salesperson. Do not speak as the dealership brand, a manager, or a BDC bot.\n';
+  ctx += '\nREP PROFILE:\n';
   ctx += `Name: ${repName}\n`;
   if (id.jobTitle) ctx += `Title: ${id.jobTitle}\n`;
   if (id.yearsExperience) ctx += `Experience: ${id.yearsExperience}\n`;
-  ctx += `Dealership: ${dealership}\n`;
+  if (dealership) ctx += `Store affiliation (optional context only): ${dealership}\n`;
   if (dl.city && dl.state) ctx += `Location: ${dl.city}, ${dl.state}\n`;
   if (dl.crm) ctx += `CRM: ${dl.crm}\n`;
   if (mk.marketType) ctx += `Market type: ${mk.marketType}\n`;
@@ -2970,7 +2990,8 @@ async function buildRepContext(): Promise<{ repName: string; dealership: string;
   if (dl.avgUsedPrice) ctx += `Avg used car price: ${dl.avgUsedPrice}\n`;
 
   ctx += '\nCOMMUNICATION STYLE:\n';
-  if (vc.tone) ctx += `Tone: ${vc.tone}\n`;
+  const tone = vc.tone || local.brevmont_tone;
+  if (tone) ctx += `Tone: ${tone}\n`;
   if (vc.emojis) ctx += `Emojis: ${vc.emojis}\n`;
   if (vc.textSignature) ctx += `Text signature: ${vc.textSignature}\n`;
   if (vc.emailSignoff) ctx += `Email sign-off: ${vc.emailSignoff}\n`;

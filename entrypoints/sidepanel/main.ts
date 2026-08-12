@@ -1148,7 +1148,9 @@ function renderAutoThreadScan(root: HTMLElement): void {
 
   const message = currentPlatform.platform === 'unknown'
     ? 'Open a supported conversation or type context below.'
-    : 'Could not read this page. Type context below.';
+    : currentPlatform.platform === 'facebook'
+      ? 'Could not read this Messenger thread. Open the chat and try again, or type context below.'
+      : 'Could not read this page. Type context below.';
   el.innerHTML = `<span class="reply-context-label">Manual context:</span><span class="reply-context-text">${esc(message)}</span>`;
 }
 
@@ -1164,14 +1166,34 @@ async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<
   renderAutoThreadScan(root);
 
   try {
+    const platformId = currentPlatform.platform || '';
+    const facebookStrict = platformId === 'facebook';
     let ctx = await sendToContent({ type: 'SCAN_LEAD_V2' });
     let source: 'adapter' | 'legacy' = 'adapter';
-    if (!ctx || ctx.ok === false) {
+    // Facebook/Messenger: fail closed on V2. Legacy SCAN dumps main chrome
+    // (UI labels, listing cards) into the prompt and causes dealership-voice
+    // / wrong-name drafts. Other hosts still fall back to legacy.
+    if ((!ctx || ctx.ok === false) && !facebookStrict) {
       source = 'legacy';
       ctx = await sendToContent({ type: 'SCAN_LEAD' });
     }
     if (requestId !== autoThreadScanRequestId) return null;
-    const scan = autoThreadScanFromResponse(ctx, source);
+    const scan = (!ctx || ctx.ok === false)
+      ? null
+      : autoThreadScanFromResponse(ctx, source);
+    try {
+      console.info('[brevmont-scan]', {
+        platform: platformId,
+        source: facebookStrict ? 'adapter_strict' : source,
+        ok: Boolean(scan),
+        adapter_id: ctx?.adapter_id || ctx?.platform || null,
+        customer_name: scan?.customerName || ctx?.customerName || null,
+        conversation_key: scan?.threadContext?.conversation_key || ctx?.thread?.conversation_key || null,
+        direction_sample: (scan?.threadContext?.messages || []).slice(0, 3).map((m) => m.direction),
+        facebook_strict: facebookStrict,
+        v2_ok: Boolean(ctx && ctx.ok !== false),
+      });
+    } catch { /* ignore logging failures */ }
     if (scan) {
       autoThreadScan = scan;
       autoThreadScanStatus = 'ready';
@@ -1181,7 +1203,7 @@ async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<
       return scan;
     }
     autoThreadScan = null;
-    autoThreadScanStatus = 'fallback';
+    autoThreadScanStatus = facebookStrict ? 'error' : 'fallback';
     autoThreadScanUrl = currentPlatform.url || '';
     renderAutoThreadScan(root);
     return null;
@@ -5225,8 +5247,16 @@ function wireLeadCapture(root: HTMLElement): void {
         // new surface (Instagram, WhatsApp, Google Messages, dealer
         // inboxes) automatically gets the adapter pipeline.
         let ctx = await sendToContent({ type: 'SCAN_LEAD_V2' });
-        if (!ctx || ctx.ok === false) {
+        const facebookStrict = (ctx?.platform || currentPlatform.platform) === 'facebook';
+        if ((!ctx || ctx.ok === false) && !facebookStrict) {
           ctx = await sendToContent({ type: 'SCAN_LEAD' });
+        }
+        if (facebookStrict && (!ctx || ctx.ok === false)) {
+          showToast(root, 'Could not read this Messenger thread. Open the conversation and try again.');
+          if (emptyMsg) emptyMsg.style.display = 'block';
+          scanBtn.textContent = 'Scan This Page';
+          (scanBtn as HTMLButtonElement).disabled = false;
+          return;
         }
         const detectedName = ctx?.customerName || ctx?.customer_name || ctx?.name || '';
         if (ctx && (detectedName || ctx.phone || ctx.email || ctx.raw_text || ctx.source_raw_text)) {

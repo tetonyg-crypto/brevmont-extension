@@ -9,9 +9,13 @@ export type ExtensionTier =
   | 'command'
   | 'command_annual'
   | 'annual'
-  | 'group';
+  | 'group'
+  | 'rep'
+  | 'rep_monthly'
+  | 'rep_annual';
 
 const PAID_TIERS = new Set<ExtensionTier>([
+  'free_trial',
   'founding_pilot',
   'founding_annual',
   'pilot',
@@ -21,6 +25,9 @@ const PAID_TIERS = new Set<ExtensionTier>([
   'command_annual',
   'annual',
   'group',
+  'rep',
+  'rep_monthly',
+  'rep_annual',
 ]);
 
 export interface FeatureAccess {
@@ -41,7 +48,9 @@ export interface FeatureAccess {
 
 export function normalizeExtensionTier(value: unknown): ExtensionTier {
   const tier = String(value || 'free').trim().toLowerCase();
-  if (tier === 'trial' || tier === 'starter' || tier === 'free_trial') return 'free';
+  // Active trials and personal Rep plans unlock paid Capture-and-Coach features.
+  if (tier === 'trial' || tier === 'starter' || tier === 'free_trial') return 'free_trial';
+  if (tier === 'rep' || tier === 'rep_monthly' || tier === 'rep_annual') return 'rep';
   if (tier === 'core') return 'founding_pilot';
   if (tier === 'pro') return 'command';
   if (tier === 'elite') return 'group';
