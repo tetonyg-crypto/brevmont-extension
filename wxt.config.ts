@@ -22,19 +22,14 @@ export default defineConfig({
       if (manifest.action) {
         delete (manifest.action as Record<string, unknown>).default_popup;
       }
-      const isProd = (wxt as { config?: { mode?: string } })?.config?.mode
-        ? (wxt as { config?: { mode?: string } }).config?.mode === 'production'
-        : process.env.NODE_ENV !== 'development';
       const cs = (manifest as Record<string, unknown>).content_scripts as Array<{ matches?: string[]; js?: string[]; world?: string }> | undefined;
       if (Array.isArray(cs)) {
         const broad = new Set(['http://*/*', 'https://*/*', '<all_urls>']);
         (manifest as Record<string, unknown>).content_scripts = cs.filter((entry) => {
-          // Audit 100-4: drop the DEV-ONLY MAIN-world verification/QA harness from
-          // EVERY production build (sideload AND store), not just CWS. Its body is
-          // already dead-code-eliminated in prod, but the empty MAIN-world
-          // registration on Gmail/Facebook/etc. is a needless injection surface —
-          // it should not ship in what reps sideload. `wxt dev` keeps it.
-          if (isProd && entry.js?.some((j) => /verification-bridge/.test(j))) return false;
+          // Audit 100-4: drop the MAIN-world verification/QA harness from CWS
+          // builds only. Self-hosted sideload ships keep it so ship.mjs can
+          // verify live capture tooling is present.
+          if (chromeWebStoreBuild && entry.js?.some((j) => /verification-bridge/.test(j))) return false;
           // Store-only: drop broad-match content scripts (lead-form-autofill) so a
           // CWS build passes review; the sideload build intentionally keeps them.
           if (chromeWebStoreBuild && entry.matches?.some((m) => broad.has(m))) return false;
