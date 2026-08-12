@@ -107,7 +107,7 @@ test('getJWT marks trial ended when token mint returns error_code trial_ended', 
   await expect(getJWT('https://api.brevmont.test')).resolves.toBeNull();
   expect(storage.license_revoked).toBe(true);
   expect(storage.license_access_state).toBe('trial_ended');
-  expect(storage.license_revoked_message).toBe('Your GM can activate the pilot to reopen access.');
+  expect(storage.license_revoked_message).toBe('Keep Brevmont for $24.99/mo to reopen follow-ups.');
   expect(storage.brevmont_last_error).toBe('trial_ended');
   expect(storage.brevmont_jwt_cache).toBeUndefined();
 });

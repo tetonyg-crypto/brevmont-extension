@@ -1,8 +1,9 @@
 export type LicenseAccessState = 'revoked' | 'trial_ended';
 
 export const TRIAL_ENDED_TITLE = '7-day trial ended';
-export const TRIAL_ENDED_BODY = 'Your GM can activate the pilot to reopen access.';
-export const TRIAL_ENDED_CTA = 'Notify GM';
+export const TRIAL_ENDED_BODY = 'Keep Brevmont for $24.99/mo to reopen follow-ups.';
+export const TRIAL_ENDED_CTA = 'Subscribe $24.99';
+export const TRIAL_ENDED_BILLING_URL = 'https://app.brevmont.com/rep/billing';
 
 const REVOKED_ERROR_CODES = new Set([
   'license_revoked',

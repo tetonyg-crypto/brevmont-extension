@@ -26,6 +26,7 @@ import { getFeatureAccess } from '../../lib/featureGate';
 import { signedGet } from '../../lib/authSigning';
 import {
   TRIAL_ENDED_CTA,
+  TRIAL_ENDED_BILLING_URL,
   accessBlockedMessage,
   accessEndedBody,
   accessEndedTitle,
@@ -2829,7 +2830,7 @@ async function showAccessEndedBanner(root: HTMLElement): Promise<void> {
   if (reconnect) {
     reconnect.onclick = async () => {
       if (isTrialEnded) {
-        chrome.tabs.create({ url: 'mailto:?subject=Activate%20Brevmont%20pilot&body=Our%207-day%20Brevmont%20trial%20ended.%20Can%20you%20activate%20the%20pilot%20so%20we%20can%20reopen%20access%3F' });
+        chrome.tabs.create({ url: TRIAL_ENDED_BILLING_URL });
         return;
       }
       reconnect.disabled = true;

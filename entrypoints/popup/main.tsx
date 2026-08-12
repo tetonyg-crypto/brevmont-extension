@@ -5,6 +5,7 @@ import {
   TRIAL_ENDED_BODY,
   TRIAL_ENDED_CTA,
   TRIAL_ENDED_TITLE,
+  TRIAL_ENDED_BILLING_URL,
 } from '../../lib/accessState';
 import {
   type ManualTopic,
@@ -263,6 +264,11 @@ function App() {
     window.close();
   };
 
+  const openBilling = () => {
+    void browser.tabs.create({ url: TRIAL_ENDED_BILLING_URL });
+    window.close();
+  };
+
   const openGoogleActivation = () => {
     void browser.tabs.create({ url: 'https://app.brevmont.com/auth/extension' });
     window.close();
@@ -407,7 +413,7 @@ function App() {
           <div style={{ fontSize: 12, color: '#991B1B', lineHeight: '1.45', marginBottom: 10 }}>{TRIAL_ENDED_BODY}</div>
           <button
             type="button"
-            onClick={notifyGm}
+            onClick={openBilling}
             style={{
               padding: '8px 10px',
               borderRadius: 6,
