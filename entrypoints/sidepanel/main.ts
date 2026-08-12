@@ -3049,11 +3049,11 @@ function wireHandlers(root: HTMLElement): void {
       showPrimaryPanel(root, '#o8-settings-panel');
     };
   }
-  // Inventory → Marketplace (Phase 1): header dropdown + scan. Lazy-loaded so
-  // the inventory scanner + pica normalize bundle only loads when wired.
-  void import('../lib/inventory/ui').then((m) => {
-    m.wireInventory(root, (msg: string) => showToast(root, msg));
-  }).catch(() => { /* inventory UI optional; never block panel wiring */ });
+  // Inventory → Marketplace (Phase 1): keep code, hide UI until scanner is
+  // ready for CWS. Re-enable wireInventory + #o8-inventory-btn together.
+  // void import('../lib/inventory/ui').then((m) => {
+  //   m.wireInventory(root, (msg: string) => showToast(root, msg));
+  // }).catch(() => { /* inventory UI optional; never block panel wiring */ });
   const exampleBtn = el('o8-first-use-example') as HTMLButtonElement | null;
   if (exampleBtn) {
     exampleBtn.onclick = () => {

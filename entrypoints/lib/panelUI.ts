@@ -104,9 +104,9 @@ export function getPanelHTML(platform: Platform): string {
   const customerCard = isVinSolutions ? `<div id="o8-card" class="card"><div id="o8-name" class="name" style="font-style:italic;color:#94a3b8">Open a customer record</div><div id="o8-vehicle" class="vehicle"></div><div id="o8-meta" class="meta"></div></div>` : '';
   const placeholder = 'Optional: steer it, like "push for appointment"';
 
+  // Inventory button intentionally omitted until Phase 1 scanner is CWS-ready.
   return `
 <div class="header">
-  <button id="o8-inventory-btn" class="inventory-btn" type="button" title="Inventory → Marketplace" aria-label="Inventory menu">Inventory <span class="inventory-btn-caret">&#9662;</span></button>
   <span class="version-badge" id="o8-version-badge"></span>
   <span style="flex:1"></span>
   ${badge.label ? `<span id="o8-platform-badge" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;color:${badge.color};background:${badge.bg}">${esc(badge.label)}</span>` : '<span id="o8-platform-badge" style="display:none"></span>'}
