@@ -1,27 +1,20 @@
 /**
  * Inventory UI for the side panel.
  *
- * Mounts a self-contained dropdown popover under the header "Inventory ▾"
- * button (o8-inventory-btn, added in panelUI.ts). The dropdown offers:
- *   [Add Inventory] [View Inventory] [Delete Inventory]
- *
- * ADD  → on a detected dealer site, a big "Scan Inventory" button + progress;
- *        otherwise a helper message. Scan uses the MAIN-world reader (Dealer.com
- *        window.DDC.dataLayer.vehicles) and POSTs to /api/v1/rep/inventory/scan.
- * VIEW → opens the app hub inventory screen in a new tab.
- * DELETE → opens the app hub (delete lives there in Phase 1).
- *
- * HARD RULE: Phase 1 is read-only scraping of the rep's OWN dealer site. Zero
- * Facebook interaction, no auto-submit anywhere.
+ * Inventory button opens the mini lot (browse / status / Post).
+ * Scan Inventory is a secondary action inside that panel.
+ * Same GET /api/v1/rep/inventory + seed merge as /rep/inventory.
  */
 
 import { detectInventorySite } from './scrape';
 import { detectLivePage } from './mainWorldReader';
 import { scanInventory, type ScanProgress } from './scanRunner';
 import { postInventoryScan } from './apiClient';
+import { createMiniPanel } from './miniPanel';
 
 const HUB_BASE_DEFAULT = 'https://app.brevmont.com';
-const HUB_INVENTORY_PATH = '/rep/app/inventory';
+const HUB_INVENTORY_PATH = '/rep/inventory';
+const HUB_INVENTORY_LEGACY_PATH = '/rep/app/inventory';
 
 async function hubInventoryUrl(): Promise<string> {
   try {
@@ -60,27 +53,14 @@ export function wireInventory(root: HTMLElement, toast: (msg: string) => void): 
   document.getElementById('o8-inventory-dropdown')?.remove();
   document.getElementById('o8-inventory-scan')?.remove();
 
-  // ── Dropdown ──────────────────────────────────────────────────────────
-  const dropdown = document.createElement('div');
-  dropdown.id = 'o8-inventory-dropdown';
-  dropdown.className = 'inv-dropdown';
-  dropdown.style.display = 'none';
-  dropdown.innerHTML = `
-    <button class="inv-dropdown-item" data-inv-action="add" type="button">Add Inventory</button>
-    <button class="inv-dropdown-item" data-inv-action="view" type="button">View Inventory</button>
-    <button class="inv-dropdown-item" data-inv-action="delete" type="button">Delete Inventory</button>
-  `;
-  document.body.appendChild(dropdown);
-
-  // ── Scan overlay ─────────────────────────────────────────────────────
   const overlay = document.createElement('div');
   overlay.id = 'o8-inventory-scan';
-  overlay.className = 'inv-scan-overlay';
+  overlay.className = 'inv-scan-overlay inv-mini-overlay';
   overlay.style.display = 'none';
   overlay.innerHTML = `
-    <div class="inv-scan-card">
+    <div class="inv-scan-card inv-mini-card-shell">
       <div class="inv-scan-head">
-        <span class="inv-scan-title">Add Inventory</span>
+        <span class="inv-scan-title">Inventory</span>
         <button class="inv-scan-close" id="o8-inv-scan-close" type="button" aria-label="Close">&times;</button>
       </div>
       <div class="inv-scan-body" id="o8-inv-scan-body"></div>
@@ -92,37 +72,12 @@ export function wireInventory(root: HTMLElement, toast: (msg: string) => void): 
     overlay.style.display = 'none';
   };
 
-  const closeDropdown = (): void => { dropdown.style.display = 'none'; };
-
-  const positionDropdown = (): void => {
-    const rect = btn.getBoundingClientRect();
-    dropdown.style.top = `${Math.round(rect.bottom + 4)}px`;
-    dropdown.style.left = `${Math.round(rect.left)}px`;
-  };
+  const mini = createMiniPanel(overlay, body, toast, () => { void openAddView(); }, openHub);
 
   btn.onclick = (e) => {
     e.stopPropagation();
-    const isOpen = dropdown.style.display !== 'none';
-    if (isOpen) { closeDropdown(); return; }
-    positionDropdown();
-    dropdown.style.display = 'block';
+    void mini.openList();
   };
-
-  document.addEventListener('click', (e) => {
-    if (dropdown.style.display === 'none') return;
-    if (e.target === btn || dropdown.contains(e.target as Node)) return;
-    closeDropdown();
-  });
-
-  dropdown.addEventListener('click', (e) => {
-    const target = (e.target as HTMLElement).closest('[data-inv-action]') as HTMLElement | null;
-    if (!target) return;
-    const action = target.getAttribute('data-inv-action');
-    closeDropdown();
-    if (action === 'view') { openHub(); return; }
-    if (action === 'delete') { openHub(); return; }
-    if (action === 'add') { void openAddView(); }
-  });
 
   // ── ADD view ─────────────────────────────────────────────────────────
   async function openAddView(): Promise<void> {
@@ -183,7 +138,7 @@ export function wireInventory(root: HTMLElement, toast: (msg: string) => void): 
         <button class="inv-scan-btn secondary" id="o8-inv-view-hub" type="button">View Inventory</button>
       `;
       const viewHub = progress.querySelector('#o8-inv-view-hub') as HTMLButtonElement | null;
-      if (viewHub) viewHub.onclick = () => openHub();
+      if (viewHub) viewHub.onclick = () => { void mini.openList(); };
       go.style.display = 'none';
       toast(`Inventory updated — ${resp.seen} vehicles`);
     } catch (err: any) {

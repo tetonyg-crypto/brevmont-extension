@@ -76,11 +76,13 @@ export interface InventoryVehicle {
   photos: string[] | null;
   description: string | null;
   posted_status: string | null;
+  posted_at?: string | null;
   vdp_url: string | null;
 }
 
 export interface InventoryListResponse {
   vehicles: InventoryVehicle[];
+  governor?: { posted_today: number; daily_cap: number; next_allowed_at?: string | null } | null;
 }
 
 export async function getInventory(): Promise<InventoryListResponse> {
@@ -89,6 +91,32 @@ export async function getInventory(): Promise<InventoryListResponse> {
   const body = await readBody(res);
   if (!res.ok) throwForStatus(res, body);
   return body as InventoryListResponse;
+}
+
+export async function setInventoryStatus(
+  id: string,
+  status: string,
+  opts?: { listingUrl?: string; idempotencyKey?: string },
+): Promise<{ ok: boolean; posted_status: string }> {
+  if (!id || id.startsWith('seed-')) {
+    const err = new Error('This seed record is not in the live lot yet. Scan inventory to save status.');
+    (err as any).status = 400;
+    throw err;
+  }
+  const base = await getApiBase();
+  const res = await signedFetch(
+    `${base}/api/v1/rep/inventory/${encodeURIComponent(id)}/status`,
+    {
+      status,
+      listing_url: opts?.listingUrl,
+      idempotency_key: opts?.idempotencyKey || `status:${id}:${status}:${Date.now()}`,
+    },
+    extHeaders(),
+  );
+  const body = await readBody(res);
+  if (!res.ok) throwForStatus(res, body);
+  try { await chrome.storage.local.set({ brevmont_inventory_rev: Date.now() }); } catch { /* noop */ }
+  return { ok: true, posted_status: String(body?.posted_status || status) };
 }
 
 export async function deleteInventoryVehicle(id: string): Promise<{ ok: boolean }> {

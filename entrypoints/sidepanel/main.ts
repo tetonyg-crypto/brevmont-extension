@@ -11,6 +11,7 @@
 
 import { getPanelHTML } from '../lib/panelUI';
 import { getPanelCSS } from '../lib/panelCSS';
+import { lockDocumentZoom } from '../lib/hostZoom';
 import {
   BREVMONT_CWS_REVIEWS,
   dismissedReviewState,
@@ -5519,6 +5520,7 @@ async function checkCoexistence(root: HTMLElement): Promise<void> {
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
 (async () => {
+  lockDocumentZoom(document);
   await refreshPlatform();
   renderPanel();
   checkCoexistence(document.getElementById('sp-root')!);

@@ -152,6 +152,9 @@ export default defineConfig({
       '*://*.elead-crm.com/*',
       '*://*.eleadcrm.com/*',
       '*://*.brevmont.com/*',
+      // FLAG: photo inject fetches dealer CDN images in the service worker.
+      // Without this, jazelc photo blobs fail from facebook.com's origin.
+      '*://*.jazelc.com/*',
     ],
   },
 });

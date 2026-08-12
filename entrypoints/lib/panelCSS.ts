@@ -48,7 +48,7 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 
   return `
 * { margin:0; padding:0; box-sizing:border-box; }
-:host { all:initial; font-family:system-ui,-apple-system,sans-serif; font-size:13px; color:#1a202c; }
+:host { all:initial; font-family:system-ui,-apple-system,sans-serif; font-size:13px; color:#1a202c; zoom:1; transform:none; }
 #sp-root, #o8 { --account-chip-space:76px; --panel-safe-bottom:calc(var(--account-chip-space) + 34px); width:${rootWidth};${rootBorder} height:100%; max-height:100%; min-height:0; background:#FFFFFF; overflow:hidden; overscroll-behavior:contain; display:flex; flex-direction:column; padding-bottom:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:13px; color:#1a202c; }
 .header { position:relative; padding:10px 14px; min-height:44px; border-bottom:1px solid #E5E7EB; display:flex; align-items:center; gap:8px; flex-shrink:0; background:#fff;${headerRadius} }
 .version-badge { font-size:10px; font-family:'JetBrains Mono',ui-monospace,monospace; color:#4f8f8f; background:#F0FAFA; border:1px solid #D6E4E4; padding:2px 7px; border-radius:999px; letter-spacing:0; white-space:nowrap; line-height:1.2; }
@@ -502,6 +502,46 @@ ${domMode && isLinkedIn ? `
 .inv-scan-btn.secondary { background: #fff; color: #0D6E6E; border: 1px solid #0D6E6E; font-size: 13px; padding: 10px 14px; margin-top: 10px; }
 .inv-scan-progress { font-size: 13px; color: #0f172a; font-weight: 600; }
 .inv-scan-done { font-size: 14px; color: #0D6E6E; font-weight: 800; }
+.inv-mini-overlay { align-items: stretch; padding: 8px; zoom: 1; transform: none; }
+.inv-mini-card-shell { max-width: none; height: 100%; display: flex; flex-direction: column; }
+.inv-mini-overlay .inv-scan-body { flex: 1; overflow: auto; padding: 10px; font-size: 13px; }
+.inv-mini { display: flex; flex-direction: column; gap: 8px; zoom: 1; }
+.inv-mini-toolbar { display: flex; gap: 6px; align-items: center; }
+.inv-mini-search { flex: 1; min-width: 0; border: 1px solid #D9E7E7; border-radius: 8px; padding: 7px 8px; font: inherit; font-size: 12px; color: #0F1419; background: #fff; }
+.inv-mini-link { border: 0; background: transparent; color: #0D6E6E; font: inherit; font-size: 11px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.inv-mini-list { display: flex; flex-direction: column; gap: 8px; }
+.inv-mini-card { display: flex; gap: 8px; width: 100%; text-align: left; border: 1px solid #E5E7EB; border-radius: 10px; background: #fff; padding: 8px; cursor: pointer; color: #0F1419; }
+.inv-mini-card:hover { border-color: #0D6E6E; }
+.inv-mini-thumb { width: 72px; height: 54px; border-radius: 6px; overflow: hidden; background: #F1F5F5; flex-shrink: 0; }
+.inv-mini-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.inv-mini-ph { display: flex; align-items: center; justify-content: center; height: 100%; font-size: 10px; color: #94A3B8; }
+.inv-mini-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.inv-mini-title { font-size: 12px; font-weight: 800; line-height: 1.25; }
+.inv-mini-trim, .inv-mini-stock { font-size: 10px; color: #64748B; }
+.inv-mini-price { font-size: 13px; font-weight: 800; color: #0D6E6E; }
+.inv-chip { display: inline-flex; width: fit-content; border-radius: 999px; padding: 2px 7px; font-size: 9px; font-weight: 800; }
+.inv-chip-not_posted { background: #FEF3C7; color: #92400E; }
+.inv-chip-pending { background: #E2E8F0; color: #334155; }
+.inv-chip-posted { background: #E6F4F1; color: #0D6E6E; }
+.inv-chip-sold { background: #0F1419; color: #F5F3EE; }
+.inv-ready { font-size: 10px; }
+.inv-ready-ready { color: #0D6E6E; }
+.inv-ready-warn { color: #92400E; }
+.inv-ready-blocked { color: #B45309; font-weight: 700; }
+.inv-mini-empty { font-size: 12px; color: #64748B; font-weight: 600; padding: 12px 0; }
+.inv-mini-detail { display: flex; flex-direction: column; gap: 8px; }
+.inv-mini-back { border: 0; background: transparent; color: #0D6E6E; font: inherit; font-size: 12px; font-weight: 800; text-align: left; cursor: pointer; }
+.inv-mini-gallery img { width: 100%; border-radius: 8px; display: block; }
+.inv-mini-thumbs { display: flex; gap: 4px; overflow-x: auto; margin-top: 6px; }
+.inv-mini-thumbs img { width: 48px; height: 36px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+.inv-mini-specs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 0; }
+.inv-mini-specs dt { font-size: 9px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #94A3B8; }
+.inv-mini-specs dd { margin: 2px 0 0; font-size: 12px; font-weight: 700; }
+.inv-mini-desc { margin: 0; font-size: 12px; line-height: 1.45; color: #0F1419; white-space: pre-wrap; }
+.inv-mini-status-label { font-size: 11px; font-weight: 700; color: #0F1419; }
+.inv-mini-status { display: block; width: 100%; margin-top: 4px; border: 1px solid #D9E7E7; border-radius: 8px; padding: 7px; font: inherit; font-size: 12px; }
+.inv-mini-note { margin: 0; font-size: 11px; line-height: 1.4; color: #64748B; }
+.inv-mini-msg { font-size: 11px; color: #92400E; font-weight: 600; }
 .account-chip-plan {
   flex-shrink: 0;
   font-size: 9px;

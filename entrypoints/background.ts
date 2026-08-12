@@ -29,6 +29,54 @@ const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
 const BLANK_CONTEXT_IMAGE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('photo_read_failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function openMarketplaceCreateFromDraft(message: unknown): Promise<void> {
+  const draft = {
+    received_at: new Date().toISOString(),
+    autofill: 'exploratory_stub',
+    payload: message,
+  };
+  await chrome.storage.local.set({ brevmont_marketplace_draft: draft });
+  const createUrl = 'https://www.facebook.com/marketplace/create/vehicle';
+  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const url = typeof active?.url === 'string' ? active.url : '';
+  const onCreate = /facebook\.com\/marketplace\/create\/vehicle/i.test(url);
+  const onFacebook = /(?:facebook|messenger)\.com/i.test(url);
+  if (onCreate && typeof active?.id === 'number') {
+    await chrome.tabs.reload(active.id);
+  } else if (onFacebook && typeof active?.id === 'number') {
+    await chrome.tabs.update(active.id, { url: createUrl });
+  } else {
+    await chrome.tabs.create({ url: createUrl, active: true });
+  }
+}
+
+async function markDraftPosted(listingUrl: string): Promise<void> {
+  const stored = await chrome.storage.local.get(['brevmont_marketplace_draft']);
+  const draft = stored?.brevmont_marketplace_draft as { received_at?: string; payload?: { vehicle?: { id?: string } } } | undefined;
+  const id = draft?.payload?.vehicle?.id;
+  if (!id || String(id).startsWith('seed-')) return;
+  const received = Date.parse(draft?.received_at || '');
+  if (Number.isFinite(received) && Date.now() - received > 2 * 60 * 60 * 1000) return;
+  const base = PROXY_URL.replace(/\/$/, '');
+  const res = await signedFetch(`${base}/api/v1/rep/inventory/${encodeURIComponent(id)}/status`, {
+    status: 'posted',
+    listing_url: listingUrl || undefined,
+    idempotency_key: `posted:${id}:${listingUrl || 'item'}`,
+  });
+  if (!res.ok) return;
+  await chrome.storage.local.set({ brevmont_inventory_rev: Date.now() });
+  await chrome.storage.local.remove('brevmont_marketplace_draft');
+}
+
 
 async function claimReferralAfterFirstGeneration() {
   try {
@@ -614,6 +662,48 @@ export default defineBackground(() => {
       })();
       return true;
     }
+    if ((message as { type?: string })?.type === 'BREVMONT_FETCH_LISTING_PHOTOS') {
+      void (async () => {
+        const urls = Array.isArray((message as { urls?: unknown }).urls) ? (message as { urls: string[] }).urls : [];
+        const files: Array<{ name: string; type: string; dataUrl: string }> = [];
+        for (const url of urls.slice(0, 20)) {
+          if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) continue;
+          try {
+            const res = await fetch(url);
+            if (!res.ok) continue;
+            const blob = await res.blob();
+            const dataUrl = await blobToDataUrl(blob);
+            files.push({
+              name: `listing-${files.length + 1}.jpg`,
+              type: blob.type || 'image/jpeg',
+              dataUrl,
+            });
+          } catch {
+            /* CORS or CDN failure — skip that photo */
+          }
+        }
+        sendResponse({ ok: true, files, fetched: files.length, requested: urls.length });
+      })();
+      return true;
+    }
+    if ((message as { type?: string })?.type === 'BREVMONT_INVENTORY_STATUS_CHANGED') {
+      void chrome.storage.local.set({ brevmont_inventory_rev: Date.now() }).then(
+        () => sendResponse({ ok: true }),
+        () => sendResponse({ ok: false }),
+      );
+      return true;
+    }
+    if ((message as { type?: string })?.type === 'BREVMONT_MARKETPLACE_START_POST') {
+      void openMarketplaceCreateFromDraft(message).then(
+        () => sendResponse({ ok: true, exploratory: true, autofill: 'scaffold' }),
+        (err) => sendResponse({
+          ok: false,
+          exploratory: true,
+          error: err instanceof Error ? err.message : 'marketplace_draft_failed',
+        }),
+      );
+      return true;
+    }
     if ((message as { type?: string })?.type === 'WEBAPP_INSTALL_CHECK') {
       try {
         sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
@@ -813,6 +903,28 @@ export default defineBackground(() => {
 
     // Health check — content script pings to verify service worker is alive
     if (msg.type === 'PING') { sendResponse({ pong: true }); return false; }
+
+    if (msg?.type === 'BREVMONT_MARKETPLACE_START_POST') {
+      void openMarketplaceCreateFromDraft(msg).then(
+        () => sendResponse({ ok: true, exploratory: true, autofill: 'scaffold' }),
+        (err) => sendResponse({ ok: false, error: err instanceof Error ? err.message : 'marketplace_draft_failed' }),
+      );
+      return true;
+    }
+    if (msg?.type === 'BREVMONT_MARKETPLACE_ITEM_PUBLISHED') {
+      void markDraftPosted(typeof msg.url === 'string' ? msg.url : '').then(
+        () => sendResponse({ ok: true }),
+        () => sendResponse({ ok: false }),
+      );
+      return true;
+    }
+    if (msg?.type === 'BREVMONT_INVENTORY_STATUS_CHANGED') {
+      void chrome.storage.local.set({ brevmont_inventory_rev: Date.now() }).then(
+        () => sendResponse({ ok: true }),
+        () => sendResponse({ ok: false }),
+      );
+      return true;
+    }
 
     // 1.16.44 identity split-brain recovery. authSigning fires this when
     // the API returns 409 rep_identity_mismatch. We drop the stale

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <title>Brevmont</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -12,7 +12,7 @@
        just clipped at the visible viewport with no scrollbar affordance.
        Chrome side panels don't auto-scroll their host document. Set the
        full height chain html/body/#sp-root and let body scroll on Y. */
-    html, body { height: 100%; }
+    html, body { height: 100%; zoom: 1 !important; transform: none !important; }
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       font-size: 13px;

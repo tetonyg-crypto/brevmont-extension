@@ -50,6 +50,17 @@ export default defineContentScript({
       /* noop */
     }
 
+    try {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local' || !changes.brevmont_inventory_rev) return;
+        window.dispatchEvent(new CustomEvent('brevmont-inventory-changed', {
+          detail: { rev: changes.brevmont_inventory_rev.newValue },
+        }));
+      });
+    } catch {
+      /* storage may be unavailable */
+    }
+
     window.addEventListener('brevmont-lead-form-autofill', (event) => {
       void (async () => {
         const customEvent = event as CustomEvent<Record<string, unknown>>;
