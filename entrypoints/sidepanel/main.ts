@@ -1624,7 +1624,7 @@ async function renderNeedsAnswering(root: HTMLElement): Promise<void> {
       mount.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:4px 0">Nobody is waiting on a reply right now.</div>';
       return;
     }
-    const heat = (n: number | null) => (Number(n) >= 70 ? '🔥' : Number(n) >= 40 ? '·' : '');
+    const heat = (n: number | null) => (Number(n) >= 70 ? 'hot' : Number(n) >= 40 ? '·' : '');
     mount.innerHTML = `
       <div style="font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin:2px 0 4px">
         Needs answering${feed.drafts_awaiting_send ? ` · ${feed.drafts_awaiting_send} draft${feed.drafts_awaiting_send === 1 ? '' : 's'} held` : ''}
@@ -1633,7 +1633,7 @@ async function renderNeedsAnswering(root: HTMLElement): Promise<void> {
         <div style="padding:6px 8px;border:1px solid rgba(0,0,0,.07);border-radius:8px;margin-bottom:5px;background:#fafafa">
           <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#0f172a">
             <span>${esc(it.customer_name || 'Marketplace customer')}</span>
-            ${it.draft_ready ? '<span style="font-size:10px;font-weight:700;color:#0D6E6E;background:#0D6E6E1a;border-radius:4px;padding:1px 5px">Draft held — review &amp; tap Send</span>' : ''}
+            ${it.draft_ready ? '<span style="font-size:10px;font-weight:700;color:#0D6E6E;background:#0D6E6E1a;border-radius:4px;padding:1px 5px">Draft held. Review and tap Send</span>' : ''}
             ${it.going_dark ? '<span style="font-size:10px;color:#b45309">going dark</span>' : ''}
             <span style="margin-left:auto;font-size:10px;color:#94a3b8">${esc(it.last_activity_age_label || '')}</span>
           </div>
@@ -5409,10 +5409,10 @@ async function openStats(root: HTMLElement): Promise<void> {
       const personAbove = standing.person_above;
       const streak = Number(resp.streak || 0);
       const streakText = streak > 0
-        ? `🔥 ${streak}-day streak`
+        ? `${streak}-day streak`
         : resp.last_active_date
           ? 'Streak ended. Start a new one today.'
-          : 'Start your streak today — generate a follow-up';
+          : 'Start your streak today. Write a follow-up.';
       const topHtml = topReps.length
         ? topReps.map((rep: any) => `<div style="display:flex;justify-content:space-between;"><span>${esc(rep.name || 'Rep')}</span><strong>${Number(rep.score || 0)}</strong></div>`).join('')
         : '<div style="color:#94a3b8">Write follow-ups to light up the floor.</div>';
