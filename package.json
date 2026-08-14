@@ -7,7 +7,7 @@
     "build": "wxt build",
     "postbuild": "echo 'Runtime build complete. Use npm run zip:cws for a verified release artifact.'",
     "ship": "node scripts/ship.mjs",
-    "zip:cws": "node scripts/build-cws-zip.mjs && rm -f ~/Desktop/UPLOAD-TO-CWS.zip ~/Desktop/brevmont-extension-*-chrome-web-store.zip && cp .output/brevmont-extension-$npm_package_version-chrome-web-store.zip ~/Desktop/UPLOAD-TO-CWS.zip && echo 'Ready: ~/Desktop/UPLOAD-TO-CWS.zip'",
+    "zip:cws": "node scripts/build-cws-zip.mjs && rm -f ~/Desktop/UPLOAD-TO-CWS.zip ~/Desktop/brevmont-extension-*-chrome-web-store.zip ~/Desktop/brevmont-*-chrome-web-store.zip && cp .output/brevmont-extension-$npm_package_version-chrome-web-store.zip ~/Desktop/UPLOAD-TO-CWS.zip && echo 'Ready: ~/Desktop/UPLOAD-TO-CWS.zip'",
     "build:dev": "wxt build && bash .scripts/tg.sh \"[EXTENSION DEV BUILD] v$npm_package_version complete. Reload extension at chrome://extensions and hard-refresh VinSolutions.\"",
     "build:release": "node scripts/verify-registry-sync.js && wxt build && wxt zip",
     "verify:registry": "node scripts/verify-registry-sync.js",

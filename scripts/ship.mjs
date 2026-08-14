@@ -112,6 +112,9 @@ function isStaleDesktopExtensionBuild(entryName) {
     /^Brevmont-\d+\.\d+\.\d+\.zip$/i.test(entryName) ||
     /^brevmont-extension$/i.test(entryName) ||
     /^brevmont-extension-\d+\.\d+\.\d+-chrome-web-store\.zip$/i.test(entryName) ||
+    /^brevmont-\d+\.\d+\.\d+-chrome-web-store\.zip$/i.test(entryName) ||
+    /^brevmont-\d+\.\d+\.\d+-chrome-extension-store\.zip$/i.test(entryName) ||
+    /^!!! LOAD THIS/i.test(entryName) ||
     /^!?BREVMONT-.*UPLOAD-TO-CWS\.zip$/i.test(entryName) ||
     /^UPLOAD-TO-CWS\.zip$/i.test(entryName)
   );

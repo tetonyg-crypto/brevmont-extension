@@ -2244,7 +2244,7 @@ async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
     if (state.dealer_disabled) {
       dot.style.background = '#94a3b8';
       title.textContent = 'Overdrive: off';
-      sub.textContent = 'Disabled for this store by manager settings';
+      sub.textContent = 'Not available on this account';
       actionLabel.textContent = 'Disabled';
       btn.style.display = 'none';
       paintHeaderDot('off', 'Overdrive disabled by manager settings');

@@ -51,7 +51,7 @@ function getSettingsHTML(): string {
     <div class="settings-kicker">Profile</div>
     <div class="settings-card settings-account-card">
       <div class="settings-account-row"><span>Name</span><strong id="sp-rep-name">Loading...</strong></div>
-      <div class="settings-account-row"><span>Dealership</span><strong id="sp-dealership">Loading...</strong></div>
+      <div class="settings-account-row"><span>Company</span><strong id="sp-dealership">Loading...</strong></div>
       <div class="settings-account-row"><span>Plan</span><strong id="sp-license">Loading...</strong></div>
       <div class="settings-account-row"><span>Version</span><strong id="sp-version">Loading...</strong></div>
       <div id="sp-queue-row" class="settings-account-row" style="display:none"><span>Queue</span><strong id="sp-queue-count">0</strong></div>
@@ -63,16 +63,16 @@ function getSettingsHTML(): string {
     <div class="settings-label">Tone</div>
     <div class="settings-options"><label><input type="radio" name="brevmont-tone" value="professional" checked> Professional</label><label><input type="radio" name="brevmont-tone" value="friendly"> Friendly</label><label><input type="radio" name="brevmont-tone" value="casual"> Casual</label><label><input type="radio" name="brevmont-tone" value="direct"> Direct</label></div>
     <div class="settings-label">Goal</div>
-    <div class="settings-options"><label><input type="radio" name="brevmont-goal" value="close_deal" checked> Close the deal<span class="goal-desc">Ask for the sale, push for commitment</span></label><label><input type="radio" name="brevmont-goal" value="book_appointment"> Book appointment<span class="goal-desc">Get them on the lot or on a call</span></label><label><input type="radio" name="brevmont-goal" value="gather_info"> Gather info<span class="goal-desc">Learn what they need before pitching</span></label><label><input type="radio" name="brevmont-goal" value="nurture"> Nurture long-term<span class="goal-desc">Stay top of mind, no pressure</span></label></div>
+    <div class="settings-options"><label><input type="radio" name="brevmont-goal" value="close_deal" checked> Close the deal<span class="goal-desc">Ask for the sale, push for commitment</span></label><label><input type="radio" name="brevmont-goal" value="book_appointment"> Book appointment<span class="goal-desc">Get them on a call or a meeting</span></label><label><input type="radio" name="brevmont-goal" value="gather_info"> Gather info<span class="goal-desc">Learn what they need before pitching</span></label><label><input type="radio" name="brevmont-goal" value="nurture"> Nurture long-term<span class="goal-desc">Stay top of mind, no pressure</span></label></div>
     <button id="sp-save-settings" class="settings-save" type="button">Save preferences</button>
     <span id="sp-settings-saved" class="settings-saved">Saved</span>
     <div class="settings-card settings-note-card">
       <div class="settings-note-title">Voice learning</div>
-      <div class="settings-note-copy">Brevmont keeps your tone and dealership rules attached to every follow-up.</div>
+      <div class="settings-note-copy">Brevmont keeps your tone and company rules attached to every follow-up.</div>
     </div>
     <div class="settings-card settings-note-card">
       <div class="settings-note-title">Disclosure</div>
-      <div class="settings-note-copy">Overdrive only reads supported customer conversations and logs every held draft and rep-approved reply to the manager view.</div>
+      <div class="settings-note-copy">Overdrive only reads supported conversations and logs every held draft and approved reply.</div>
     </div>
     <button id="sp-settings-sign-out" class="settings-secondary" type="button">Sign out</button>
     <div class="settings-divider"></div>

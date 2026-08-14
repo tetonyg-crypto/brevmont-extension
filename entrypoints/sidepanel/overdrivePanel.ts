@@ -218,11 +218,11 @@ function renderPanelHTML(data: OverdrivePanelState['data'], currentThread: Overd
   const steps = [
     { key: 'link', label: 'Link Facebook', done: linked, current: !linked },
     { key: 'disclosure', label: 'Review + acknowledge', done: disclosureAcked, current: linked && !disclosureAcked },
-    { key: 'toggle', label: dealerBlocked ? 'Overdrive blocked by manager' : 'Turn Overdrive ON', done: enabled, current: linked && disclosureAcked && !enabled && !dealerBlocked },
+    { key: 'toggle', label: dealerBlocked ? 'Overdrive is not available' : 'Turn Overdrive ON', done: enabled, current: linked && disclosureAcked && !enabled && !dealerBlocked },
   ];
 
   const dealerBanner = dealerBlocked
-    ? `<div class="overdrive-banner">Overdrive is disabled for this store. A manager can turn it back on from Manager Settings.</div>`
+    ? `<div class="overdrive-banner">Overdrive is not available on this account.</div>`
     : '';
 
   const activeStatus = enabled

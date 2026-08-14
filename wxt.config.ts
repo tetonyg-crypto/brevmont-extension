@@ -62,7 +62,7 @@ export default defineConfig({
     short_name: 'Brevmont',
     version: pkgVersion,
     version_name: pkgVersion,
-    description: "Brevmont opens beside dealership browser workflows so reps can create reviewed follow-up, email, and CRM-ready notes.",
+    description: "Brevmont opens beside your inbox and CRM so you can write the next follow-up, email, and note.",
     homepage_url: 'https://brevmont.com/extension',
     icons: {
       '16': 'icons/icon-16.png',
