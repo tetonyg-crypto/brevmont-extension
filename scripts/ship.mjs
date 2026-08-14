@@ -252,6 +252,10 @@ writeFileSync(
     'Load this folder in chrome://extensions:',
     DESKTOP_VERSIONED_FOLDER,
     '',
+    'Chrome Web Store re-upload (only this file):',
+    join(DESKTOP_DIR, 'UPLOAD-TO-CWS.zip'),
+    'Do not upload the UNPACKED folder, 1.16.86, or 1.16.91.',
+    '',
   ].join('\n')
 );
 
