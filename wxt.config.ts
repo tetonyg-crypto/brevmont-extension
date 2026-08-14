@@ -23,6 +23,7 @@ export default defineConfig({
         delete (manifest.action as Record<string, unknown>).default_popup;
       }
       const cs = (manifest as Record<string, unknown>).content_scripts as Array<{ matches?: string[]; js?: string[]; world?: string }> | undefined;
+      const isLocalhostMatch = (m: string) => /localhost|127\.0\.0\.1/i.test(m);
       if (Array.isArray(cs)) {
         const broad = new Set(['http://*/*', 'https://*/*', '<all_urls>']);
         (manifest as Record<string, unknown>).content_scripts = cs.filter((entry) => {
@@ -33,11 +34,19 @@ export default defineConfig({
           // Store-only: drop broad-match content scripts (lead-form-autofill) so a
           // CWS build passes review; the sideload build intentionally keeps them.
           if (chromeWebStoreBuild && entry.matches?.some((m) => broad.has(m))) return false;
+          if (chromeWebStoreBuild && Array.isArray(entry.matches)) {
+            entry.matches = entry.matches.filter((m) => !isLocalhostMatch(m));
+            if (entry.matches.length === 0) return false;
+          }
           return true;
         });
       }
       if (chromeWebStoreBuild) {
         delete (manifest as Record<string, unknown>).key;
+        const ext = (manifest as Record<string, unknown>).externally_connectable as { matches?: string[] } | undefined;
+        if (ext?.matches) {
+          ext.matches = ext.matches.filter((m) => !isLocalhostMatch(m));
+        }
       }
     },
   },

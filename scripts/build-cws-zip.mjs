@@ -44,7 +44,11 @@ const BROAD_MATCHES = new Set(['http://*/*', 'https://*/*', '<all_urls>']);
 for (const cs of manifest.content_scripts || []) {
   for (const m of cs.matches || []) {
     if (BROAD_MATCHES.has(m)) failures.push(`content script has broad match pattern: ${m}`);
+    if (/localhost|127\.0\.0\.1/i.test(m)) failures.push(`content script has localhost match: ${m}`);
   }
+}
+for (const m of manifest.externally_connectable?.matches || []) {
+  if (/localhost|127\.0\.0\.1/i.test(m)) failures.push(`externally_connectable has localhost match: ${m}`);
 }
 
 const chunksDir = resolve(root, '.output', 'chrome-mv3', 'chunks');
