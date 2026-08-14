@@ -1097,7 +1097,7 @@ function renderAutoThreadScan(root: HTMLElement): void {
 
   if (input && !input.value.trim()) {
     input.placeholder = autoThreadScanStatus === 'ready'
-      ? 'Optional: steer it, like "push for appointment"'
+      ? 'Optional extra direction. Example: ask for a call'
       : 'Type context or a direction when Brevmont cannot read the page';
   }
 
@@ -1136,11 +1136,12 @@ function renderAutoThreadScan(root: HTMLElement): void {
 
   if (autoThreadScanStatus === 'ready' && autoThreadScan) {
     if (firstUse) firstUse.style.display = 'none';
-    const last = truncateReplyContext(autoThreadScan.threadContext.last_inbound_text || autoThreadScan.threadContext.raw_text);
-    const fallback = truncateReplyContext(autoThreadScan.threadContext.header_text || 'Conversation scanned');
+    const last = truncateReplyContext(autoThreadScan.threadContext.last_inbound_text || '');
+    const fallback = truncateReplyContext(autoThreadScan.threadContext.header_text || autoThreadScan.threadContext.raw_text || 'Conversation scanned');
     const surface = getDisplayLabel(autoThreadScan.platform || currentPlatform.platform);
+    const label = last ? 'Replying to:' : (autoThreadScan.platform === 'linkedin' ? 'Prospect:' : 'Page:');
     el.innerHTML = `
-      <span class="reply-context-label">Replying to:</span>
+      <span class="reply-context-label">${esc(label)}</span>
       <span class="reply-context-text">${esc(last || fallback || 'Conversation scanned')}</span>
       ${surface ? `<span class="reply-context-surface">${esc(surface)}</span>` : ''}
     `;

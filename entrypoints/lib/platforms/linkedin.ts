@@ -46,15 +46,34 @@ function scrapeThread(): ThreadContext {
   let raw_text = '';
   let header_text = '';
   const messages: ThreadContext['messages'] = [];
+  const href = String(window.location.href || '');
+  const isMessaging =
+    /linkedin\.com\/messaging/i.test(href)
+    || !!document.querySelector('.msg-s-message-list-content, .msg-form__contenteditable, .msg-overlay-conversation-bubble');
   try {
+    if (!isMessaging) {
+      const nameEl = document.querySelector('main h1, .pv-text-details__left-panel h1, h1.text-heading-xlarge') as HTMLElement | null;
+      const headlineEl = document.querySelector('.text-body-medium.break-words, .pv-text-details__left-panel .text-body-medium') as HTMLElement | null;
+      const name = (nameEl?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+      const headline = (headlineEl?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+      header_text = [name, headline].filter(Boolean).join(' · ');
+      raw_text = header_text;
+      return {
+        conversation_key: stableKeyFromPath('linkedin'),
+        raw_text: raw_text.slice(0, 800),
+        messages: [],
+        last_inbound_text: '',
+        header_text,
+        url: href,
+      };
+    }
     const thread =
       (document.querySelector('.msg-s-message-list-content') as HTMLElement | null) ||
       (document.querySelector('[class*="msg-thread"]') as HTMLElement | null) ||
       (document.querySelector('[class*="message-list"]') as HTMLElement | null) ||
       (document.querySelector('.msg-conversations-container__thread-view') as HTMLElement | null) ||
       (document.querySelector('[class*="scaffold-layout__detail"]') as HTMLElement | null);
-    raw_text = (thread?.innerText || document.body?.innerText || '').slice(0, 5000);
-    // Header — the recipient's name in the top of the thread view.
+    raw_text = (thread?.innerText || '').slice(0, 5000);
     const headerAnchor =
       document.querySelector('.msg-overlay-bubble-header__title') ||
       document.querySelector('.msg-thread__link-to-profile') ||
@@ -62,7 +81,6 @@ function scrapeThread(): ThreadContext {
     if (headerAnchor) {
       header_text = (headerAnchor as HTMLElement).innerText?.trim().slice(0, 200) || '';
     }
-    // Message bubbles — the msg-s-event-listitem class family
     const bubbles = Array.from(document.querySelectorAll('.msg-s-event-listitem, .msg-s-message-list__event, [class*="msg-s-message"]')).slice(-30);
     for (const b of bubbles) {
       const t = (b as HTMLElement).innerText?.replace(/\s+/g, ' ').trim();
@@ -72,14 +90,14 @@ function scrapeThread(): ThreadContext {
   } catch {
     /* noop */
   }
-  const inbound = messages.length ? messages[messages.length - 1].text : raw_text.slice(-2000);
+  const inbound = messages.length ? messages[messages.length - 1].text : '';
   return {
     conversation_key: stableKeyFromPath('linkedin'),
     raw_text: [header_text, raw_text].filter(Boolean).join('\n').slice(0, 5000),
     messages,
     last_inbound_text: inbound,
     header_text,
-    url: window.location.href,
+    url: href,
   };
 }
 

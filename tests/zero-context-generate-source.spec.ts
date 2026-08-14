@@ -619,7 +619,7 @@ test('Gmail auto-scan does not invent last inbound from outbound or raw text fal
 test('auto-scan keeps the textbox as optional steer and preserves honest fallback', () => {
   const ui = read('entrypoints/lib/panelUI.ts');
   const css = read('entrypoints/lib/panelCSS.ts');
-  expect(ui).toContain('Optional: steer it');
+  expect(ui).toContain('Optional extra direction');
   expect(ui).toContain('id="o8-reply-context"');
   expect(ui).toContain('Open a conversation and tap Generate.');
   expect(css).toContain('.reply-context-ready');

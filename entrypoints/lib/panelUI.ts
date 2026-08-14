@@ -102,7 +102,7 @@ export function getPanelHTML(platform: Platform): string {
   const isVinSolutions = platform === 'vinsolutions';
   const badge = getBadge(platform);
   const customerCard = isVinSolutions ? `<div id="o8-card" class="card"><div id="o8-name" class="name" style="font-style:italic;color:#94a3b8">Open a customer record</div><div id="o8-vehicle" class="vehicle"></div><div id="o8-meta" class="meta"></div></div>` : '';
-  const placeholder = 'Optional: steer it, like "push for appointment"';
+  const placeholder = 'Optional extra direction. Example: ask for a call';
 
   // Inventory button intentionally omitted until Phase 1 scanner is CWS-ready.
   return `
