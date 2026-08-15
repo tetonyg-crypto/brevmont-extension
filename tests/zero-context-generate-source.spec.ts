@@ -477,6 +477,7 @@ test('manual customer picker selection wins over auto-detection until thread cha
   expect(body).toContain('if (isCustomerPickerOpen(root)) return;');
   expect(body).toContain('if (isManualCustomerOverride(pinnedCustomer))');
   expect(body.indexOf('if (isManualCustomerOverride(pinnedCustomer))')).toBeLessThan(body.indexOf('if (confidence >= 0.8)'));
+  expect(source).toContain('const liveScan = getUsableAutoThreadScan()');
   expect(source.slice(source.indexOf('function pinMismatchReason'), source.indexOf('function clearStalePinnedCustomer'))).toContain('if (isManualCustomerOverride(customer)) return null;');
   expect(source).not.toContain("showToast(root, 'Customer context refreshed')");
 });
@@ -502,7 +503,9 @@ test('answered-chip "No" is keyed by stable thread identity, not the volatile fi
   // The old volatile-key patterns must be gone from the guard.
   expect(source).not.toContain('answeredCustomerDetections.get(fingerprint)');
   expect(source).not.toContain('getContextFingerprint(leadContext) || \'\'');
-  expect(source).toContain('function rememberCustomerDismissal');
+  expect(source).toContain('function pinFromLiveScan');
+  expect(source).toContain('chrome.tabs.onUpdated.addListener');
+  expect(source).toContain('function clearStaleOutputs');
   expect(source).toContain("stamp.querySelector('#o8-customer-clear')");
   expect(source).toContain('rememberCustomerDismissal()');
 });
@@ -575,6 +578,8 @@ test('CRM notes cannot inject into social chat composers', () => {
   expect(facebook).toContain("reason: 'facebook_only_supports_customer_message_inject'");
   expect(linkedin).toContain('supports_inject_crm_note: false');
   expect(linkedin).toContain("reason: 'linkedin_only_supports_customer_message_inject'");
+  expect(linkedin).toContain('scrapeLinkedInOpenThread');
+  expect(linkedin).not.toContain("document.querySelectorAll('.msg-s-event-listitem");
 });
 
 test('lead stage updates fall back to local radar rows instead of surfacing Lead not found', () => {
@@ -654,6 +659,8 @@ test('Outlook adapter is registered and allowed by manifest/content script', () 
   expect(registry).toContain("return 'outlook'");
   expect(content).toContain('*://outlook.office.com/*');
   expect(config).toContain('*://outlook.office.com/*');
+  expect(config).toContain('modulePreload: false');
+  expect(config).toContain('brevmont-strip-extension-crossorigin');
 });
 
 test('production content script installs NO page-callable debug harness (store-safety)', () => {

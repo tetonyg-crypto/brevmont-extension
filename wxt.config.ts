@@ -51,7 +51,23 @@ export default defineConfig({
     },
   },
   vite: () => ({
+    plugins: [
+      {
+        name: 'brevmont-strip-extension-crossorigin',
+        transformIndexHtml(html) {
+          return String(html || '')
+            .replace(/<link[^>]*rel=["']modulepreload["'][^>]*>/gi, '')
+            .replace(/\s+crossorigin(?:="[^"]*")?/gi, '');
+        },
+      },
+    ],
     build: {
+      // Vite emits <link rel="modulepreload"> on every HTML entry. Chrome
+      // extension pages cannot reuse those hints ("cross-world extension
+      // resource mismatch"), so each chunk is fetched twice and Errors
+      // fills with dozens of warnings. The files are already static
+      // imports from local disk. The hint buys nothing.
+      modulePreload: false,
       minify: 'terser',
       terserOptions: {
         mangle: {

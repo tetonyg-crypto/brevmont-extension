@@ -66,7 +66,11 @@ export function hasOpenFacebookThread(): boolean {
   const key = conversationKey();
   if (!key.startsWith('t:') && !key.startsWith('mp:')) return false;
   try {
-    return Boolean(document.querySelector('div[role="textbox"][contenteditable="true"]'));
+    if (document.querySelector('div[role="textbox"][contenteditable="true"]')) return true;
+    // Messenger unmounts the composer during reconnect ("No internet connection").
+    // Keep the open thread if the conversation header is still on screen.
+    const header = document.querySelector('[role="main"] h1, [role="main"] h2') as HTMLElement | null;
+    return Boolean(header?.innerText?.trim());
   } catch {
     return false;
   }
@@ -207,14 +211,16 @@ function extractContext(): DealContext {
     };
   }
   const header = readHeaderText();
-  const vh = extractVehicleHint(header) || extractVehicleHint((document.querySelector('[role="main"]') as HTMLElement | null)?.innerText || '');
   // Marketplace: header is "Buyer · Listing Title" — grab the second half.
+  // Do not scan all of [role=main]: the inbox rail sits nearby and the first
+  // year/make in that list (Seth's Mercedes) poisons the open Yukon/Ram thread.
   let listing_title: string | null = null;
   if (header.includes('·') || header.includes('•')) {
     listing_title = header.split(/\s*[·•]\s*/)[1]?.trim() || null;
   } else if (/(?:19|20)\d{2}\s+[A-Z]/.test(header)) {
     listing_title = header;
   }
+  const vh = extractVehicleHint(header) || extractVehicleHint(listing_title || '');
   return {
     vehicle: vh?.raw || null,
     vehicle_year: vh?.year || null,

@@ -48,7 +48,9 @@ test.describe('isChannelOrUiName — regression coverage', () => {
     expect(isChannelOrUiName('Search')).toBe(true);
     expect(isChannelOrUiName('Inbox')).toBe(true);
     expect(isChannelOrUiName('Gmail')).toBe(true);
-    expect(isChannelOrUiName('LinkedIn')).toBe(true);
+    expect(isChannelOrUiName('Messaging')).toBe(true);
+    expect(isChannelOrUiName('Sponsored')).toBe(true);
+    expect(isChannelOrUiName('Sponsored Messaging Ad')).toBe(true);
     expect(isChannelOrUiName('Instagram')).toBe(true);
     expect(isChannelOrUiName('WhatsApp')).toBe(true);
     expect(isChannelOrUiName('VinSolutions')).toBe(true);

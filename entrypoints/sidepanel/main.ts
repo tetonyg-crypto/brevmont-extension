@@ -34,6 +34,12 @@ import {
 import { sanitizeCustomerFacingOutput } from '../lib/outputContract';
 import { cleanCustomerNameCandidate } from '../lib/leadContextScan';
 import { isMessengerSystemCardText } from '../lib/messengerSystemText';
+import { isLinkedInSponsoredText } from '../lib/linkedinThread';
+import {
+  formatAskPaymentAnswer,
+  looksLikeAskPromptLeak,
+  parseAskPayment,
+} from '../lib/parseAskPayment';
 import {
   type ManualTopic,
   resolveChangelogUrl,
@@ -78,6 +84,7 @@ interface PinnedCustomer {
   detectionMethod: string;
   contextFingerprint?: string | null;
   threadFingerprint?: string | null;
+  threadPath?: string | null;
   platform?: Platform | string | null;
   pinnedAt: number;
 }
@@ -139,6 +146,8 @@ let autoThreadScanUrl = '';
 let autoThreadScanRequestId = 0;
 let autoThreadScanTimer: number | null = null;
 let autoThreadScanListenersAttached = false;
+let tabWatchAttached = false;
+let lastWatchedSurface = '';
 let outputSelectionTouched = false;
 const dismissedChallengeIds = new Set<string>();
 const FIRST_GENERATION_KEY = 'first_generation_completed';
@@ -929,14 +938,14 @@ function lastReadableThreadLine(rawText: unknown): string {
     .split(/\n+/)
     .map((line) => stripThreadDecorators(line))
     .filter((line) => line.length > 3)
-    .filter((line) => !isMessengerSystemCardText(line));
+    .filter((line) => !isMessengerSystemCardText(line) && !isLinkedInSponsoredText(line));
   return lines.length ? lines[lines.length - 1] : '';
 }
 
 function firstNonSystemThreadText(...candidates: unknown[]): string {
   for (const candidate of candidates) {
     const text = stripThreadDecorators(candidate);
-    if (text && !isMessengerSystemCardText(text)) return text;
+    if (text && !isMessengerSystemCardText(text) && !isLinkedInSponsoredText(text)) return text;
   }
   return '';
 }
@@ -957,7 +966,7 @@ function cleanThreadRawText(rawText: unknown): string {
   return String(rawText || '')
     .split(/\n+/)
     .map((line) => stripThreadDecorators(line))
-    .filter((line) => line.length > 0 && !isMessengerSystemCardText(line))
+    .filter((line) => line.length > 0 && !isMessengerSystemCardText(line) && !isLinkedInSponsoredText(line))
     .join('\n')
     .slice(0, 5000);
 }
@@ -1137,10 +1146,15 @@ function renderAutoThreadScan(root: HTMLElement): void {
 
   if (autoThreadScanStatus === 'ready' && autoThreadScan) {
     if (firstUse) firstUse.style.display = 'none';
-    const last = truncateReplyContext(autoThreadScan.threadContext.last_inbound_text || '');
-    const fallback = truncateReplyContext(autoThreadScan.threadContext.header_text || autoThreadScan.threadContext.raw_text || 'Conversation scanned');
+    const lastRaw = autoThreadScan.threadContext.last_inbound_text || '';
+    const lastLooksLikePhone = /^[\d().+\-\s]{7,}$/.test(lastRaw.replace(/\s+/g, ' ').trim());
+    const last = lastLooksLikePhone ? '' : truncateReplyContext(lastRaw);
+    const name = displayText(autoThreadScan.customerName || pinnedCustomer?.name, '');
+    const fallback = truncateReplyContext(
+      name || autoThreadScan.threadContext.header_text || autoThreadScan.threadContext.raw_text || 'Conversation scanned',
+    );
     const surface = getDisplayLabel(autoThreadScan.platform || currentPlatform.platform);
-    const label = last ? 'Replying to:' : (autoThreadScan.platform === 'linkedin' ? 'Prospect:' : 'Page:');
+    const label = last ? 'Replying to:' : (name ? 'Customer:' : (autoThreadScan.platform === 'linkedin' ? 'Prospect:' : 'Page:'));
     el.innerHTML = `
       <span class="reply-context-label">${esc(label)}</span>
       <span class="reply-context-text">${esc(last || fallback || 'Conversation scanned')}</span>
@@ -1202,6 +1216,7 @@ async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<
       autoThreadScanStatus = 'ready';
       autoThreadScanUrl = currentPlatform.url || '';
       applyDefaultOutputFromScan(root, scan);
+      pinFromLiveScan(root, scan);
       renderAutoThreadScan(root);
       return scan;
     }
@@ -1234,6 +1249,8 @@ function scheduleAutoThreadScan(root: HTMLElement, delayMs = 150, force = false)
 function startAutoThreadScan(root: HTMLElement): void {
   renderAutoThreadScan(root);
   scheduleAutoThreadScan(root, 175);
+  watchActiveConversation(root);
+  void refreshPlatform().then(() => { lastWatchedSurface = surfaceKey(); });
   if (autoThreadScanListenersAttached) return;
   autoThreadScanListenersAttached = true;
   window.addEventListener('focus', () => {
@@ -1246,6 +1263,83 @@ function startAutoThreadScan(root: HTMLElement): void {
       scheduleAutoThreadScan(panelRoot, 100);
     }
   });
+}
+
+function pinFromLiveScan(root: HTMLElement, scan: AutoThreadScan): void {
+  if (isManualCustomerOverride(pinnedCustomer)) return;
+  const name = cleanCustomerNameCandidate(scan.customerName);
+  if (!name) return;
+  const ctx = {
+    customerName: name,
+    vehicle: scan.vehicle,
+    url: currentPlatform.url,
+    detectionConfidence: scan.detectionConfidence,
+    detectionMethod: scan.detectionMethod || 'auto_scan',
+    platform: scan.platform,
+  };
+  if (pinMismatchReason(pinnedCustomer, ctx)) {
+    clearStalePinnedCustomer(root, 'scan_mismatch');
+  }
+  if (pinnedCustomer && normalizeComparable(pinnedCustomer.name) === normalizeComparable(name)) {
+    if (scan.vehicle && pinnedCustomer.vehicle !== scan.vehicle) {
+      pinnedCustomer = { ...pinnedCustomer, vehicle: scan.vehicle };
+      renderCustomerStamp(root);
+    }
+    return;
+  }
+  pinCustomer(root, {
+    id: `scan:${currentThreadPath()}:${name}`,
+    name,
+    vehicle: scan.vehicle || null,
+    source: scan.platform,
+    confidence: Number(scan.detectionConfidence || 0.85),
+    detectionMethod: scan.detectionMethod || 'auto_scan',
+    threadPath: currentThreadPath(),
+    platform: scan.platform,
+    pinnedAt: Date.now(),
+  });
+}
+
+function clearStaleOutputs(root: HTMLElement): void {
+  if (isGenerating) return;
+  const outputs = root.querySelector('#o8-outputs') as HTMLElement | null;
+  if (outputs) outputs.innerHTML = '';
+}
+
+function surfaceKey(): string {
+  return `${currentPlatform.tabId}|${currentPlatform.platform}|${currentThreadPath()}`;
+}
+
+function onActiveSurfaceChanged(root: HTMLElement, forceScan = true): void {
+  const key = surfaceKey();
+  const changed = key !== lastWatchedSurface;
+  if (changed) {
+    lastWatchedSurface = key;
+    clearStalePinnedCustomer(root, 'surface_changed');
+    clearStaleOutputs(root);
+    autoThreadScanUrl = '';
+    autoThreadScan = null;
+    autoThreadScanStatus = 'scanning';
+    renderAutoThreadScan(root);
+  }
+  if (forceScan) scheduleAutoThreadScan(root, changed ? 50 : 150, changed);
+}
+
+function watchActiveConversation(root: HTMLElement): void {
+  if (tabWatchAttached) return;
+  tabWatchAttached = true;
+  try {
+    chrome.tabs.onActivated.addListener(() => {
+      void refreshPlatform().then(() => onActiveSurfaceChanged(root, true));
+    });
+    chrome.tabs.onUpdated.addListener((tabId, info) => {
+      if (tabId !== currentPlatform.tabId) return;
+      if (!info.url && info.status !== 'complete') return;
+      void refreshPlatform().then(() => onActiveSurfaceChanged(root, Boolean(info.url) || info.status === 'complete'));
+    });
+  } catch {
+    /* sidepanel tests without chrome.tabs */
+  }
 }
 
 function customerStampPayload(): Record<string, any> {
@@ -1339,6 +1433,17 @@ function getContextFingerprint(ctx: any): string {
   return String(ctx?.context_fingerprint || ctx?.thread_fingerprint || '').trim();
 }
 
+function currentThreadPath(ctx?: any): string {
+  try {
+    const raw = String(currentPlatform.url || ctx?.threadContext?.url || ctx?.url || '').trim();
+    if (!raw) return '';
+    const u = new URL(raw);
+    return `${u.hostname}${u.pathname}`;
+  } catch {
+    return String(currentPlatform.url || '').trim();
+  }
+}
+
 // Stable key for the "This for <name>?" answer memory. The content-script
 // fingerprint (getContextFingerprint) hashes volatile thread content —
 // document.title unread counts and the first 900 chars of [role=main]
@@ -1373,23 +1478,15 @@ function isManualCustomerOverride(customer: PinnedCustomer | null): boolean {
 
 function pinMatchesContext(customer: PinnedCustomer | null, ctx: any): boolean {
   if (!customer) return false;
-  if (isManualCustomerOverride(customer)) return true;
-  const ctxFingerprint = getContextFingerprint(ctx);
-  const pinFingerprint = customer.contextFingerprint || customer.threadFingerprint || '';
-  if (ctxFingerprint && pinFingerprint && ctxFingerprint !== pinFingerprint) return false;
-  const ctxName = getCustomerNameFromContext(ctx);
-  if (ctxName && normalizeComparable(customer.name) !== normalizeComparable(ctxName)) return false;
-  const ctxVehicle = getCustomerVehicleFromContext(ctx);
-  if (vehiclesConflict(customer.vehicle, ctxVehicle)) return false;
-  return true;
+  return pinMismatchReason(customer, ctx) === null;
 }
 
 function pinMismatchReason(customer: PinnedCustomer | null, ctx: any): string | null {
   if (!customer) return null;
   if (isManualCustomerOverride(customer)) return null;
-  const ctxFingerprint = getContextFingerprint(ctx);
-  const pinFingerprint = customer.contextFingerprint || customer.threadFingerprint || '';
-  if (ctxFingerprint && pinFingerprint && ctxFingerprint !== pinFingerprint) return 'thread_changed';
+  const nowPath = currentThreadPath(ctx);
+  const pinPath = String(customer.threadPath || '').trim();
+  if (pinPath && nowPath && pinPath !== nowPath) return 'thread_changed';
   const ctxName = getCustomerNameFromContext(ctx);
   if (ctxName && normalizeComparable(customer.name) !== normalizeComparable(ctxName)) return 'customer_changed';
   const ctxVehicle = getCustomerVehicleFromContext(ctx);
@@ -1446,6 +1543,7 @@ async function resolveCustomerForDetection(ctx: any): Promise<PinnedCustomer | n
     detectionMethod: ctx?.detectionMethod || ctx?.detection_method || 'auto_page',
     contextFingerprint: getContextFingerprint(ctx) || null,
     threadFingerprint: String(ctx?.thread_fingerprint || ctx?.context_fingerprint || '').trim() || null,
+    threadPath: currentThreadPath(ctx) || null,
     platform: ctx?.platform || currentPlatform.platform,
     pinnedAt: Date.now(),
   };
@@ -1459,6 +1557,7 @@ function pinCustomer(root: HTMLElement, customer: PinnedCustomer | null): void {
     platform: customer.platform || currentPlatform.platform,
     contextFingerprint: customer.contextFingerprint || customer.threadFingerprint || null,
     threadFingerprint: customer.threadFingerprint || customer.contextFingerprint || null,
+    threadPath: customer.threadPath || currentThreadPath() || null,
     pinnedAt: Date.now(),
   };
   pendingCustomerSuggestion = null;
@@ -1887,7 +1986,10 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
   if (isCustomerPickerOpen(root)) return;
   let ctx: any = {};
   try {
-    ctx = await collectCurrentLeadContext();
+    const liveScan = getUsableAutoThreadScan();
+    ctx = liveScan
+      ? leadContextFromAutoThreadScan(liveScan)
+      : await collectCurrentLeadContext();
   } catch {
     return;
   }
@@ -1895,11 +1997,7 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
   const fingerprint = getContextFingerprint(ctx);
   if (fingerprint && fingerprint !== customerDetectionFingerprint) {
     customerDetectionFingerprint = fingerprint;
-    if (pinnedCustomer && !pinMatchesContext(pinnedCustomer, ctx)) {
-      clearStalePinnedCustomer(root, 'thread_changed');
-    } else {
-      pendingCustomerSuggestion = null;
-    }
+    if (!pinnedCustomer) pendingCustomerSuggestion = null;
   }
 
   const mismatch = pinMismatchReason(pinnedCustomer, ctx);
@@ -3334,6 +3432,14 @@ function wireHandlers(root: HTMLElement): void {
     });
   });
 
+  root.querySelectorAll('.ask-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const input = el('o8-cmd-input') as HTMLTextAreaElement;
+      if (input) input.value = (chip as HTMLElement).textContent || '';
+      void doCommand(root);
+    });
+  });
+
   // Alerts
   const alertBtn = el('o8-alert-btn');
   if (alertBtn) alertBtn.onclick = () => doSetAlert(root);
@@ -4078,46 +4184,30 @@ function looksLikeClarifyingQuestion(text: string): boolean {
   return /^\s*(do you mean|did you mean|can you clarify|could you clarify|please clarify|what do you mean|i need more|i would need|i'd need|need more info)\b/i.test(text || '');
 }
 
-function parseMoneyAmount(raw: string, hasK: boolean): number {
-  const value = Number(String(raw || '').replace(/,/g, ''));
-  if (!Number.isFinite(value)) return 0;
-  if (hasK || value < 1000) return Math.round(value * 1000);
-  return Math.round(value);
+function localCommandFallback(input: string): string {
+  const calc = parseAskPayment(input);
+  if (calc) return formatAskPaymentAnswer(calc);
+  return 'Need a selling price, term, and rate to quote a payment. Try 72 months, 30k car, 2k down, 9%. Or ask the next question to ask, how to handle a trade, or how to set the appointment.';
 }
 
-function localCommandFallback(input: string): string {
-  const text = String(input || '').toLowerCase();
-  const monthsMatch = text.match(/\b(\d{2,3})\s*(?:months?|mos?|mo)\b/);
-  const amountMatches = [...text.matchAll(/\$?\b(\d+(?:\.\d+)?)\s*(k)?\b/g)]
-    .map((match) => {
-      const after = text.slice((match.index || 0) + match[0].length, (match.index || 0) + match[0].length + 18);
-      return {
-        value: parseMoneyAmount(match[1], !!match[2]),
-        isDown: /\b(down|dn|cash down)\b/.test(after),
-        isMonths: monthsMatch ? match[1] === monthsMatch[1] : false,
-      };
-    })
-    .filter((item) => item.value > 0 && !item.isMonths);
-
-  const price = amountMatches.find((item) => !item.isDown && item.value >= 10000)?.value || 0;
-  const down = amountMatches.find((item) => item.isDown)?.value || 0;
-  const months = monthsMatch ? Number(monthsMatch[1]) : 0;
-  if (price && months) {
-    const principal = Math.max(0, price - down);
-    const apr = 0.099;
-    const monthlyRate = apr / 12;
-    const payment = monthlyRate > 0
-      ? principal * (monthlyRate / (1 - Math.pow(1 + monthlyRate, -months)))
-      : principal / months;
-    return `Rough payment: about $${Math.round(payment).toLocaleString()}/mo before tax and fees, assuming $${price.toLocaleString()} price, $${down.toLocaleString()} down, ${months} months, and 9.9% APR. Amount financed before tax/fees is about $${principal.toLocaleString()}. A lower approved rate drops it; rolled-in tax, warranty, or gap raises it.`;
+function toolErrorMessage(raw: unknown, kind: 'coach' | 'ask'): string {
+  const text = String((raw as any)?.message || raw || '').trim();
+  if (/timeout|failed to fetch|network|connection/i.test(text)) {
+    return 'Connection dropped. Try again.';
   }
-
-  return 'Best quick answer with what we have: make a reasonable assumption, state it, answer directly, and give the rep one next step. Do not turn this into a customer follow-up.';
+  if (/coach_error|ask_error|tool_5|empty tool/i.test(text)) {
+    return kind === 'coach'
+      ? 'Coach could not answer just now. Try again.'
+      : 'Ask could not answer just now. Try again.';
+  }
+  return text || (kind === 'coach' ? 'Coach could not answer just now. Try again.' : 'Ask could not answer just now. Try again.');
 }
 
 function commandDisplayText(input: string, modelText: string): string {
   const cleaned = displayText(modelText, '').trim();
-  if (!cleaned || looksLikeFollowUpGeneration(cleaned) || looksLikeClarifyingQuestion(cleaned)) return localCommandFallback(input);
+  if (!cleaned || looksLikeAskPromptLeak(cleaned) || looksLikeFollowUpGeneration(cleaned) || looksLikeClarifyingQuestion(cleaned)) {
+    return localCommandFallback(input);
+  }
   return cleaned;
 }
 
@@ -4134,16 +4224,17 @@ async function doCoach(root: HTMLElement): Promise<void> {
     coachBtn.disabled = true;
     coachBtn.textContent = 'Thinking...';
   }
-  output.innerHTML = '<div class="tool-result" data-stream-target="coach" style="color:#94a3b8;white-space:pre-wrap">Thinking...</div>';
+  const local = localCoachFallback(input);
+  output.innerHTML = `<div class="tool-result">${esc(local)}</div>`;
   try {
     await requireToken();
     const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
     const resp = await safeSend({ type: 'COACH_ME', payload: { situation: input, platform: currentPlatform.platform, leadContext } });
     const rawText = resp?.coaching || resp?.text || '';
     const text = coachDisplayText(input, rawText);
-    output.innerHTML = `<div class="tool-result">${esc(text)}</div>`;
-  } catch (e: any) {
-    output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
+    output.innerHTML = `<div class="tool-result">${esc(text || local)}</div>`;
+  } catch {
+    output.innerHTML = `<div class="tool-result">${esc(local)}</div>`;
   } finally {
     if (coachBtn) {
       coachBtn.disabled = false;
@@ -4181,7 +4272,10 @@ function parseAlertTime(text: string): number {
 async function doSetAlert(root: HTMLElement): Promise<void> {
   stopActiveMic();
   const input = (root.querySelector('#o8-alert-input') as HTMLInputElement)?.value.trim();
-  if (!input) return;
+  if (!input) {
+    showToast(root, 'Type when to remind you, then tap Set Reminder.');
+    return;
+  }
   try {
     const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
     await safeSend({ type: 'SET_ALERT', payload: { task: input, alertTime: parseAlertTime(input), leadContext, ...customerStampPayload() } });
@@ -4218,22 +4312,21 @@ async function doCommand(root: HTMLElement): Promise<void> {
   const input = (root.querySelector('#o8-cmd-input') as HTMLTextAreaElement)?.value.trim();
   if (!input) return;
   const status = root.querySelector('#o8-cmd-status') as HTMLElement;
-  status.innerHTML = '<div class="tool-result" data-stream-target="command" style="color:#94a3b8;white-space:pre-wrap">Executing...</div>';
+  const localPayment = parseAskPayment(input);
+  if (localPayment) {
+    status.innerHTML = `<div class="tool-result">${esc(formatAskPaymentAnswer(localPayment))}</div>`;
+    return;
+  }
+  status.innerHTML = '<div class="tool-result" data-stream-target="command" style="color:#94a3b8;white-space:pre-wrap">Working...</div>';
   try {
     await requireToken();
     const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
     const resp = await safeSend({ type: 'EXECUTE_COMMAND', payload: { command: input, platform: currentPlatform.platform, currentUrl: currentPlatform.url, leadContext } });
-    // API returns { parsed: { action, content, ... }, usage }.
-    // Display the content field from the parsed command JSON.
     const rawText = resp?.parsed?.content || resp?.result || resp?.text || '';
     const text = commandDisplayText(input, rawText);
-    if (!text) {
-      status.innerHTML = '<div class="tool-result" style="color:#ef4444">Empty response. Try again.</div>';
-      return;
-    }
-    status.innerHTML = `<div class="tool-result">${esc(text)}</div>`;
-  } catch (e: any) {
-    status.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
+    status.innerHTML = `<div class="tool-result">${esc(text || localCommandFallback(input))}</div>`;
+  } catch {
+    status.innerHTML = `<div class="tool-result">${esc(localCommandFallback(input))}</div>`;
   }
 }
 

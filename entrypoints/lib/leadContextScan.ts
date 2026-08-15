@@ -3,6 +3,8 @@
  * Shared helpers used by the injected sidebar content script (and tests).
  */
 
+import { extractLinkedInThreadCustomer } from './linkedinThread';
+
 const MAKES =
   'Chevrolet|Chevy|Subaru|Toyota|Ford|Ram|Dodge|Jeep|GMC|Honda|Nissan|Hyundai|Kia|BMW|Mercedes|Buick|Cadillac|Lexus|Acura|Audi|Volvo|Mazda|Chrysler|Lincoln|Infiniti|Volkswagen|VW|Porsche|Tesla|Rivian';
 const STOP_WORDS =
@@ -10,7 +12,7 @@ const STOP_WORDS =
 const POISON_BEFORE = /(?:Equity|Payoff|Trade-in|trade\s+value|Credit)\b[\s\S]{0,50}$/i;
 const POISON_AFTER = /^[\s\S]{0,20}(?:Calculated|Payoff|payoff|appraised)/i;
 const LINKEDIN_UI_NAME_RE =
-  /^(?:ad options|advertising|sponsored|promoted|2023 grade|grade|follow|message|connect|open to|profile|activity|about|experience|education|people also viewed|linkedin|notifications|jobs|home|my network|premium)$/i;
+  /^(?:ad options|advertising|sponsored(?:\s+messaging)?(?:\s+ad)?|promoted|2023 grade|grade|follow|message|messaging|connect|open to|profile|activity|about|experience|education|people also viewed|linkedin|notifications|jobs|home|my network|premium)$/i;
 
 // Any candidate that equals one of these (case-insensitive, trimmed) is a
 // UI/channel label, not a person. Discovered 2026-07-02 on live demo: on
@@ -24,7 +26,8 @@ const LINKEDIN_UI_NAME_RE =
 const CHANNEL_OR_UI_NAMES = new Set([
   'messenger', 'facebook', 'marketplace', 'chats', 'chat',
   'gmail', 'inbox', 'mail', 'sent', 'drafts',
-  'linkedin', 'instagram', 'whatsapp', 'twitter', 'x',
+  'linkedin', 'messaging', 'sponsored', 'sponsored messaging ad',
+  'instagram', 'whatsapp', 'twitter', 'x',
   'vinsolutions', 'cox', 'salesforce', 'hubspot',
   'buyer', 'seller', 'customer', 'contact', 'lead',
   'new message', 'new chat', 'no longer available', 'sold',
@@ -49,7 +52,9 @@ export function isChannelOrUiName(value: unknown): boolean {
   // Multi-word variants: "SOLD - 2015 Subaru Outback", "Facebook Marketplace",
   // "Marketplace Buyer" etc.
   if (/^(?:sold|active|available|listed|new)\b/i.test(raw)) return true;
-  if (/^(?:facebook|messenger|marketplace|instagram)\s/i.test(raw)) return true;
+  if (/^(?:facebook|messenger|marketplace|instagram|linkedin)\s/i.test(raw)) return true;
+  if (/^sponsored\b/i.test(raw)) return true;
+  if (/^messaging$/i.test(raw)) return true;
   if (/^brevmont\b/i.test(raw)) return true;
   // Facebook Marketplace fallback headers for accounts without a friendly
   // display name. "Conversation titled X" is the raw h1; "Chat with X"
@@ -517,17 +522,13 @@ export function extractContactName(platform: string): string | null {
     return null;
   }
   if (platform === 'linkedin') {
+    const threadName = extractLinkedInThreadCustomer(document).name;
+    if (threadName && !isLikelyUiName(threadName)) return threadName;
     const selectors = [
       'main h1.text-heading-xlarge',
       '.pv-text-details__left-panel h1',
       '.ph5 h1',
       'h1.text-heading-xlarge',
-      '.msg-overlay-bubble-header__title',
-      '.msg-s-message-group__name',
-      '.msg-thread__link-to-profile',
-      '.msg-entity-lockup__entity-title',
-      '[data-anonymize="person-name"]',
-      '[aria-label^="View "] [dir="ltr"]',
     ];
     for (const selector of selectors) {
       const name = textFromSelector(selector);

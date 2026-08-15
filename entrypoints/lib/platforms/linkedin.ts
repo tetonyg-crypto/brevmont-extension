@@ -1,5 +1,8 @@
 /**
  * LinkedIn adapter — DMs + profile-page context.
+ *
+ * Messaging scans the OPEN thread pane only. Inbox rows and Sponsored
+ * Messaging ads are never used as the customer or last inbound.
  */
 
 import type {
@@ -12,6 +15,11 @@ import type {
   ThreadContext,
 } from './types';
 import { extractVehicleHint, stableKeyFromPath } from './shared';
+import {
+  extractLinkedInThreadCustomer,
+  isLinkedInMessagingSurface,
+  scrapeLinkedInOpenThread,
+} from '../linkedinThread';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
@@ -22,9 +30,6 @@ const CAPS: AdapterCapabilities = {
   surface_kind: 'social_dm',
   default_output: 'text',
 };
-
-const LINKEDIN_UI_NAME_RE =
-  /^(?:ad options|advertising|sponsored|promoted|grade|follow|message|connect|open to|profile|activity|about|experience|education|linkedin|notifications|jobs|home|my network|premium)$/i;
 
 function hostMatches(url: string): boolean {
   return String(url || '').toLowerCase().includes('linkedin.com');
@@ -43,94 +48,42 @@ function findMessageBox(): HTMLElement | null {
 }
 
 function scrapeThread(): ThreadContext {
-  let raw_text = '';
-  let header_text = '';
-  const messages: ThreadContext['messages'] = [];
   const href = String(window.location.href || '');
-  const isMessaging =
-    /linkedin\.com\/messaging/i.test(href)
-    || !!document.querySelector('.msg-s-message-list-content, .msg-form__contenteditable, .msg-overlay-conversation-bubble');
-  try {
-    if (!isMessaging) {
-      const nameEl = document.querySelector('main h1, .pv-text-details__left-panel h1, h1.text-heading-xlarge') as HTMLElement | null;
-      const headlineEl = document.querySelector('.text-body-medium.break-words, .pv-text-details__left-panel .text-body-medium') as HTMLElement | null;
-      const name = (nameEl?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 120);
-      const headline = (headlineEl?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 240);
-      header_text = [name, headline].filter(Boolean).join(' · ');
-      raw_text = header_text;
-      return {
-        conversation_key: stableKeyFromPath('linkedin'),
-        raw_text: raw_text.slice(0, 800),
-        messages: [],
-        last_inbound_text: '',
-        header_text,
-        url: href,
-      };
-    }
-    const thread =
-      (document.querySelector('.msg-s-message-list-content') as HTMLElement | null) ||
-      (document.querySelector('[class*="msg-thread"]') as HTMLElement | null) ||
-      (document.querySelector('[class*="message-list"]') as HTMLElement | null) ||
-      (document.querySelector('.msg-conversations-container__thread-view') as HTMLElement | null) ||
-      (document.querySelector('[class*="scaffold-layout__detail"]') as HTMLElement | null);
-    raw_text = (thread?.innerText || '').slice(0, 5000);
-    const headerAnchor =
-      document.querySelector('.msg-overlay-bubble-header__title') ||
-      document.querySelector('.msg-thread__link-to-profile') ||
-      document.querySelector('.msg-entity-lockup__entity-title');
-    if (headerAnchor) {
-      header_text = (headerAnchor as HTMLElement).innerText?.trim().slice(0, 200) || '';
-    }
-    const bubbles = Array.from(document.querySelectorAll('.msg-s-event-listitem, .msg-s-message-list__event, [class*="msg-s-message"]')).slice(-30);
-    for (const b of bubbles) {
-      const t = (b as HTMLElement).innerText?.replace(/\s+/g, ' ').trim();
-      if (!t || t.length < 3) continue;
-      messages.push({ text: t.slice(0, 600), direction: 'unknown' });
-    }
-  } catch {
-    /* noop */
+  if (!isLinkedInMessagingSurface(href) && !document.querySelector('.msg-s-message-list-content, .msg-form__contenteditable, .msg-overlay-conversation-bubble')) {
+    const nameEl = document.querySelector('main h1, .pv-text-details__left-panel h1, h1.text-heading-xlarge') as HTMLElement | null;
+    const headlineEl = document.querySelector('.text-body-medium.break-words, .pv-text-details__left-panel .text-body-medium') as HTMLElement | null;
+    const name = (nameEl?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    const headline = (headlineEl?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+    const header_text = [name, headline].filter(Boolean).join(' · ');
+    return {
+      conversation_key: stableKeyFromPath('linkedin'),
+      raw_text: header_text.slice(0, 800),
+      messages: [],
+      last_inbound_text: '',
+      header_text,
+      url: href,
+    };
   }
-  const inbound = messages.length ? messages[messages.length - 1].text : '';
+  const scraped = scrapeLinkedInOpenThread(document);
   return {
     conversation_key: stableKeyFromPath('linkedin'),
-    raw_text: [header_text, raw_text].filter(Boolean).join('\n').slice(0, 5000),
-    messages,
-    last_inbound_text: inbound,
-    header_text,
+    raw_text: scraped.raw_text,
+    messages: scraped.messages,
+    last_inbound_text: scraped.last_inbound_text,
+    header_text: scraped.header_text,
     url: href,
   };
 }
 
 function extractCustomer(): CustomerCandidate {
-  try {
-    const selectors = [
-      'main h1.text-heading-xlarge',
-      '.pv-text-details__left-panel h1',
-      '.ph5 h1',
-      'h1.text-heading-xlarge',
-      '.msg-overlay-bubble-header__title',
-      '.msg-s-message-group__name',
-      '.msg-thread__link-to-profile',
-      '.msg-entity-lockup__entity-title',
-      '[data-anonymize="person-name"]',
-      '[aria-label^="View "] [dir="ltr"]',
-    ];
-    for (const sel of selectors) {
-      const el = document.querySelector(sel) as HTMLElement | null;
-      if (!el) continue;
-      const raw = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!raw || raw.length < 2 || raw.length > 80) continue;
-      if (LINKEDIN_UI_NAME_RE.test(raw)) continue;
-      return { name: raw, raw_source: `linkedin_selector:${sel}`, confidence: 0.85 };
-    }
-  } catch {
-    /* noop */
-  }
-  return { name: null };
+  const found = extractLinkedInThreadCustomer(document);
+  if (!found.name) return { name: null };
+  return { name: found.name, raw_source: found.raw_source, confidence: found.confidence };
 }
 
 function extractContext(): DealContext {
-  const body = ((document.querySelector('main, [role="main"]') as HTMLElement | null)?.innerText || '').slice(0, 4000);
+  const scraped = scrapeLinkedInOpenThread(document);
+  const body = scraped.raw_text || scraped.header_text;
   const vh = extractVehicleHint(body);
   return {
     vehicle: vh?.raw || null,

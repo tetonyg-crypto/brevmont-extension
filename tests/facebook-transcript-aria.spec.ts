@@ -42,5 +42,6 @@ test('Facebook adapter fails closed when the Messenger thread is dismissed', () 
   expect(source).toContain('export function hasOpenFacebookThread');
   expect(source).toContain('if (!hasOpenFacebookThread()) return { name: null }');
   expect(source).toContain("div[role=\"textbox\"][contenteditable=\"true\"]");
+  expect(source).toContain('[role="main"] h1, [role="main"] h2');
   expect(source).toContain('if (!hasOpenFacebookThread()) {');
 });

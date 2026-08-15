@@ -17,6 +17,7 @@ import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
 import { cleanCustomerNameCandidate, extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface, isChannelOrUiName, stripConversationWrapper } from './lib/leadContextScan';
+import { extractLinkedInThreadCustomer, findActiveLinkedInThreadRoot, scrapeLinkedInOpenThread } from './lib/linkedinThread';
 import { detectCustomerFromPage } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 import { withInjectInFlight as overdriveWithInjectInFlight } from './lib/overdrive/safetyEnvelope';
@@ -319,18 +320,15 @@ export default defineContentScript({
         const text = (el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
         return text || null;
       };
+      const threadName = extractLinkedInThreadCustomer(document).name;
       const nameSelectors = [
         'main h1.text-heading-xlarge',
         '.pv-text-details__left-panel h1',
         '.ph5 h1',
         'h1.text-heading-xlarge',
-        '.msg-overlay-bubble-header__title',
-        '.msg-s-message-group__name',
-        '.msg-thread__link-to-profile',
-        '.msg-entity-lockup__entity-title',
-        '[data-anonymize="person-name"]',
       ];
-      const rawName = nameSelectors.map(pickText).find((candidate) => candidate && !isLikelyUiName(candidate)) || null;
+      const rawName = (threadName && !isLikelyUiName(threadName) ? threadName : null)
+        || nameSelectors.map(pickText).find((candidate) => candidate && !isLikelyUiName(candidate)) || null;
       const headline = pickText('.text-body-medium.break-words')
         || pickText('.pv-text-details__left-panel .text-body-medium')
         || pickText('.msg-entity-lockup__entity-info')
@@ -2125,13 +2123,21 @@ export default defineContentScript({
               }
               return null;
             };
+            const linkedinThreadName = isLinkedIn ? extractLinkedInThreadCustomer(document).name : null;
+            const facebookHeader = isFacebook
+              ? (document.querySelector('[role="main"] h1, [role="main"] h2') as HTMLElement | null)?.innerText || ''
+              : '';
+            const facebookListing = facebookHeader.split(/\s*[·•]\s*/)[1]?.trim() || null;
             const customerName = pickCleanName(
-              detected?.name,
+              linkedinThreadName,
               extractFacebookConversationName(),
+              isFacebook || isLinkedIn ? null : detected?.name,
               safeExtractContactName(),
               leadData?.customerName,
             );
-            const vehicle = leadData?.vehicle || detected?.vehicle || null;
+            const vehicle = isFacebook
+              ? (facebookListing || leadData?.vehicle || null)
+              : (isLinkedIn ? (leadData?.vehicle || null) : (leadData?.vehicle || detected?.vehicle || null));
             const fingerprint = buildContextFingerprint({
               name: customerName,
               vehicle,
@@ -2339,8 +2345,12 @@ export default defineContentScript({
               main?.innerText || document.body?.innerText || '',
             ].filter(Boolean).join('\n');
           } else if (isLinkedIn) {
-            const thread = document.querySelector('.msg-s-message-list-content, [class*="msg-thread"], [class*="message-list"], .msg-conversations-container__thread-view, [class*="scaffold-layout__detail"]') as HTMLElement | null;
-            rawText = thread?.innerText || document.body?.innerText || '';
+            const thread = document.querySelector('.scaffold-layout__detail .msg-s-message-list-content, .msg-thread .msg-s-message-list-content, .msg-conversations-container__thread-view .msg-s-message-list-content') as HTMLElement | null;
+            rawText = thread?.innerText || '';
+            if (!rawText) {
+              const profile = document.querySelector('main h1.text-heading-xlarge, .pv-text-details__left-panel h1') as HTMLElement | null;
+              rawText = profile?.innerText || '';
+            }
           } else if (isGmail) {
             const msgEl = document.querySelector('.h7, [role="list"], .a3s') as HTMLElement | null;
             rawText = msgEl?.innerText || document.body?.innerText || '';
@@ -2449,8 +2459,9 @@ export default defineContentScript({
             const main = document.querySelector('[role="main"]');
             text = main ? main.innerText.slice(0, 5000) : document.body.innerText.slice(0, 5000);
           } else if (isLinkedIn) {
-            const thread = document.querySelector('.msg-s-message-list-content, [class*="msg-thread"], [class*="message-list"], .msg-conversations-container__thread-view, [class*="scaffold-layout__detail"]');
-            text = thread ? (thread as HTMLElement).innerText.slice(0, 5000) : document.body.innerText.slice(0, 5000);
+            const scraped = scrapeLinkedInOpenThread(document);
+            const threadRoot = findActiveLinkedInThreadRoot(document);
+            text = (scraped.raw_text || threadRoot?.innerText || '').slice(0, 5000);
           } else if (isGmail) {
             const msgEl = document.querySelector('.h7, [role="list"], .a3s');
             text = msgEl ? (msgEl as HTMLElement).innerText.slice(0, 5000) : document.body.innerText.slice(0, 5000);

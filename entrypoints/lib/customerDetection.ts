@@ -143,7 +143,16 @@ export function detectConversationContext(): DetectedCustomer | null {
     const name = cleanName(aria.replace(/^Conversation with\s+/i, '').replace(/^Profile picture of\s+/i, ''), source === 'facebook')
       || cleanName(textFrom(el), source === 'facebook');
     if (name) {
-      const context = textFrom(main).slice(0, 4000);
+      const start = (el.closest('header') || el) as Element;
+      const following: string[] = [textFrom(start)];
+      let sib: Element | null = start.nextElementSibling;
+      while (sib) {
+        following.push(textFrom(sib));
+        sib = sib.nextElementSibling;
+      }
+      const context = source === 'facebook'
+        ? following.join('\n').slice(0, 2500)
+        : textFrom(main).slice(0, 4000);
       return result(name, {
         source,
         vehicle: extractVehicle(`${document.title}\n${context}`),
