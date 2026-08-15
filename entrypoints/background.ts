@@ -2951,13 +2951,23 @@ async function buildRepContext(): Promise<{ repName: string; dealership: string;
   const localDealership = String(local.dealership_name || local.dealership || '').trim();
   const syncDealership = String(sync.dealership || '').trim();
 
+  const looksLikePersonalWorkspace = (dealership: string, repName: string): boolean => {
+    const store = dealership.trim().toLowerCase();
+    if (!store) return true;
+    if (/\bpersonal\b/.test(store)) return true;
+    const first = repName.trim().split(/\s+/)[0]?.toLowerCase();
+    return Boolean(first && store === `${first} personal`);
+  };
+
   if (!profile) {
     const repName = localRepName || syncRepName || 'Sales Rep';
     // Optional dealership: never invent "Dealership" as a speaking identity.
-    const dealership = localDealership || syncDealership || '';
+    const rawDealership = localDealership || syncDealership || '';
+    const dealership = looksLikePersonalWorkspace(rawDealership, repName) ? '' : rawDealership;
     let contextBlock = 'SPEAKING IDENTITY:\n';
     contextBlock += `You are ${repName}, an individual automotive salesperson.\n`;
     contextBlock += 'Write in first person as this salesperson. Do not speak as the dealership brand or a BDC bot.\n';
+    contextBlock += `Sign as ${repName} only. Never write "I'm ${repName} at ${rawDealership || 'a store'}".\n`;
     if (dealership) contextBlock += `Optional store affiliation (secondary only): ${dealership}\n`;
     if (local.brevmont_tone) contextBlock += `Tone: ${local.brevmont_tone}\n`;
     return { repName, dealership, contextBlock };
@@ -2970,11 +2980,13 @@ async function buildRepContext(): Promise<{ repName: string; dealership: string;
 
   const profileName = `${id.firstName || ''} ${id.lastName || ''}`.trim();
   const repName = localRepName || profileName || syncRepName || 'Sales Rep';
-  const dealership = localDealership || dl.name || syncDealership || '';
+  const rawDealership = localDealership || dl.name || syncDealership || '';
+  const dealership = looksLikePersonalWorkspace(rawDealership, repName) ? '' : rawDealership;
 
   let ctx = 'SPEAKING IDENTITY:\n';
   ctx += `You are ${repName}, an individual automotive salesperson.\n`;
   ctx += 'Write in first person as this salesperson. Do not speak as the dealership brand, a manager, or a BDC bot.\n';
+  ctx += `Sign as ${repName} only. Never write "I'm ${repName} at ${rawDealership || 'a store'}".\n`;
   ctx += '\nREP PROFILE:\n';
   ctx += `Name: ${repName}\n`;
   if (id.jobTitle) ctx += `Title: ${id.jobTitle}\n`;

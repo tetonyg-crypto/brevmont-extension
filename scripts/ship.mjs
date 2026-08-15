@@ -120,6 +120,19 @@ function isStaleDesktopExtensionBuild(entryName) {
   );
 }
 
+function stripChromeExtensionHtmlNoise(dir) {
+  if (!existsSync(dir)) return;
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith('.html')) continue;
+    const filePath = join(dir, name);
+    const before = readFileSync(filePath, 'utf8');
+    const after = before
+      .replace(/<link[^>]*rel=["']modulepreload["'][^>]*>\s*/gi, '')
+      .replace(/\s+crossorigin(?:="[^"]*")?/gi, '');
+    if (after !== before) writeFileSync(filePath, after);
+  }
+}
+
 function cleanDesktopExtensionBuilds() {
   if (!existsSync(DESKTOP_DIR)) return;
   for (const entry of readdirSync(DESKTOP_DIR)) {
@@ -236,6 +249,7 @@ assertVersionCanShip({
 
 log('1/6', `Building wxt -> .output/chrome-mv3 (target version: v${VERSION})`);
 run('npx', ['wxt', 'build']);
+stripChromeExtensionHtmlNoise(BUILD_DIR);
 
 log('2/6', `Cleaning stale Desktop builds and syncing -> ${DESKTOP_VERSIONED_FOLDER}`);
 cleanDesktopExtensionBuilds();

@@ -35,6 +35,11 @@ import { sanitizeCustomerFacingOutput } from '../lib/outputContract';
 import { cleanCustomerNameCandidate } from '../lib/leadContextScan';
 import { isMessengerSystemCardText } from '../lib/messengerSystemText';
 import {
+  formatAskPaymentAnswer,
+  looksLikeAskPromptLeak,
+  parseAskPayment,
+} from '../lib/parseAskPayment';
+import {
   type ManualTopic,
   resolveChangelogUrl,
   resolveManualUrl,
@@ -3334,6 +3339,14 @@ function wireHandlers(root: HTMLElement): void {
     });
   });
 
+  root.querySelectorAll('.ask-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const input = el('o8-cmd-input') as HTMLTextAreaElement;
+      if (input) input.value = (chip as HTMLElement).textContent || '';
+      void doCommand(root);
+    });
+  });
+
   // Alerts
   const alertBtn = el('o8-alert-btn');
   if (alertBtn) alertBtn.onclick = () => doSetAlert(root);
@@ -4078,46 +4091,17 @@ function looksLikeClarifyingQuestion(text: string): boolean {
   return /^\s*(do you mean|did you mean|can you clarify|could you clarify|please clarify|what do you mean|i need more|i would need|i'd need|need more info)\b/i.test(text || '');
 }
 
-function parseMoneyAmount(raw: string, hasK: boolean): number {
-  const value = Number(String(raw || '').replace(/,/g, ''));
-  if (!Number.isFinite(value)) return 0;
-  if (hasK || value < 1000) return Math.round(value * 1000);
-  return Math.round(value);
-}
-
 function localCommandFallback(input: string): string {
-  const text = String(input || '').toLowerCase();
-  const monthsMatch = text.match(/\b(\d{2,3})\s*(?:months?|mos?|mo)\b/);
-  const amountMatches = [...text.matchAll(/\$?\b(\d+(?:\.\d+)?)\s*(k)?\b/g)]
-    .map((match) => {
-      const after = text.slice((match.index || 0) + match[0].length, (match.index || 0) + match[0].length + 18);
-      return {
-        value: parseMoneyAmount(match[1], !!match[2]),
-        isDown: /\b(down|dn|cash down)\b/.test(after),
-        isMonths: monthsMatch ? match[1] === monthsMatch[1] : false,
-      };
-    })
-    .filter((item) => item.value > 0 && !item.isMonths);
-
-  const price = amountMatches.find((item) => !item.isDown && item.value >= 10000)?.value || 0;
-  const down = amountMatches.find((item) => item.isDown)?.value || 0;
-  const months = monthsMatch ? Number(monthsMatch[1]) : 0;
-  if (price && months) {
-    const principal = Math.max(0, price - down);
-    const apr = 0.099;
-    const monthlyRate = apr / 12;
-    const payment = monthlyRate > 0
-      ? principal * (monthlyRate / (1 - Math.pow(1 + monthlyRate, -months)))
-      : principal / months;
-    return `Rough payment: about $${Math.round(payment).toLocaleString()}/mo before tax and fees, assuming $${price.toLocaleString()} price, $${down.toLocaleString()} down, ${months} months, and 9.9% APR. Amount financed before tax/fees is about $${principal.toLocaleString()}. A lower approved rate drops it; rolled-in tax, warranty, or gap raises it.`;
-  }
-
-  return 'Best quick answer with what we have: make a reasonable assumption, state it, answer directly, and give the rep one next step. Do not turn this into a customer follow-up.';
+  const calc = parseAskPayment(input);
+  if (calc) return formatAskPaymentAnswer(calc);
+  return 'Need a selling price, term, and rate to quote a payment. Try 72 months, 30k car, 2k down, 9%. Or ask the next question to ask, how to handle a trade, or how to set the appointment.';
 }
 
 function commandDisplayText(input: string, modelText: string): string {
   const cleaned = displayText(modelText, '').trim();
-  if (!cleaned || looksLikeFollowUpGeneration(cleaned) || looksLikeClarifyingQuestion(cleaned)) return localCommandFallback(input);
+  if (!cleaned || looksLikeAskPromptLeak(cleaned) || looksLikeFollowUpGeneration(cleaned) || looksLikeClarifyingQuestion(cleaned)) {
+    return localCommandFallback(input);
+  }
   return cleaned;
 }
 
@@ -4134,16 +4118,17 @@ async function doCoach(root: HTMLElement): Promise<void> {
     coachBtn.disabled = true;
     coachBtn.textContent = 'Thinking...';
   }
-  output.innerHTML = '<div class="tool-result" data-stream-target="coach" style="color:#94a3b8;white-space:pre-wrap">Thinking...</div>';
+  const local = localCoachFallback(input);
+  output.innerHTML = `<div class="tool-result">${esc(local)}</div>`;
   try {
     await requireToken();
     const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
     const resp = await safeSend({ type: 'COACH_ME', payload: { situation: input, platform: currentPlatform.platform, leadContext } });
     const rawText = resp?.coaching || resp?.text || '';
     const text = coachDisplayText(input, rawText);
-    output.innerHTML = `<div class="tool-result">${esc(text)}</div>`;
-  } catch (e: any) {
-    output.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
+    output.innerHTML = `<div class="tool-result">${esc(text || local)}</div>`;
+  } catch {
+    output.innerHTML = `<div class="tool-result">${esc(local)}</div>`;
   } finally {
     if (coachBtn) {
       coachBtn.disabled = false;
@@ -4218,22 +4203,21 @@ async function doCommand(root: HTMLElement): Promise<void> {
   const input = (root.querySelector('#o8-cmd-input') as HTMLTextAreaElement)?.value.trim();
   if (!input) return;
   const status = root.querySelector('#o8-cmd-status') as HTMLElement;
-  status.innerHTML = '<div class="tool-result" data-stream-target="command" style="color:#94a3b8;white-space:pre-wrap">Executing...</div>';
+  const localPayment = parseAskPayment(input);
+  if (localPayment) {
+    status.innerHTML = `<div class="tool-result">${esc(formatAskPaymentAnswer(localPayment))}</div>`;
+    return;
+  }
+  status.innerHTML = '<div class="tool-result" data-stream-target="command" style="color:#94a3b8;white-space:pre-wrap">Working...</div>';
   try {
     await requireToken();
     const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
     const resp = await safeSend({ type: 'EXECUTE_COMMAND', payload: { command: input, platform: currentPlatform.platform, currentUrl: currentPlatform.url, leadContext } });
-    // API returns { parsed: { action, content, ... }, usage }.
-    // Display the content field from the parsed command JSON.
     const rawText = resp?.parsed?.content || resp?.result || resp?.text || '';
     const text = commandDisplayText(input, rawText);
-    if (!text) {
-      status.innerHTML = '<div class="tool-result" style="color:#ef4444">Empty response. Try again.</div>';
-      return;
-    }
-    status.innerHTML = `<div class="tool-result">${esc(text)}</div>`;
-  } catch (e: any) {
-    status.innerHTML = `<div class="tool-result" style="color:#ef4444">${esc(e.message)}</div>`;
+    status.innerHTML = `<div class="tool-result">${esc(text || localCommandFallback(input))}</div>`;
+  } catch {
+    status.innerHTML = `<div class="tool-result">${esc(localCommandFallback(input))}</div>`;
   }
 }
 
