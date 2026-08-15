@@ -70,5 +70,26 @@ if (failures.length) {
   process.exit(1);
 }
 
+function stripUnderscoreZipEntries(zipPath) {
+  const listed = spawnSync('zipinfo', ['-1', zipPath], { encoding: 'utf8' });
+  if (listed.status !== 0) {
+    console.error('[cws-zip] Could not list zip entries');
+    process.exit(1);
+  }
+  const banned = listed.stdout.split(/\r?\n/).filter((name) => {
+    const base = name.split('/').pop() || name;
+    return name && (base.startsWith('_') || name.split('/').some((part) => part.startsWith('_')));
+  });
+  for (const name of banned) {
+    const removed = spawnSync('zip', ['-d', zipPath, name], { encoding: 'utf8' });
+    if (removed.status !== 0) {
+      console.error(`[cws-zip] Could not remove ${name} from the store zip`);
+      process.exit(1);
+    }
+    console.log(`[cws-zip] Removed underscore entry: ${name}`);
+  }
+}
+
 copyFileSync(wxtZip, cwsZip);
+stripUnderscoreZipEntries(cwsZip);
 console.log(`[cws-zip] Ready for Chrome Web Store upload: ${cwsZip}`);
