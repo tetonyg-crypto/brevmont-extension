@@ -201,10 +201,17 @@ test('primary panel navigation has one Back path to the Generate view', () => {
   expect(source).toContain("showPrimaryPanel(root, '#o8-lead-panel')");
 });
 
-test('Overdrive is rep-accessible unless manager settings explicitly disables it', () => {
+test('Overdrive chrome stays hidden; Generate is the draft-and-approve path', () => {
   const panel = read('entrypoints/sidepanel/overdrivePanel.ts');
   const main = read('entrypoints/sidepanel/main.ts');
   const client = read('entrypoints/lib/overdrive/apiClient.ts');
+  const ui = read('entrypoints/lib/panelUI.ts');
+
+  expect(main).toContain('const OVERDRIVE_UI_HIDDEN = true');
+  expect(main).toContain('if (OVERDRIVE_UI_HIDDEN) return;');
+  expect(ui).toContain('id="sp-overdrive-kicker"');
+  expect(ui).toContain('id="o8-overdrive-pill"');
+  expect(ui).not.toContain('Overdrive only reads supported conversations');
 
   expect(client).toContain('dealership_disabled?: boolean');
   expect(panel).toContain('data.dealership_disabled === true');
@@ -495,6 +502,9 @@ test('answered-chip "No" is keyed by stable thread identity, not the volatile fi
   // The old volatile-key patterns must be gone from the guard.
   expect(source).not.toContain('answeredCustomerDetections.get(fingerprint)');
   expect(source).not.toContain('getContextFingerprint(leadContext) || \'\'');
+  expect(source).toContain('function rememberCustomerDismissal');
+  expect(source).toContain("stamp.querySelector('#o8-customer-clear')");
+  expect(source).toContain('rememberCustomerDismissal()');
 });
 
 test('sidepanel rejects Brevmont company labels before stamping customers', () => {

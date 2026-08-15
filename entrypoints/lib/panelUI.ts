@@ -72,12 +72,12 @@ function getSettingsHTML(): string {
     </div>
     <div class="settings-card settings-note-card">
       <div class="settings-note-title">Disclosure</div>
-      <div class="settings-note-copy">Overdrive only reads supported conversations and logs every held draft and approved reply.</div>
+      <div class="settings-note-copy">Brevmont reads supported conversations so it can draft a reply for you to review and send.</div>
     </div>
     <button id="sp-settings-sign-out" class="settings-secondary" type="button">Sign out</button>
     <div class="settings-divider"></div>
-    <div class="settings-kicker settings-kicker-row"><span>Overdrive</span><button id="sp-link-overdrive-manual" class="settings-inline-help" type="button">Guide</button></div>
-    <div id="overdrive-panel-mount"></div>
+    <div id="sp-overdrive-kicker" class="settings-kicker settings-kicker-row" style="display:none"><span>Overdrive</span><button id="sp-link-overdrive-manual" class="settings-inline-help" type="button">Guide</button></div>
+    <div id="overdrive-panel-mount" style="display:none"></div>
     <div id="sp-support-card" class="settings-card settings-support-card" style="display:none">
       <div class="settings-note-title" id="sp-support-title">Support</div>
       <div class="settings-note-copy" id="sp-support-copy">Tell us what happened and include the copied details.</div>

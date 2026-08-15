@@ -128,6 +128,7 @@ let pendingCustomerSuggestion: any = null;
  * and back to the same thread keeps the answer because the key is the same.
  */
 const answeredCustomerDetections = new Map<string, 'yes' | 'no'>();
+const OVERDRIVE_UI_HIDDEN = true;
 let customerPickerOpen = false;
 let customerDetectionTimer: number | null = null;
 let customerDetectionUrl = '';
@@ -1464,6 +1465,15 @@ function pinCustomer(root: HTMLElement, customer: PinnedCustomer | null): void {
   renderCustomerStamp(root);
 }
 
+function rememberCustomerDismissal(ctx?: any): void {
+  const sources = [ctx, pendingCustomerSuggestion, pinnedCustomer];
+  for (const source of sources) {
+    if (!source) continue;
+    const key = stableAnswerKey(source);
+    if (key) answeredCustomerDetections.set(key, 'no');
+  }
+}
+
 function clearPinnedCustomer(root: HTMLElement): void {
   closeCustomerPicker(root);
   pinnedCustomer = null;
@@ -1493,7 +1503,10 @@ function renderCustomerStamp(root: HTMLElement): void {
       </div>
     `;
     stamp.querySelector('#o8-customer-change')?.addEventListener('click', () => openCustomerPicker(root));
-    stamp.querySelector('#o8-customer-clear')?.addEventListener('click', () => clearPinnedCustomer(root));
+    stamp.querySelector('#o8-customer-clear')?.addEventListener('click', () => {
+      rememberCustomerDismissal();
+      clearPinnedCustomer(root);
+    });
     renderOverdriveHeartbeatStrip(root).catch(() => {});
     return;
   }
@@ -1651,6 +1664,11 @@ async function renderNeedsAnswering(root: HTMLElement): Promise<void> {
 async function renderOverdriveHeartbeatStrip(root: HTMLElement): Promise<void> {
   const strip = root.querySelector('#o8-overdrive-heartbeat-strip') as HTMLElement | null;
   if (!strip) return;
+  if (OVERDRIVE_UI_HIDDEN) {
+    strip.style.display = 'none';
+    strip.innerHTML = '';
+    return;
+  }
 
   const likelyVehicleThread = !!(pinnedCustomer?.vehicle || autoThreadScan?.vehicle);
   if (!likelyVehicleThread && !pinnedCustomer) {
@@ -1857,6 +1875,7 @@ async function openCustomerPicker(root: HTMLElement): Promise<void> {
   });
 
   picker.querySelector('#o8-customer-skip')?.addEventListener('click', () => {
+    rememberCustomerDismissal();
     pinnedCustomer = null;
     pendingCustomerSuggestion = null;
     closeCustomerPicker(root);
@@ -2211,6 +2230,10 @@ async function renderPanel(): Promise<void> {
 // backgroundController fires whenever the seq flips).
 async function renderOverdriveStatusPill(root: HTMLElement): Promise<void> {
   const el = root.querySelector('#o8-overdrive-pill') as HTMLElement | null;
+  const kicker = root.querySelector('#sp-overdrive-kicker') as HTMLElement | null;
+  if (el) el.style.display = 'none';
+  if (kicker) kicker.style.display = 'none';
+  if (OVERDRIVE_UI_HIDDEN) return;
   const dot = root.querySelector('#o8-overdrive-pill-dot') as HTMLElement | null;
   const title = root.querySelector('#o8-overdrive-pill-title') as HTMLElement | null;
   const sub = root.querySelector('#o8-overdrive-pill-sub') as HTMLElement | null;
@@ -3099,6 +3122,9 @@ function wireHandlers(root: HTMLElement): void {
       if (scrollBody && firstSettingsSection) scrollBody.insertBefore(overdriveMount, firstSettingsSection);
       else (scrollBody || settingsPanel).appendChild(overdriveMount);
     }
+    if (OVERDRIVE_UI_HIDDEN) {
+      if (overdriveMount) overdriveMount.style.display = 'none';
+    } else {
     // Render on first open of the Settings panel.
     let overdriveRendered = false;
     const originalOnSettingsOpen = (): void => {
@@ -3112,6 +3138,7 @@ function wireHandlers(root: HTMLElement): void {
       if (settingsPanel.style.display !== 'none') originalOnSettingsOpen();
     });
     observer.observe(settingsPanel, { attributes: true, attributeFilter: ['style'] });
+    }
   }
 
   const settingsBtnInline = el('o8-settings-btn-inline');

@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { parseMessengerMessageAriaLabel } from '../entrypoints/lib/facebookTranscript';
 
 test('Messenger aria message rows deterministically type customer and rep turns', () => {
@@ -33,4 +35,12 @@ test('Messenger aria parser rejects system and metadata rows as speech', () => {
       'At 3:20 PM, Cardog: You can now rate each other People may rate one another based on their interactions or transactions. Rate Cardog',
     ).ok,
   ).toBe(false);
+});
+
+test('Facebook adapter fails closed when the Messenger thread is dismissed', () => {
+  const source = readFileSync(resolve(process.cwd(), 'entrypoints/lib/platforms/facebook.ts'), 'utf8');
+  expect(source).toContain('export function hasOpenFacebookThread');
+  expect(source).toContain('if (!hasOpenFacebookThread()) return { name: null }');
+  expect(source).toContain("div[role=\"textbox\"][contenteditable=\"true\"]");
+  expect(source).toContain('if (!hasOpenFacebookThread()) {');
 });

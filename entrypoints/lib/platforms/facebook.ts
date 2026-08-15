@@ -61,6 +61,17 @@ function conversationKey(): string {
   }
 }
 
+/** True only when a real Messenger / Marketplace thread pane is open. */
+export function hasOpenFacebookThread(): boolean {
+  const key = conversationKey();
+  if (!key.startsWith('t:') && !key.startsWith('mp:')) return false;
+  try {
+    return Boolean(document.querySelector('div[role="textbox"][contenteditable="true"]'));
+  } catch {
+    return false;
+  }
+}
+
 function readHeaderText(): string {
   try {
     const anchor =
@@ -75,6 +86,19 @@ function readHeaderText(): string {
 }
 
 function scrapeThread(): ThreadContext {
+  if (!hasOpenFacebookThread()) {
+    return {
+      conversation_key: conversationKey(),
+      raw_text: '',
+      messages: [],
+      last_inbound_text: '',
+      header_text: '',
+      url: window.location.href,
+      scanned_at: Date.now(),
+      message_count: 0,
+      listing: { title: null, sold: false },
+    };
+  }
   const transcript = extractFacebookTranscript(document);
   const header = readHeaderText();
   const context = extractContext();
@@ -102,6 +126,7 @@ function scrapeThread(): ThreadContext {
 }
 
 function extractCustomer(): CustomerCandidate {
+  if (!hasOpenFacebookThread()) return { name: null };
   // Priority order:
   //   1. aria-label paths (Conversation with X, Conversation titled X,
   //      Chat with X, Message X, Profile picture of X)
@@ -171,6 +196,16 @@ function extractCustomer(): CustomerCandidate {
 }
 
 function extractContext(): DealContext {
+  if (!hasOpenFacebookThread()) {
+    return {
+      vehicle: null,
+      vehicle_year: null,
+      vehicle_make: null,
+      vehicle_model: null,
+      listing_title: null,
+      listing_url: window.location.href,
+    };
+  }
   const header = readHeaderText();
   const vh = extractVehicleHint(header) || extractVehicleHint((document.querySelector('[role="main"]') as HTMLElement | null)?.innerText || '');
   // Marketplace: header is "Buyer · Listing Title" — grab the second half.
