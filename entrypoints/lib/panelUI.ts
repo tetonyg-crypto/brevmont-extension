@@ -231,8 +231,8 @@ export function getPanelHTML(platform: Platform): string {
 </div>
 <div id="o8-review-prompt" class="review-prompt" style="display:none;">
   <button id="o8-review-dismiss" class="review-dismiss" type="button" aria-label="Dismiss review prompt">&times;</button>
-  <div class="review-title">Brevmont has saved you a lot of typing.</div>
-  <button id="o8-review-link" class="review-link" type="button">Leave a quick rating</button>
+  <div class="review-title">If this draft was usable, rate Brevmont on the Chrome Web Store.</div>
+  <button id="o8-review-link" class="review-link" type="button">Open the Chrome Web Store</button>
 </div>
 <div id="o8-account-chip" class="account-chip" style="display:none;">
   <div class="account-chip-row">

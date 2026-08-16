@@ -18,7 +18,7 @@ export type ReviewPromptState = {
 };
 
 export function shouldShowReviewPrompt(count: number, state: ReviewPromptState | null | undefined, now = Date.now()): boolean {
-  if (count < 20) return false;
+  if (count < 1) return false;
   if (state?.clicked) return false;
   if (Number(state?.dismissed_until || 0) > now) return false;
   return true;
