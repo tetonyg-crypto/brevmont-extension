@@ -17,7 +17,7 @@ import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
 import { cleanCustomerNameCandidate, extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface, isChannelOrUiName, stripConversationWrapper } from './lib/leadContextScan';
-import { detectCustomerFromPage, nameMatchesGmailSubject } from './lib/customerDetection';
+import { detectCustomerFromPage, gmailSubjectText, nameMatchesGmailSubject } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 import { withInjectInFlight as overdriveWithInjectInFlight } from './lib/overdrive/safetyEnvelope';
 
@@ -2163,6 +2163,8 @@ export default defineContentScript({
               detectionConfidence: detected?.confidence ?? (customerName ? 0.55 : 0),
               detectionMethod: detected ? `auto_${detected.method}` : null,
               leadCreatedAt: scrapeLeadCreatedAt(),
+              gmail_subject: isGmail ? gmailSubjectText() : null,
+              header_text: isGmail ? gmailSubjectText() : null,
               ...fingerprint,
             });
           } catch {
@@ -2236,6 +2238,8 @@ export default defineContentScript({
               source_raw_text: thread.raw_text,
               detectionConfidence: clean?.confidence ?? 0,
               detectionMethod: clean?.raw_source || 'adapter',
+              gmail_subject: isGmail ? gmailSubjectText() : (context.subject_line || null),
+              header_text: thread.header_text || (isGmail ? gmailSubjectText() : null),
             });
           } catch (err: any) {
             // Skeptic-recheck fix (2026-07-03): on adapter scan

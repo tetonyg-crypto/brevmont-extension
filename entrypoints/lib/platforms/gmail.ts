@@ -216,12 +216,18 @@ function extractCustomer(): CustomerCandidate {
       return { name: null };
     }
     // Thread view — the .gD element holds the sender's display name.
+    // Never use the subject line (h2.hP). That is the email title, not the person.
     const senderEl = document.querySelector('.gD') as HTMLElement | null;
     if (senderEl) {
       const name = senderEl.getAttribute('name') || senderEl.textContent?.trim() || null;
-      if (name) {
+      const subject = String((document.querySelector('h2.hP, .hP') as HTMLElement | null)?.innerText || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+      const cleaned = String(name || '').replace(/\s+/g, ' ').trim();
+      if (cleaned && cleaned.toLowerCase() !== subject && !subject.startsWith(`${cleaned.toLowerCase()} `)) {
         const email = senderEl.getAttribute('email') || undefined;
-        return { name, email, raw_source: 'gmail_sender_gD', confidence: 0.85 };
+        return { name: cleaned, email, raw_source: 'gmail_sender_gD', confidence: 0.92 };
       }
     }
     // Fallback — the .go / [data-name] pair

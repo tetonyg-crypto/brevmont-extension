@@ -521,8 +521,8 @@ test('sidepanel rejects Brevmont company labels before stamping customers', () =
   const source = read('entrypoints/sidepanel/main.ts');
   const gate = read('entrypoints/lib/leadContextScan.ts');
   expect(source).toContain("import { cleanCustomerNameCandidate } from '../lib/leadContextScan'");
-  expect(source).toContain('return cleanCustomerNameCandidate(raw);');
-  expect(source).toContain('const name = cleanCustomerNameCandidate(rawName);');
+  expect(source).toContain('const name = cleanCustomerNameCandidate(raw);');
+  expect(source).toContain('function nameCollidesWithEmailSubject');
   expect(gate).toContain("'brevmont labs'");
   expect(gate).toContain("'archive'");
   expect(gate).toContain('export function cleanCustomerNameCandidate');
@@ -626,6 +626,15 @@ test('honest event platform names stay aligned with adapter surfaces', () => {
   const normalizeBody = sidepanel.slice(normalizeStart, sidepanel.indexOf('function normalizeOutputType', normalizeStart));
   expect(normalizeBody).toContain("return 'google-messages'");
   expect(normalizeBody).not.toContain('google_messages');
+});
+
+test('Gmail customer stamp rejects the subject line as the person', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  const gmail = read('entrypoints/lib/platforms/gmail.ts');
+  expect(source).toContain('function nameCollidesWithEmailSubject');
+  expect(source).toContain('if (nameCollidesWithEmailSubject(name, ctx)) return \'\'');
+  expect(gmail).toContain('Never use the subject line');
+  expect(gmail).toContain('gmail_sender_gD');
 });
 
 test('Gmail auto-scan does not invent last inbound from outbound or raw text fallback', () => {

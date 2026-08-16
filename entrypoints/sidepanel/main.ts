@@ -1004,7 +1004,11 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
   if (!rawText && !lastInbound && !headerText) return null;
 
   const context = ctx.context || {};
-  const customerName = getCustomerNameFromContext(ctx);
+  const customerName = getCustomerNameFromContext({
+    ...ctx,
+    header_text: headerText,
+    gmail_subject: ctx.gmail_subject || ctx.context?.subject_line || headerText,
+  });
   const vehicle = getCustomerVehicleFromContext({
     vehicle: context.vehicle || ctx.vehicle,
     vehicleOfInterest: context.vehicle || ctx.vehicleOfInterest || ctx.vehicle_interest,
@@ -1317,9 +1321,27 @@ function enrichLeadContextWithPinnedCustomer(leadContext: any = {}): any {
   };
 }
 
+function nameCollidesWithEmailSubject(name: string, ctx: any): boolean {
+  const n = String(name || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!n) return false;
+  const subject = stripThreadDecorators(
+    ctx?.gmail_subject
+    || ctx?.subject_line
+    || ctx?.header_text
+    || ctx?.threadContext?.header_text
+    || ctx?.context?.subject_line
+    || '',
+  ).toLowerCase();
+  if (!subject) return false;
+  return n === subject || subject.startsWith(`${n} `) || n.startsWith(subject);
+}
+
 function getCustomerNameFromContext(ctx: any): string {
   const raw = ctx?.customerName || ctx?.customer_name || ctx?.name || '';
-  return cleanCustomerNameCandidate(raw);
+  const name = cleanCustomerNameCandidate(raw);
+  if (!name) return '';
+  if (nameCollidesWithEmailSubject(name, ctx)) return '';
+  return name;
 }
 
 function cleanCustomerPickerRow(row: any): any | null {
