@@ -94,7 +94,31 @@ test('rejects Facebook UI and company labels from page-title detection', async (
   expect(detected).toBeNull();
 });
 
-test('strips vehicle suffixes from Facebook title customer names', async ({ page }) => {
+test('gmail uses the sender, not the subject line', async ({ page }) => {
+  await page.route('https://mail.google.com/mail/**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<!doctype html><html><head><title>Opportunity To Give - mrsamyhbrown@gmail.com - Gmail</title></head><body>
+        <div role="main">
+          <h2 class="hP">Opportunity To Give</h2>
+          <span class="gD" name="Amy Brown" email="mrsamyhbrown@gmail.com">Amy Brown</span>
+          <div class="a3s">We are collecting chess sets for a great after school program.</div>
+        </div>
+      </body></html>`,
+    });
+  });
+
+  await page.goto('https://mail.google.com/mail/u/1/#inbox/amy');
+  await page.addScriptTag({ path: bundlePath });
+  const detected = await page.evaluate(async () => (window as any).CustomerDetectionTest.detectCustomerFromPage());
+
+  expect(detected?.name).toBe('Amy Brown');
+  expect(detected?.email).toBe('mrsamyhbrown@gmail.com');
+  expect(detected?.name).not.toBe('Opportunity To Give');
+});
+
+test('detects a Facebook Marketplace buyer from Cardog title pattern', async ({ page }) => {
   await page.route('https://www.facebook.com/marketplace/t/cardog-title**', async (route) => {
     await route.fulfill({
       status: 200,

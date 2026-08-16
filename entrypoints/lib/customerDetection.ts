@@ -239,7 +239,46 @@ export function mergeSignals(signals: Array<DetectedCustomer | null>): DetectedC
   return best;
 }
 
+export function gmailSubjectText(): string {
+  const el = document.querySelector('h2.hP, .hP, [role="main"] h2') as HTMLElement | null;
+  return String(el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
+}
+
+export function nameMatchesGmailSubject(name: string | null | undefined): boolean {
+  const n = String(name || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const subject = gmailSubjectText().toLowerCase();
+  if (!n || !subject) return false;
+  return n === subject || subject.startsWith(`${n} `) || n.startsWith(subject);
+}
+
+function detectGmailSender(): DetectedCustomer | null {
+  const senderEl = document.querySelector('.gD') as HTMLElement | null;
+  let name = cleanName(senderEl?.getAttribute('name') || senderEl?.textContent, false);
+  if (nameMatchesGmailSubject(name)) name = '';
+  const email =
+    normalizeEmailAttr(senderEl?.getAttribute('email')) ||
+    extractEmail(document.body?.innerText || '');
+  if (!name) return null;
+  return result(name, {
+    email,
+    confidence: 0.93,
+    method: 'conversation_context',
+  });
+}
+
+function normalizeEmailAttr(value: unknown): string | undefined {
+  const match = String(value || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match ? match[0].toLowerCase() : undefined;
+}
+
 export async function detectCustomerFromPage(): Promise<DetectedCustomer | null> {
+  const source = sourceFromHost(window.location.hostname);
+  if (source === 'gmail') {
+    return mergeSignals([
+      detectGmailSender(),
+      scanFormFields(),
+    ]);
+  }
   return mergeSignals([
     parsePageTitle(document.title || ''),
     detectConversationContext(),

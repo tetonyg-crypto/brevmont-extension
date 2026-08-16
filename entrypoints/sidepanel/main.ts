@@ -36,6 +36,7 @@ import { cleanCustomerNameCandidate } from '../lib/leadContextScan';
 import { isMessengerSystemCardText } from '../lib/messengerSystemText';
 import {
   formatAskPaymentAnswer,
+  localAskAnythingFallback,
   looksLikeAskPromptLeak,
   parseAskPayment,
 } from '../lib/parseAskPayment';
@@ -145,6 +146,7 @@ let autoThreadScanRequestId = 0;
 let autoThreadScanTimer: number | null = null;
 let autoThreadScanListenersAttached = false;
 let outputSelectionTouched = false;
+let lastChipPlatform = '';
 const dismissedChallengeIds = new Set<string>();
 const FIRST_GENERATION_KEY = 'first_generation_completed';
 const ONBOARDING_BANNER_DISMISSED_KEY = 'onboarding_banner_dismissed';
@@ -929,19 +931,37 @@ function truncateReplyContext(value: unknown, max = 118): string {
   return text.length > max ? `${text.slice(0, max - 1).trim()}...` : text;
 }
 
+function isHostChromeNoise(value: unknown): boolean {
+  const text = stripThreadDecorators(value);
+  if (!text) return true;
+  if (text.length > 80) return false;
+  return /^(search\s+(mail|gmail)|gmail|inbox|starred|snoozed|important|sent|drafts|spam|trash|compose|mail)$/i.test(text);
+}
+
+function inferOutputChipFromSteer(text: string, platform: string): OutputChip | null {
+  const t = String(text || '').toLowerCase();
+  if (!t) return null;
+  if (/\bcrm\s*note\b|\blog (it|this|a note)\b/.test(t)) return 'crm';
+  if (/\bemail\b/.test(t)) return 'email';
+  if (/\b(text message|sms)\b/.test(t)) return 'text';
+  if (/\bfollow[ -]?up\b/.test(t)) return (platform === 'gmail' || platform === 'outlook') ? 'email' : 'text';
+  return null;
+}
+
 function lastReadableThreadLine(rawText: unknown): string {
   const lines = String(rawText || '')
     .split(/\n+/)
     .map((line) => stripThreadDecorators(line))
     .filter((line) => line.length > 3)
-    .filter((line) => !isMessengerSystemCardText(line));
+    .filter((line) => !isMessengerSystemCardText(line))
+    .filter((line) => !isHostChromeNoise(line));
   return lines.length ? lines[lines.length - 1] : '';
 }
 
 function firstNonSystemThreadText(...candidates: unknown[]): string {
   for (const candidate of candidates) {
     const text = stripThreadDecorators(candidate);
-    if (text && !isMessengerSystemCardText(text)) return text;
+    if (text && !isMessengerSystemCardText(text) && !isHostChromeNoise(text)) return text;
   }
   return '';
 }
@@ -962,7 +982,7 @@ function cleanThreadRawText(rawText: unknown): string {
   return String(rawText || '')
     .split(/\n+/)
     .map((line) => stripThreadDecorators(line))
-    .filter((line) => line.length > 0 && !isMessengerSystemCardText(line))
+    .filter((line) => line.length > 0 && !isMessengerSystemCardText(line) && !isHostChromeNoise(line))
     .join('\n')
     .slice(0, 5000);
 }
@@ -1088,7 +1108,16 @@ function getUsableAutoThreadScan(): AutoThreadScan | null {
   return lastInbound || rawText ? autoThreadScan : null;
 }
 
+function resetOutputChipIfPlatformChanged(): void {
+  const platform = currentPlatform.platform;
+  if (lastChipPlatform && lastChipPlatform !== platform) {
+    outputSelectionTouched = false;
+  }
+  lastChipPlatform = platform;
+}
+
 function applyDefaultOutputFromScan(root: HTMLElement, scan: AutoThreadScan): void {
+  resetOutputChipIfPlatformChanged();
   if (outputSelectionTouched || !scan.defaultOutput) return;
   if (root.querySelectorAll('.out-card').length > 0) return;
   selectOutputChip(root, scan.defaultOutput);
@@ -3661,9 +3690,15 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   const selectedLeadId: string | null = (root as any).__pendingLeadId || null;
   const selectedLead: any = selectedLeadId ? (root as any).__pendingLead || null : null;
   let scan: AutoThreadScan | null = null;
+  let pageLeadContext: any = {};
   if (!selectedLeadId) {
     if (currentPlatform.platform !== 'unknown') {
-      scan = await scanThreadForGenerate(root, true);
+      const [scanned, ctx] = await Promise.all([
+        scanThreadForGenerate(root, true),
+        collectCurrentLeadContext(),
+      ]);
+      scan = scanned;
+      pageLeadContext = ctx || {};
     }
     if (!scan) scan = getUsableAutoThreadScan();
     if (!scan && !input) {
@@ -3675,6 +3710,8 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       showToast(root, 'Type context or open a supported conversation first.');
       return;
     }
+    const inferredChip = inferOutputChipFromSteer(input, currentPlatform.platform);
+    if (inferredChip) selectOutputChip(root, inferredChip);
   }
   const chips = root.querySelectorAll('.chip.on');
   const selectedType = normalizeDefaultOutputChip(Array.from(chips)[0]?.getAttribute('data-type')) || 'text';
@@ -3703,10 +3740,9 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     leadContext = leadContextFromSelectedLead(selectedLead);
   } else {
     leadContext = scan ? leadContextFromAutoThreadScan(scan) : {};
-    try {
-      const ctx = await sendToContent({ type: 'GET_LEAD_CONTEXT' });
-      if (ctx) leadContext = { ...ctx, ...leadContext };
-    } catch {}
+    if (pageLeadContext && typeof pageLeadContext === 'object') {
+      leadContext = { ...pageLeadContext, ...leadContext };
+    }
     const generationMismatch = pinMismatchReason(pinnedCustomer, leadContext);
     if (generationMismatch) {
       clearStalePinnedCustomer(root, generationMismatch);
@@ -3714,13 +3750,11 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     if (!pinnedCustomer) {
       const detectedName = getCustomerNameFromContext(leadContext);
       const detectedConfidence = Number(leadContext?.detectionConfidence ?? leadContext?.detection_confidence ?? 0);
-      // Same answered-thread contract as refreshCustomerDetection: a No on
-      // the chip holds through a Generate press too — no re-prompt and no
-      // silent auto-pin over the rep's answer while this thread is on screen.
       const generatePriorAnswer = answeredCustomerDetections.get(stableAnswerKey(leadContext));
       if (detectedName && detectedConfidence >= 0.8 && generatePriorAnswer !== 'no') {
-        const resolved = await resolveCustomerForDetection(leadContext);
-        if (resolved) pinCustomer(root, resolved);
+        void resolveCustomerForDetection(leadContext).then((resolved) => {
+          if (resolved) pinCustomer(root, resolved);
+        });
       } else if (detectedName && detectedConfidence >= 0.5 && !generatePriorAnswer) {
         pendingCustomerSuggestion = leadContext;
         renderCustomerStamp(root);
@@ -4055,30 +4089,30 @@ function looksLikeFollowUpGeneration(text: string): boolean {
 function localCoachFallback(input: string): string {
   const text = String(input || '').toLowerCase();
   if (/think|decide|sleep on|later/.test(text)) {
-    return 'Don\'t chase "think about it." Slow it down, agree, then isolate the real concern. Say: "Totally fair. Is it the vehicle, the numbers, or just making the decision today?" Once they name it, solve that one thing and ask for the next step.';
+    return 'Relax. "I need to think about it" usually means they have one unnamed fear, not that they want you gone. Slow down and isolate it. Say: "Totally fair. Is it the vehicle, the numbers, or just making the decision today?" Then solve only that one thing.';
   }
   if (/price|payment|too high|expensive|cost|deal/.test(text)) {
-    return 'Don\'t defend the price first. Anchor value, then ask what number they had in mind and whether they\'re comparing the same vehicle, miles, equipment, and condition. Say: "If I can make the value make sense, are you ready to move forward?"';
+    return 'Relax. Price too high usually means they do not see why this one is worth it yet, or they are comparing apples to oranges. Do not defend the number first. Say: "If I can make the value make sense, are you ready to move forward?" Then find the comparison.';
   }
   if (/credit|score|approval|approved|finance/.test(text)) {
-    return 'Keep it calm and private. Don\'t promise approval. Say: "No judgment; my job is to find the strongest path with the lenders we have. Let\'s look at down payment, trade, and terms so we can structure it the right way."';
+    return 'Relax. Credit talk is embarrassment, not a no. Keep it private and do not promise approval. Say: "No judgment. My job is to find the strongest path with the lenders we have." Then get permission to look at structure.';
   }
   if (/spouse|wife|husband|partner|dad|mom|family/.test(text)) {
-    return 'Don\'t fight the second-decision-maker objection. Make it easy to bring them in. Say: "Totally get it. What\'s the one thing they\'ll want to know before they\'re comfortable?" Then set the call or second visit.';
+    return 'Relax. That is not a brush-off. They do not want to decide alone. Make it easy to bring the other person in. Say: "Totally get it. What is the one thing they will want to know?" Then set the call or the second visit.';
   }
   if (/just looking|looking around|browse|shopping/.test(text)) {
-    return 'Respect it, then earn one useful question. Say: "Perfect, I\'ll keep it easy. What are you hoping this next vehicle does better than your current one?" Use their answer to guide the next step.';
+    return 'Relax. Just looking usually means they do not want pressure, not that they are wasting time. They are still shopping. Do not pitch the car. Say: "I will keep it easy. What are you hoping this next vehicle does better than the one you have?" Use that answer.';
   }
   if (/trade|trade-in|trade in/.test(text)) {
-    return 'Separate the trade from the decision without dismissing it. Say: "Let\'s get you a real number on the trade so we\'re not guessing. If the trade value lands where it needs to, is this the vehicle you want?"';
+    return 'Relax. The trade is a stall until it has a real number. Separate the car they want from the car they have. Say: "Let us get a real number on the trade so we are not guessing. If that lands, is this the vehicle you want?"';
   }
   if (/cheaper|lower|better deal|beat/.test(text)) {
-    return 'Don\'t match a mystery offer. Clarify the comparison first. Say: "I\'m happy to compare it apples-to-apples. Is that the same trim, miles, condition, fees, and availability?" Then bring it back to whether they want this vehicle.';
+    return 'Relax. They want you to blink before you know what they are comparing. Do not match a mystery offer. Say: "Happy to compare it apples to apples. Same trim, miles, condition, and fees?" Then bring it back to this vehicle.';
   }
   if (/bank|credit union|pre.?approved|rate/.test(text)) {
-    return 'Treat their bank as a partner, not a threat. Say: "That\'s good. Bring the approval and I\'ll see if we can match or beat it, but either way we can still structure the deal around the vehicle you want."';
+    return 'Relax. The bank is not the enemy. Treat it as a partner. Say: "Bring the approval. I will see if we can match or beat it, and either way we can still structure the deal around the vehicle you want."';
   }
-  return 'Coach the rep, don\'t write the follow-up. Clarify the real objection, answer only that concern, then ask for one concrete next step. Say: "What\'s the main thing stopping you from moving forward right now?"';
+  return 'Relax. Coach the moment, do not write the follow-up. Name what they actually mean, answer only that, then ask for one next step. Say: "What is the main thing stopping you from moving forward right now?"';
 }
 
 function coachDisplayText(input: string, modelText: string): string {
@@ -4092,9 +4126,7 @@ function looksLikeClarifyingQuestion(text: string): boolean {
 }
 
 function localCommandFallback(input: string): string {
-  const calc = parseAskPayment(input);
-  if (calc) return formatAskPaymentAnswer(calc);
-  return 'Need a selling price, term, and rate to quote a payment. Try 72 months, 30k car, 2k down, 9%. Or ask the next question to ask, how to handle a trade, or how to set the appointment.';
+  return localAskAnythingFallback(input);
 }
 
 function commandDisplayText(input: string, modelText: string): string {
@@ -4208,16 +4240,17 @@ async function doCommand(root: HTMLElement): Promise<void> {
     status.innerHTML = `<div class="tool-result">${esc(formatAskPaymentAnswer(localPayment))}</div>`;
     return;
   }
-  status.innerHTML = '<div class="tool-result" data-stream-target="command" style="color:#94a3b8;white-space:pre-wrap">Working...</div>';
+  const local = localCommandFallback(input);
+  status.innerHTML = `<div class="tool-result">${esc(local)}</div>`;
   try {
     await requireToken();
     const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
     const resp = await safeSend({ type: 'EXECUTE_COMMAND', payload: { command: input, platform: currentPlatform.platform, currentUrl: currentPlatform.url, leadContext } });
     const rawText = resp?.parsed?.content || resp?.result || resp?.text || '';
     const text = commandDisplayText(input, rawText);
-    status.innerHTML = `<div class="tool-result">${esc(text || localCommandFallback(input))}</div>`;
+    status.innerHTML = `<div class="tool-result">${esc(text || local)}</div>`;
   } catch {
-    status.innerHTML = `<div class="tool-result">${esc(localCommandFallback(input))}</div>`;
+    status.innerHTML = `<div class="tool-result">${esc(local)}</div>`;
   }
 }
 
@@ -4755,7 +4788,7 @@ async function renderMyLeads(root: HTMLElement): Promise<void> {
       content.innerHTML = `
         ${renderMyLeadsFilterControls(leadFilter)}
         <div style="text-align:center;color:#64748b;font-size:12px;padding:24px;line-height:1.5;">
-          ${leadFilter === 'lost' ? 'No lost leads yet.' : 'Your pipeline will show the leads you capture here.'}
+          ${leadFilter === 'lost' ? 'No lost leads yet.' : 'My Leads is the pipeline you capture with + Lead or radar on a buyer thread. Inquiring on listings does not add them here.'}
         </div>`;
       wireMyLeadCardActions(root);
       return;

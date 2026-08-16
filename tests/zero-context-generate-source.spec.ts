@@ -25,17 +25,21 @@ test('manual Generate reads output chips after forced scan applies surface defau
   const start = source.indexOf('async function doGenerate');
   const body = source.slice(start, source.indexOf('// ─── Add output card', start));
   expect(body).toContain('let scan: AutoThreadScan | null = null');
-  expect(body.indexOf('scan = await scanThreadForGenerate(root, true)')).toBeGreaterThan(-1);
-  expect(body.indexOf('scan = await scanThreadForGenerate(root, true)')).toBeLessThan(
+  expect(body.indexOf('scanThreadForGenerate(root, true)')).toBeGreaterThan(-1);
+  expect(body.indexOf('scanThreadForGenerate(root, true)')).toBeLessThan(
     body.indexOf('if (!scan) scan = getUsableAutoThreadScan()'),
   );
   expect(body.indexOf("root.querySelectorAll('.chip.on')")).toBeGreaterThan(
-    body.indexOf('scan = await scanThreadForGenerate(root, true)'),
+    body.indexOf('scanThreadForGenerate(root, true)'),
   );
   expect(body.indexOf("const selectedType = normalizeDefaultOutputChip")).toBeGreaterThan(
     body.indexOf("root.querySelectorAll('.chip.on')"),
   );
-  expect(body).toContain("const type = 'all'");
+  expect(source).toContain('function inferOutputChipFromSteer');
+  expect(source).toContain('function isHostChromeNoise');
+  expect(source).toContain('search\\s+(mail|gmail)');
+  expect(source).toContain('collectCurrentLeadContext()');
+  expect(source).toContain('void resolveCustomerForDetection(leadContext)');
   expect(body).toContain("workflow_type: 'all'");
   expect(body).toContain('setActiveOutputTab(root, selectedReady || firstReady!)');
   expect(body).toContain('paying for one bundled generation');
@@ -171,6 +175,8 @@ test('Coach uses coach mode and rejects follow-up-shaped responses', () => {
   expect(background).toContain("workflow_type: 'coach_me'");
   expect(source).toContain('function looksLikeFollowUpGeneration');
   expect(source).toContain('function localCoachFallback');
+  expect(source).toContain('Relax. "I need to think about it" usually means');
+  expect(source).not.toContain('Respect it, then earn one useful question');
   expect(source).toContain('coachDisplayText(input, rawText)');
   expect(source).toContain('TEXT|EMAIL|CRM');
   expect(source).toContain("if (target === 'coach' || target === 'command')");
@@ -180,13 +186,17 @@ test('Coach uses coach mode and rejects follow-up-shaped responses', () => {
 test('Ask Anything is guarded as internal rep advice, never follow-up copy', () => {
   const background = read('entrypoints/background.ts');
   const source = read('entrypoints/sidepanel/main.ts');
+  const ask = read('entrypoints/lib/parseAskPayment.ts');
   expect(background).toContain('ASK ANYTHING MODE - INTERNAL SALES ANSWER ONLY');
   expect(background).toContain('Never output TEXT, EMAIL, CRM NOTE');
   expect(background).toContain('Do not ask "do you mean" or clarifying questions');
   expect(source).toContain('function commandDisplayText');
   expect(source).toContain('function localCommandFallback');
+  expect(source).toContain('const local = localCommandFallback(input)');
+  expect(source).toContain("status.innerHTML = `<div class=\"tool-result\">${esc(local)}</div>`");
   expect(source).toContain('looksLikeClarifyingQuestion');
-  expect(source).toContain('9.9% APR');
+  expect(ask).toContain('assumedApr ? 9.9 : apr');
+  expect(ask).toContain('function localAskAnythingFallback');
 });
 
 test('primary panel navigation has one Back path to the Generate view', () => {
@@ -451,7 +461,7 @@ test('explicit lead selection overrides page-scan context in the generate payloa
   expect(source).toContain('function leadContextFromSelectedLead');
   expect(body).toContain("const selectedLeadId: string | null = (root as any).__pendingLeadId || null");
   expect(body).toContain('if (!selectedLeadId) {');
-  expect(body.indexOf('if (!selectedLeadId) {')).toBeLessThan(body.indexOf('scan = await scanThreadForGenerate(root, true)'));
+  expect(body.indexOf('if (!selectedLeadId) {')).toBeLessThan(body.indexOf('scanThreadForGenerate(root, true)'));
   expect(body).toContain('leadContext = leadContextFromSelectedLead(selectedLead)');
   expect(body).toContain("generation_source: selectedLeadId ? 'selected_lead'");
   expect(body).toContain('pipeline_stage: leadContext.pipeline_stage || null');

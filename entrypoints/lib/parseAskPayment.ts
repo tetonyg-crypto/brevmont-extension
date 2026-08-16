@@ -60,5 +60,24 @@ export function formatAskPaymentAnswer(calc: AskPaymentCalc): string {
 }
 
 export function looksLikeAskPromptLeak(text: string): boolean {
-  return /best quick answer with what we have|make a reasonable assumption, state it|do not turn this into a customer follow-up/i.test(text || '');
+  return /best quick answer with what we have|make a reasonable assumption, state it|do not turn this into a customer follow-up|Need a selling price, term, and rate to quote a payment/i.test(text || '');
+}
+
+export function localAskAnythingFallback(input: string): string {
+  const calc = parseAskPayment(input);
+  if (calc) return formatAskPaymentAnswer(calc);
+  const text = String(input || '').toLowerCase();
+  if (/next question/.test(text)) {
+    return 'Ask one question that moves the deal, not five that stall it. Use: "If the numbers work, are you trying to get this done today or this week?" Their answer tells you whether to go to numbers or set a time.';
+  }
+  if (/trade/.test(text)) {
+    return 'Do not guess a trade number in the thread. Separate the car they want from the car they have. Say: "Let us get a real number on the trade so we are not guessing. If that lands, is this the vehicle you want?" Then get the year, miles, and payoff.';
+  }
+  if (/credit/.test(text)) {
+    return 'Keep credit private and calm. Do not promise approval. Say: "No judgment. My job is to find the strongest path with the lenders we have. Down payment, trade, and term are what we can actually work." Then stop talking and let them answer.';
+  }
+  if (/appointment|set the appt|set the appointment/.test(text)) {
+    return 'Give two concrete times, not "when works for you." Say: "I can do today after 4 or tomorrow morning. Which one gets you here." If they dodge, ask what would make the visit worth it, then offer the two times again.';
+  }
+  return 'Need a selling price, term, and rate to quote a payment. Try 72 months, 30k car, 2k down, 9%. For everything else, ask the next question, how to handle a trade, credit, or how to set the appointment.';
 }

@@ -17,7 +17,7 @@ import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
 import { cleanCustomerNameCandidate, extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface, isChannelOrUiName, stripConversationWrapper } from './lib/leadContextScan';
-import { detectCustomerFromPage } from './lib/customerDetection';
+import { detectCustomerFromPage, nameMatchesGmailSubject } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 import { withInjectInFlight as overdriveWithInjectInFlight } from './lib/overdrive/safetyEnvelope';
 
@@ -401,7 +401,10 @@ export default defineContentScript({
       const emailLocalName = attrEmail
         ? attrEmail.split('@')[0].replace(/[._+-]+/g, ' ').replace(/\s+/g, ' ').trim()
         : null;
-      const customerName = cleanName || safeExtractContactName() || emailLocalName;
+      const fromSender = cleanName && !nameMatchesGmailSubject(cleanName) ? cleanName : null;
+      const fromContact = safeExtractContactName();
+      const contactOk = fromContact && !nameMatchesGmailSubject(fromContact) ? fromContact : null;
+      const customerName = fromSender || contactOk || (emailLocalName && !nameMatchesGmailSubject(emailLocalName) ? emailLocalName : null);
       const subject = (
         (document.querySelector('h2.hP, .hP, [data-legacy-thread-id] h2') as HTMLElement | null)?.innerText ||
         (document.querySelector('[role="main"] h2') as HTMLElement | null)?.innerText ||
@@ -2125,12 +2128,20 @@ export default defineContentScript({
               }
               return null;
             };
-            const customerName = pickCleanName(
-              detected?.name,
-              extractFacebookConversationName(),
-              safeExtractContactName(),
-              leadData?.customerName,
-            );
+            const gmailSignal = isGmail ? extractGmailLeadSignal('') : {};
+            const customerName = isGmail
+              ? pickCleanName(
+                  nameMatchesGmailSubject(gmailSignal.customerName) ? null : gmailSignal.customerName,
+                  nameMatchesGmailSubject(safeExtractContactName()) ? null : safeExtractContactName(),
+                  nameMatchesGmailSubject(leadData?.customerName) ? null : leadData?.customerName,
+                  nameMatchesGmailSubject(detected?.name) ? null : detected?.name,
+                )
+              : pickCleanName(
+                  detected?.name,
+                  extractFacebookConversationName(),
+                  safeExtractContactName(),
+                  leadData?.customerName,
+                );
             const vehicle = leadData?.vehicle || detected?.vehicle || null;
             const fingerprint = buildContextFingerprint({
               name: customerName,
@@ -2143,7 +2154,7 @@ export default defineContentScript({
               name: customerName,
               vehicle,
               phone: leadData?.phone || detected?.phone || null,
-              email: leadData?.email || detected?.email || null,
+              email: leadData?.email || detected?.email || gmailSignal.email || null,
               source: leadData?.source || detected?.source || null,
               vehicleMake: leadData?.vehicleMake || null,
               vehicleModel: leadData?.vehicleModel || null,
@@ -2189,11 +2200,15 @@ export default defineContentScript({
             // Merge adapter's candidate with the legacy heuristics for
             // extra safety on flagship platforms.
             const detected = await detectCustomerFromPage();
+            const adapterName = isGmail && nameMatchesGmailSubject(adapterCustomer?.name) ? null : adapterCustomer;
+            const detectedName = isGmail && nameMatchesGmailSubject(detected?.name)
+              ? null
+              : (detected ? { name: detected.name, confidence: detected.confidence ?? 0.5, raw_source: `legacy_${detected.method}` } : null);
             const clean = platforms.pickCleanName([
-              adapterCustomer,
-              detected ? { name: detected.name, confidence: detected.confidence ?? 0.5, raw_source: `legacy_${detected.method}` } : null,
+              adapterName,
+              detectedName,
               extractFacebookConversationName ? { name: extractFacebookConversationName(), confidence: 0.55, raw_source: 'legacy_fb_conversation' } : null,
-              safeExtractContactName ? { name: safeExtractContactName(), confidence: 0.5, raw_source: 'legacy_platform_scan' } : null,
+              safeExtractContactName && !nameMatchesGmailSubject(safeExtractContactName()) ? { name: safeExtractContactName(), confidence: 0.5, raw_source: 'legacy_platform_scan' } : null,
             ]);
 
             sendResponse({
@@ -2209,8 +2224,8 @@ export default defineContentScript({
               name: clean?.name || null,
               customerName: clean?.name || null,
               customer_name: clean?.name || null,
-              phone: clean?.phone || detected?.phone || null,
-              email: clean?.email || detected?.email || null,
+              phone: clean?.phone || adapterCustomer?.phone || detected?.phone || null,
+              email: clean?.email || adapterCustomer?.email || detected?.email || null,
               vehicle: context.vehicle || detected?.vehicle || null,
               vehicle_interest: context.vehicle || null,
               scanned_at: thread.scanned_at || Date.now(),
@@ -2366,7 +2381,9 @@ export default defineContentScript({
           // and must be last-resort only, or a rep switching threads can send
           // content addressed to the previous customer.
           const rawName = scanned.customerName || gmailSignal.customerName || linkedinSignal.customerName || detected?.name || extractFacebookConversationName() || safeExtractContactName() || partialSignal.customerName || leadData?.customerName;
-          const cleanedName = cleanCustomerNameCandidate(rawName);
+          const cleanedName = cleanCustomerNameCandidate(
+            isGmail && nameMatchesGmailSubject(rawName) ? '' : rawName,
+          );
           const name = cleanedName && !isLikelyUiName(cleanedName) ? cleanedName : null;
           const phone = scanned.phone || leadData?.phone || detected?.phone || partialSignal.phone || null;
           const email = scanned.email || leadData?.email || detected?.email || gmailSignal.email || partialSignal.email || null;
