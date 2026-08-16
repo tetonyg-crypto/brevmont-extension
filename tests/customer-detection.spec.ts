@@ -100,6 +100,8 @@ test('gmail uses the sender, not the subject line', async ({ page }) => {
       status: 200,
       contentType: 'text/html',
       body: `<!doctype html><html><head><title>Opportunity To Give - mrsamyhbrown@gmail.com - Gmail</title></head><body>
+        <div role="dialog" aria-label="Search">Search mail</div>
+        <header><a aria-label="Google Account: Yancy Garcia (007yancygarcia@gmail.com)" href="#account">Account</a></header>
         <div role="main">
           <h2 class="hP">Opportunity To Give</h2>
           <span class="gD" name="Amy Brown" email="mrsamyhbrown@gmail.com">Amy Brown</span>

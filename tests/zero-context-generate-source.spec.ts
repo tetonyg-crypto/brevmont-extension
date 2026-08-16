@@ -633,7 +633,7 @@ test('Gmail customer stamp rejects the subject line as the person', () => {
   const gmail = read('entrypoints/lib/platforms/gmail.ts');
   expect(source).toContain('function nameCollidesWithEmailSubject');
   expect(source).toContain('if (nameCollidesWithEmailSubject(name, ctx)) return \'\'');
-  expect(gmail).toContain('Never use the subject line');
+  expect(gmail).toContain('findGmailThreadSender');
   expect(gmail).toContain('gmail_sender_gD');
 });
 

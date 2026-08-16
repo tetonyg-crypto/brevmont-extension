@@ -1333,7 +1333,7 @@ function nameCollidesWithEmailSubject(name: string, ctx: any): boolean {
     || '',
   ).toLowerCase();
   if (!subject) return false;
-  return n === subject || subject.startsWith(`${n} `) || n.startsWith(subject);
+  return n === subject || subject.startsWith(`${n} `) || subject.startsWith(`${n} - `);
 }
 
 function getCustomerNameFromContext(ctx: any): string {
@@ -1993,8 +1993,8 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
     const resolved = await resolveCustomerForDetection(ctx);
     if (resolved) {
       pinCustomer(root, { ...resolved, detectionMethod: ctx?.detectionMethod || ctx?.detection_method || 'auto_page' });
+      return;
     }
-    return;
   }
 
   if (!pinnedCustomer && confidence >= 0.5) {

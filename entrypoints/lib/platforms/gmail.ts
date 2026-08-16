@@ -12,6 +12,7 @@ import type {
   ThreadContext,
 } from './types';
 import { extractVehicleHint, stableKeyFromPath } from './shared';
+import { findGmailThreadSender } from '../customerDetection';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: false,
@@ -191,12 +192,18 @@ function scrapeThread(): ThreadContext {
   };
 }
 
+function realGmailComposeRoot(): Element | null {
+  const candidates = Array.from(document.querySelectorAll('div[role="dialog"], [role="region"][aria-label*="compose" i]'));
+  return candidates.find((el) => {
+    const label = (el.getAttribute('aria-label') || '').toLowerCase();
+    if (/compose|new message|reply|forward/.test(label)) return true;
+    return Boolean(el.querySelector('[aria-label="Message Body"], input[name="to"], .aoI'));
+  }) || null;
+}
+
 function extractCustomer(): CustomerCandidate {
   try {
-    // Gmail compose dialog — the "To" chip has a resolved contact.
-    const composeRoot =
-      document.querySelector('div[role="dialog"]') ||
-      document.querySelector('[role="region"][aria-label*="compose" i]');
+    const composeRoot = realGmailComposeRoot();
     if (composeRoot) {
       const hover = composeRoot.querySelector('[data-hovercard-id]');
       if (hover) {
@@ -211,30 +218,11 @@ function extractCustomer(): CustomerCandidate {
         const local = email.split('@')[0];
         if (local) return { name: local, email, raw_source: 'gmail_compose_email_local', confidence: 0.7 };
       }
-      // Compose is open but To is empty — return null so we don't
-      // accidentally attribute the background thread's sender.
       return { name: null };
     }
-    // Thread view — the .gD element holds the sender's display name.
-    // Never use the subject line (h2.hP). That is the email title, not the person.
-    const senderEl = document.querySelector('.gD') as HTMLElement | null;
-    if (senderEl) {
-      const name = senderEl.getAttribute('name') || senderEl.textContent?.trim() || null;
-      const subject = String((document.querySelector('h2.hP, .hP') as HTMLElement | null)?.innerText || '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toLowerCase();
-      const cleaned = String(name || '').replace(/\s+/g, ' ').trim();
-      if (cleaned && cleaned.toLowerCase() !== subject && !subject.startsWith(`${cleaned.toLowerCase()} `)) {
-        const email = senderEl.getAttribute('email') || undefined;
-        return { name: cleaned, email, raw_source: 'gmail_sender_gD', confidence: 0.92 };
-      }
-    }
-    // Fallback — the .go / [data-name] pair
-    const goEl = document.querySelector('.go');
-    if (goEl) {
-      const name = (goEl as HTMLElement).textContent?.trim() || null;
-      if (name) return { name, raw_source: 'gmail_go_element', confidence: 0.65 };
+    const sender = findGmailThreadSender();
+    if (sender?.name) {
+      return { name: sender.name, email: sender.email, raw_source: 'gmail_sender_gD', confidence: 0.92 };
     }
   } catch {
     /* noop */

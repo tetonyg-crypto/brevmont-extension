@@ -380,11 +380,12 @@ export function safeInjectText(target: HTMLElement, text: string) {
 
 export function getActiveComposeRoot(platform: string): Element | null {
   if (platform !== 'gmail') return null;
-  return (
-    document.querySelector('div[role="dialog"]') ||
-    document.querySelector('[role="region"][aria-label*="compose" i]') ||
-    null
-  );
+  const candidates = Array.from(document.querySelectorAll('div[role="dialog"], [role="region"][aria-label*="compose" i]'));
+  return candidates.find((el) => {
+    const label = (el.getAttribute('aria-label') || '').toLowerCase();
+    if (/compose|new message|reply|forward/.test(label)) return true;
+    return Boolean(el.querySelector('[aria-label="Message Body"], input[name="to"], .aoI'));
+  }) || null;
 }
 
 export function hasActiveComposeSurface(platform: string): boolean {

@@ -239,8 +239,26 @@ export function mergeSignals(signals: Array<DetectedCustomer | null>): DetectedC
   return best;
 }
 
+function queryDeep(selector: string, doc: Document = document): HTMLElement[] {
+  const found: HTMLElement[] = [];
+  const walk = (node: Document | ShadowRoot) => {
+    found.push(...Array.from(node.querySelectorAll(selector)) as HTMLElement[]);
+    for (const iframe of Array.from(node.querySelectorAll('iframe'))) {
+      try {
+        const child = iframe.contentDocument;
+        if (child) walk(child);
+      } catch {
+        /* cross-origin */
+      }
+    }
+  };
+  walk(doc);
+  return found;
+}
+
 export function gmailSubjectText(): string {
-  const el = document.querySelector('h2.hP, .hP, [role="main"] h2') as HTMLElement | null;
+  const el = queryDeep('h2.hP, .hP').find((node) => String(node.innerText || node.textContent || '').trim())
+    || (document.querySelector('[role="main"] h2') as HTMLElement | null);
   return String(el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
 }
 
@@ -248,19 +266,55 @@ export function nameMatchesGmailSubject(name: string | null | undefined): boolea
   const n = String(name || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const subject = gmailSubjectText().toLowerCase();
   if (!n || !subject) return false;
-  return n === subject || subject.startsWith(`${n} `) || n.startsWith(subject);
+  return n === subject || subject.startsWith(`${n} `) || subject.startsWith(`${n} - `);
+}
+
+function collectLoggedInGmailEmails(): Set<string> {
+  const emails = new Set<string>();
+  const blobs = [
+    ...queryDeep('a[aria-label*="Google Account" i], img[alt*="Google Account" i], a[aria-label*="Google account" i]'),
+  ];
+  for (const el of blobs) {
+    for (const value of [el.getAttribute('aria-label'), el.getAttribute('alt'), el.getAttribute('data-email'), el.textContent]) {
+      const email = normalizeEmailAttr(value);
+      if (email) emails.add(email);
+    }
+  }
+  return emails;
+}
+
+export function findGmailThreadSender(): { name: string; email?: string } | null {
+  const selfEmails = collectLoggedInGmailEmails();
+  const main = document.querySelector('[role="main"]') as HTMLElement | null;
+  const scoped = main ? queryDeep('.gD[email], .gD[name], span.gD, .go[email], [email][name]', main.ownerDocument) : [];
+  const global = queryDeep('.gD[email], .gD[name], span.gD, .go[email], [email][name]');
+  const nodes = (scoped.length ? scoped.filter((el) => !main || main.contains(el)) : global);
+  const pool = nodes.length ? nodes : global;
+  for (const el of pool) {
+    const email = normalizeEmailAttr(
+      el.getAttribute('email')
+      || el.getAttribute('data-hovercard-id')
+      || el.getAttribute('data-email'),
+    );
+    if (email && selfEmails.has(email)) continue;
+    const rawName = el.getAttribute('name') || el.getAttribute('data-name') || el.textContent;
+    let name = cleanName(rawName, false) || cleanName(rawName, true);
+    if (name && nameMatchesGmailSubject(name)) continue;
+    if (!name && email && !selfEmails.has(email)) {
+      const local = email.split('@')[0].replace(/[._+-]+/g, ' ').trim();
+      name = cleanName(local, true);
+    }
+    if (!name) continue;
+    return { name, email };
+  }
+  return null;
 }
 
 function detectGmailSender(): DetectedCustomer | null {
-  const senderEl = document.querySelector('.gD') as HTMLElement | null;
-  let name = cleanName(senderEl?.getAttribute('name') || senderEl?.textContent, false);
-  if (nameMatchesGmailSubject(name)) name = '';
-  const email =
-    normalizeEmailAttr(senderEl?.getAttribute('email')) ||
-    extractEmail(document.body?.innerText || '');
-  if (!name) return null;
-  return result(name, {
-    email,
+  const sender = findGmailThreadSender();
+  if (!sender?.name) return null;
+  return result(sender.name, {
+    email: sender.email,
     confidence: 0.93,
     method: 'conversation_context',
   });

@@ -17,7 +17,7 @@ import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
 import { cleanCustomerNameCandidate, extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface, isChannelOrUiName, stripConversationWrapper } from './lib/leadContextScan';
-import { detectCustomerFromPage, gmailSubjectText, nameMatchesGmailSubject } from './lib/customerDetection';
+import { detectCustomerFromPage, findGmailThreadSender, gmailSubjectText, nameMatchesGmailSubject } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 import { withInjectInFlight as overdriveWithInjectInFlight } from './lib/overdrive/safetyEnvelope';
 
@@ -364,58 +364,17 @@ export default defineContentScript({
 
     function extractGmailLeadSignal(rawText: string): { customerName?: string | null; email?: string | null; rawPrefix?: string } {
       if (!isGmail) return {};
-      const candidates = Array.from(document.querySelectorAll('.gD[email], .go[email], .g2[email], .gD[data-hovercard-id], [email], [data-hovercard-id], a[href^="mailto:"]')) as HTMLElement[];
-      let senderEl = candidates.find(el => {
-        const email = el.getAttribute('email')
-          || el.getAttribute('data-hovercard-id')
-          || (el as HTMLAnchorElement).href?.replace(/^mailto:/, '').split('?')[0]
-          || '';
-        return /@/.test(email);
-      }) || null;
-
-      if (!senderEl) {
-        senderEl = document.querySelector('[aria-label*="@"][role="button"], [aria-label*="@"] [role="button"], [title*="@"]') as HTMLElement | null;
-      }
-
-      const attrEmail = senderEl?.getAttribute('email')
-        || senderEl?.getAttribute('data-hovercard-id')
-        || (senderEl as HTMLAnchorElement | null)?.href?.replace(/^mailto:/, '').split('?')[0]
-        || senderEl?.getAttribute('aria-label')?.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
-        || senderEl?.getAttribute('title')?.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
+      const sender = findGmailThreadSender();
+      const customerName = sender?.name && !nameMatchesGmailSubject(sender.name) ? sender.name : null;
+      const attrEmail = sender?.email
         || rawText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
         || null;
-
-      const attrName = senderEl?.getAttribute('name')
-        || senderEl?.getAttribute('data-name')
-        || senderEl?.getAttribute('aria-label')?.replace(attrEmail || '', '')
-        || senderEl?.textContent?.replace(/<[^>]+>/g, '').trim()
-        || null;
-
-      const cleanName = attrName
-        ? attrName
-            .replace(attrEmail || '', '')
-            .replace(/[<>"()]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-        : null;
-      const emailLocalName = attrEmail
-        ? attrEmail.split('@')[0].replace(/[._+-]+/g, ' ').replace(/\s+/g, ' ').trim()
-        : null;
-      const fromSender = cleanName && !nameMatchesGmailSubject(cleanName) ? cleanName : null;
-      const fromContact = safeExtractContactName();
-      const contactOk = fromContact && !nameMatchesGmailSubject(fromContact) ? fromContact : null;
-      const customerName = fromSender || contactOk || (emailLocalName && !nameMatchesGmailSubject(emailLocalName) ? emailLocalName : null);
-      const subject = (
-        (document.querySelector('h2.hP, .hP, [data-legacy-thread-id] h2') as HTMLElement | null)?.innerText ||
-        (document.querySelector('[role="main"] h2') as HTMLElement | null)?.innerText ||
-        ''
-      ).replace(/\s+/g, ' ').trim();
+      const subject = gmailSubjectText();
       const rawPrefix = [
         subject ? `Subject: ${subject}` : '',
         customerName ? `Sender name: ${customerName}` : '',
         attrEmail ? `Sender email: ${attrEmail}` : '',
       ].filter(Boolean).join('\n');
-
       return { customerName, email: attrEmail, rawPrefix };
     }
 
