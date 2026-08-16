@@ -13,12 +13,7 @@ import { getPanelHTML } from '../lib/panelUI';
 import { getPanelCSS } from '../lib/panelCSS';
 import { lockDocumentZoom } from '../lib/hostZoom';
 import {
-  BREVMONT_CWS_REVIEWS,
-  dismissedReviewState,
   LOCAL_GENERATION_COUNT_KEY,
-  reviewClickedState,
-  REVIEW_PROMPT_STATE_KEY,
-  shouldShowReviewPrompt,
 } from '../lib/cwsDistribution';
 import { clearJwtCache } from '../../lib/jwtCache';
 import { clearAuth } from '../../lib/storage';
@@ -139,12 +134,15 @@ let customerPickerOpen = false;
 let customerDetectionTimer: number | null = null;
 let customerDetectionUrl = '';
 let customerDetectionFingerprint = '';
+let lastGmailSubject = '';
 let autoThreadScan: AutoThreadScan | null = null;
 let autoThreadScanStatus: AutoThreadScanStatus = 'idle';
 let autoThreadScanUrl = '';
 let autoThreadScanRequestId = 0;
 let autoThreadScanTimer: number | null = null;
+let autoThreadScanErrorPaintTimer: number | null = null;
 let autoThreadScanListenersAttached = false;
+let linkedInEmptyScanRetries = 0;
 let outputSelectionTouched = false;
 let lastChipPlatform = '';
 const dismissedChallengeIds = new Set<string>();
@@ -432,7 +430,7 @@ function downloadCsvFile(filename: string, rows: unknown[][]): void {
 }
 
 // ─── Send message to background and get response ─────────────────────────────
-const BACKGROUND_RESPONSE_TIMEOUT_MS = 75_000;
+const BACKGROUND_RESPONSE_TIMEOUT_MS = 90_000;
 
 // Keep this longer than the background generation polling window. Otherwise
 // the panel can show a generic message timeout while the worker is still
@@ -893,11 +891,28 @@ async function scanVisibleTextFallback(root: HTMLElement): Promise<AutoThreadSca
 }
 
 async function collectCurrentLeadContext(): Promise<any> {
+  let lead: any = {};
   try {
-    const lead = await sendToContent({ type: 'GET_LEAD_CONTEXT' });
-    if (lead && typeof lead === 'object') return lead;
+    const pageLead = await sendToContent({ type: 'GET_LEAD_CONTEXT' });
+    if (pageLead && typeof pageLead === 'object') lead = pageLead;
   } catch {}
-  return {};
+  const scanName = autoThreadScan?.customerName || '';
+  if (scanName && !getCustomerNameFromContext(lead)) {
+    return {
+      ...lead,
+      customerName: scanName,
+      customer_name: scanName,
+      name: scanName,
+      detectionConfidence: Number(lead?.detectionConfidence || autoThreadScan?.detectionConfidence || 0.88),
+      detection_confidence: Number(lead?.detectionConfidence || autoThreadScan?.detectionConfidence || 0.88),
+      detectionMethod: lead?.detectionMethod || autoThreadScan?.detectionMethod || 'adapter_auto_scan',
+      platform: lead?.platform || autoThreadScan?.platform || currentPlatform.platform,
+      source: lead?.source || autoThreadScan?.platform || currentPlatform.platform,
+      context_fingerprint: lead?.context_fingerprint || autoThreadScan?.contextFingerprint || null,
+      thread_fingerprint: lead?.thread_fingerprint || autoThreadScan?.threadFingerprint || null,
+    };
+  }
+  return lead;
 }
 
 function normalizeDefaultOutputChip(value: unknown): OutputChip | null {
@@ -926,7 +941,12 @@ function stripThreadDecorators(value: unknown): string {
 }
 
 function truncateReplyContext(value: unknown, max = 118): string {
-  const text = stripThreadDecorators(value);
+  const text = stripThreadDecorators(value)
+    .replace(/\bview\s+[^.]{1,48}\s+profile\b/ig, ' ')
+    .replace(/\((?:he|she|they)\/(?:him|her|them)\)/ig, ' ')
+    .replace(/\b\d{1,2}:\d{2}\s*(?:AM|PM)\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!text) return '';
   return text.length > max ? `${text.slice(0, max - 1).trim()}...` : text;
 }
@@ -934,8 +954,16 @@ function truncateReplyContext(value: unknown, max = 118): string {
 function isHostChromeNoise(value: unknown): boolean {
   const text = stripThreadDecorators(value);
   if (!text) return true;
-  if (text.length > 80) return false;
-  return /^(search\s+(mail|gmail)|gmail|inbox|starred|snoozed|important|sent|drafts|spam|trash|compose|mail)$/i.test(text);
+  const stripped = text
+    .replace(/sponsored messaging ad/ig, ' ')
+    .replace(/you(?:'|’)re receiving this ad because[^.!?\n]{0,300}[.!?]?/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!stripped) return true;
+  if (/open the options list/i.test(stripped) || /in your conversation with\b/i.test(stripped) || /^visible conversation text:/i.test(stripped) || /^detected lead context:/i.test(stripped)) return true;
+  if (/^(search\s+(mail|gmail)|gmail|inbox|starred|snoozed|important|sent|drafts|spam|trash|compose|mail|messaging|ad options|get started|learn more|not interested)$/i.test(stripped)) return true;
+  if (stripped.length > 40) return false;
+  return /^(search\s+(mail|gmail)|gmail|inbox|starred|snoozed|important|sent|drafts|spam|trash|compose|mail)$/i.test(stripped);
 }
 
 function inferOutputChipFromSteer(text: string, platform: string): OutputChip | null {
@@ -994,11 +1022,13 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
   const rawText = cleanContextText(cleanThreadRawText(thread.raw_text || ctx.raw_text || ctx.source_raw_text || ''), 5000);
   const isDeterministicGmailThread = (ctx.platform || currentPlatform.platform) === 'gmail' && messages.length > 0;
   const isDeterministicThread = isDeterministicGmailThread || (ctx.platform || currentPlatform.platform) === 'facebook' && messages.length > 0;
+  const platformId = String(ctx.platform || currentPlatform.platform || '');
+  const isLinkedIn = platformId === 'linkedin';
   const lastInbound = firstNonSystemThreadText(
     thread.last_inbound_text,
     messages.slice().reverse().find((message) => message.direction === 'inbound' || message.role === 'customer')?.text,
-    isDeterministicGmailThread ? '' : messages[messages.length - 1]?.text,
-    isDeterministicGmailThread ? '' : lastReadableThreadLine(rawText)
+    (isDeterministicGmailThread || isLinkedIn) ? '' : messages[messages.length - 1]?.text,
+    (isDeterministicGmailThread || isLinkedIn) ? '' : lastReadableThreadLine(rawText)
   );
   const headerText = stripThreadDecorators(thread.header_text || ctx.context?.subject_line || ctx.context?.listing_title || '');
   if (!rawText && !lastInbound && !headerText) return null;
@@ -1007,7 +1037,7 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
   const customerName = getCustomerNameFromContext({
     ...ctx,
     header_text: headerText,
-    gmail_subject: ctx.gmail_subject || ctx.context?.subject_line || headerText,
+    gmail_subject: ctx.gmail_subject || ctx.context?.subject_line || '',
   });
   const vehicle = getCustomerVehicleFromContext({
     vehicle: context.vehicle || ctx.vehicle,
@@ -1036,7 +1066,7 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
       conversation_key: thread.conversation_key || ctx.thread_fingerprint || ctx.context_fingerprint || null,
       raw_text: rawText || [headerText, ...messages.map((message) => `[${message.direction || 'unknown'}] ${message.text}`)].filter(Boolean).join('\n').slice(0, 5000),
       messages,
-      last_inbound_text: lastInbound || (isDeterministicThread ? '' : lastReadableThreadLine(rawText)),
+      last_inbound_text: lastInbound || ((isDeterministicThread || isLinkedIn) ? '' : lastReadableThreadLine(rawText)),
       last_inbound_hash: thread.last_inbound_hash || ctx.last_inbound_hash || null,
       header_text: headerText || null,
       url: thread.url || currentPlatform.url || null,
@@ -1103,10 +1133,16 @@ function leadContextFromSelectedLead(lead: any): any {
   };
 }
 
+function scanUrlMatchesCurrent(): boolean {
+  if (!autoThreadScanUrl || !currentPlatform.url) return false;
+  return stableThreadIdentity(autoThreadScanUrl) === stableThreadIdentity(currentPlatform.url);
+}
+
 function getUsableAutoThreadScan(): AutoThreadScan | null {
   if (!autoThreadScan || autoThreadScanStatus !== 'ready') return null;
-  if (autoThreadScanUrl && currentPlatform.url && autoThreadScanUrl !== currentPlatform.url) return null;
-  if (Date.now() - Number(autoThreadScan.scannedAt || autoThreadScan.threadContext?.scanned_at || 0) > 15000) return null;
+  if (!scanUrlMatchesCurrent()) return null;
+  const maxAgeMs = usesUrlPinnedCustomer(String(currentPlatform.platform || '')) ? 120000 : 15000;
+  if (Date.now() - Number(autoThreadScan.scannedAt || autoThreadScan.threadContext?.scanned_at || 0) > maxAgeMs) return null;
   const lastInbound = autoThreadScan.threadContext?.last_inbound_text || '';
   const rawText = autoThreadScan.threadContext?.raw_text || '';
   return lastInbound || rawText ? autoThreadScan : null;
@@ -1192,80 +1228,133 @@ function renderAutoThreadScan(root: HTMLElement): void {
     : currentPlatform.platform === 'facebook'
       ? 'Could not read this Messenger thread. Open the chat and try again, or type context below.'
       : 'Could not read this page. Type context below.';
-  el.innerHTML = `<span class="reply-context-label">Manual context:</span><span class="reply-context-text">${esc(message)}</span>`;
+  if (pinnedCustomer?.name) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = `<span class="reply-context-text">${esc(message)}</span>`;
+}
+
+function clearAutoThreadScanErrorPaint(): void {
+  if (autoThreadScanErrorPaintTimer) {
+    window.clearTimeout(autoThreadScanErrorPaintTimer);
+    autoThreadScanErrorPaintTimer = null;
+  }
+}
+
+/**
+ * Soft-fail only. Never paint the amber/red "Could not read…" chip.
+ * LinkedIn/Messenger DOM lag used to flash that copy for a beat, then
+ * succeed and Generate anyway — unusable on camera. Keep "Reading…"
+ * briefly, then hide the chip quietly if still unread.
+ */
+function scheduleAutoThreadScanFailurePaint(
+  root: HTMLElement,
+  requestId: number,
+  _status: 'error' | 'fallback',
+): void {
+  clearAutoThreadScanErrorPaint();
+  if (requestId !== autoThreadScanRequestId) return;
+  if (autoThreadScanStatus === 'ready') return;
+  autoThreadScanStatus = 'scanning';
+  renderAutoThreadScan(root);
+  autoThreadScanErrorPaintTimer = window.setTimeout(() => {
+    autoThreadScanErrorPaintTimer = null;
+    if (requestId !== autoThreadScanRequestId) return;
+    if (autoThreadScanStatus === 'ready') return;
+    autoThreadScanStatus = 'idle';
+    autoThreadScan = null;
+    renderAutoThreadScan(root);
+  }, 2500);
 }
 
 async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<AutoThreadScan | null> {
   await refreshPlatform();
-  if (!force && autoThreadScanUrl === currentPlatform.url && autoThreadScanStatus === 'ready' && autoThreadScan && getUsableAutoThreadScan()) {
+  if (!force && scanUrlMatchesCurrent() && autoThreadScanStatus === 'ready' && getUsableAutoThreadScan()) {
     renderAutoThreadScan(root);
     return autoThreadScan;
   }
   const requestId = ++autoThreadScanRequestId;
+  clearAutoThreadScanErrorPaint();
+  // Preserve any prior good read for this same thread so a miss cannot
+  // blank the chip into an error state between retries.
+  const keepPrevious = scanUrlMatchesCurrent() && autoThreadScan ? autoThreadScan : null;
   autoThreadScanStatus = 'scanning';
-  autoThreadScan = null;
   renderAutoThreadScan(root);
 
+  const platformId = currentPlatform.platform || '';
+  const facebookStrict = platformId === 'facebook';
+  const linkedInMessaging = platformId === 'linkedin' && /\/messaging\//i.test(String(currentPlatform.url || ''));
+  const flakyDom = linkedInMessaging || facebookStrict;
+  // Flaky hosts need several hops — first paint is often empty.
+  const attempts = flakyDom ? 5 : (force ? 2 : 1);
+
   try {
-    const platformId = currentPlatform.platform || '';
-    const facebookStrict = platformId === 'facebook';
-    let ctx = await sendToContent({ type: 'SCAN_LEAD_V2' });
-    let source: 'adapter' | 'legacy' = 'adapter';
-    // Facebook/Messenger: fail closed on V2. Legacy SCAN dumps main chrome
-    // (UI labels, listing cards) into the prompt and causes dealership-voice
-    // / wrong-name drafts. Other hosts still fall back to legacy.
-    if ((!ctx || ctx.ok === false) && !facebookStrict) {
-      source = 'legacy';
-      ctx = await sendToContent({ type: 'SCAN_LEAD' });
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      if (attempt > 0) await sleep(350 * attempt);
+      if (requestId !== autoThreadScanRequestId) return null;
+      let ctx = await sendToContent({ type: 'SCAN_LEAD_V2' });
+      let source: 'adapter' | 'legacy' = 'adapter';
+      if ((!ctx || ctx.ok === false) && !facebookStrict) {
+        source = 'legacy';
+        ctx = await sendToContent({ type: 'SCAN_LEAD' });
+      }
+      if (requestId !== autoThreadScanRequestId) return null;
+      const scan = (!ctx || ctx.ok === false)
+        ? null
+        : autoThreadScanFromResponse(ctx, source);
+      try {
+        console.info('[brevmont-scan]', {
+          platform: platformId,
+          source: facebookStrict ? 'adapter_strict' : source,
+          attempt: attempt + 1,
+          ok: Boolean(scan),
+          adapter_id: ctx?.adapter_id || ctx?.platform || null,
+          customer_name: scan?.customerName || ctx?.customerName || null,
+          conversation_key: scan?.threadContext?.conversation_key || ctx?.thread?.conversation_key || null,
+        });
+      } catch { /* ignore logging failures */ }
+      if (scan) {
+        linkedInEmptyScanRetries = 0;
+        clearAutoThreadScanErrorPaint();
+        autoThreadScan = scan;
+        autoThreadScanStatus = 'ready';
+        autoThreadScanUrl = currentPlatform.url || '';
+        applyDefaultOutputFromScan(root, scan);
+        renderAutoThreadScan(root);
+        refreshCustomerDetection(root).catch(() => {});
+        return scan;
+      }
     }
-    if (requestId !== autoThreadScanRequestId) return null;
-    const scan = (!ctx || ctx.ok === false)
-      ? null
-      : autoThreadScanFromResponse(ctx, source);
-    try {
-      console.info('[brevmont-scan]', {
-        platform: platformId,
-        source: facebookStrict ? 'adapter_strict' : source,
-        ok: Boolean(scan),
-        adapter_id: ctx?.adapter_id || ctx?.platform || null,
-        customer_name: scan?.customerName || ctx?.customerName || null,
-        conversation_key: scan?.threadContext?.conversation_key || ctx?.thread?.conversation_key || null,
-        direction_sample: (scan?.threadContext?.messages || []).slice(0, 3).map((m) => m.direction),
-        facebook_strict: facebookStrict,
-        v2_ok: Boolean(ctx && ctx.ok !== false),
-      });
-    } catch { /* ignore logging failures */ }
-    if (scan) {
-      autoThreadScan = scan;
-      autoThreadScanStatus = 'ready';
-      autoThreadScanUrl = currentPlatform.url || '';
-      applyDefaultOutputFromScan(root, scan);
-      renderAutoThreadScan(root);
-      return scan;
-    }
-    autoThreadScan = null;
-    autoThreadScanStatus = facebookStrict ? 'error' : 'fallback';
-    autoThreadScanUrl = currentPlatform.url || '';
-    renderAutoThreadScan(root);
-    return null;
   } catch {
     if (requestId !== autoThreadScanRequestId) return null;
-    autoThreadScan = null;
-    autoThreadScanStatus = 'error';
-    autoThreadScanUrl = currentPlatform.url || '';
-    renderAutoThreadScan(root);
-    return null;
   }
+
+  // Stale request finished after a newer scan already won — do not clobber.
+  if (requestId !== autoThreadScanRequestId) return null;
+
+  if (keepPrevious) {
+    clearAutoThreadScanErrorPaint();
+    autoThreadScan = keepPrevious;
+    autoThreadScanStatus = 'ready';
+    autoThreadScanUrl = currentPlatform.url || autoThreadScanUrl;
+    renderAutoThreadScan(root);
+    return keepPrevious;
+  }
+  autoThreadScan = null;
+  autoThreadScanUrl = currentPlatform.url || '';
+  scheduleAutoThreadScanFailurePaint(root, requestId, facebookStrict ? 'error' : 'fallback');
+  return null;
 }
 
 function scheduleAutoThreadScan(root: HTMLElement, delayMs = 150, force = false): void {
   if (autoThreadScanTimer) window.clearTimeout(autoThreadScanTimer);
   autoThreadScanTimer = window.setTimeout(() => {
     autoThreadScanTimer = null;
-    scanThreadForGenerate(root, force).catch(() => {
-      autoThreadScanStatus = 'error';
-      renderAutoThreadScan(root);
-    });
+    // Failure UI is owned by scanThreadForGenerate (debounced). Do not
+    // paint a hard error from this catch — that caused the amber flash.
+    scanThreadForGenerate(root, force).catch(() => { /* handled inside */ });
   }, delayMs);
 }
 
@@ -1322,22 +1411,26 @@ function enrichLeadContextWithPinnedCustomer(leadContext: any = {}): any {
 }
 
 function nameCollidesWithEmailSubject(name: string, ctx: any): boolean {
+  const platform = String(ctx?.platform || currentPlatform.platform || '').toLowerCase();
+  if (platform && platform !== 'gmail' && platform !== 'outlook') return false;
   const n = String(name || '').replace(/\s+/g, ' ').trim().toLowerCase();
   if (!n) return false;
-  const subject = stripThreadDecorators(
+  const fromCtx = stripThreadDecorators(
     ctx?.gmail_subject
     || ctx?.subject_line
-    || ctx?.header_text
-    || ctx?.threadContext?.header_text
     || ctx?.context?.subject_line
     || '',
   ).toLowerCase();
+  if (fromCtx) lastGmailSubject = fromCtx;
+  const subject = fromCtx || lastGmailSubject;
   if (!subject) return false;
   return n === subject || subject.startsWith(`${n} `) || subject.startsWith(`${n} - `);
 }
 
 function getCustomerNameFromContext(ctx: any): string {
-  const raw = ctx?.customerName || ctx?.customer_name || ctx?.name || '';
+  const platform = String(ctx?.platform || currentPlatform.platform || '').toLowerCase();
+  const raw = ctx?.customerName || ctx?.customer_name || ctx?.name
+    || (platform === 'linkedin' ? (ctx?.header_text || ctx?.threadContext?.header_text || '') : '');
   const name = cleanCustomerNameCandidate(raw);
   if (!name) return '';
   if (nameCollidesWithEmailSubject(name, ctx)) return '';
@@ -1427,9 +1520,36 @@ function isManualCustomerOverride(customer: PinnedCustomer | null): boolean {
   return String(customer?.detectionMethod || '').toLowerCase() === 'manual';
 }
 
+function gmailThreadIdentity(url = currentPlatform.url): string {
+  return stableThreadIdentity(url);
+}
+
+function stableThreadIdentity(url = currentPlatform.url): string {
+  try {
+    const parsed = new URL(url || '');
+    return `${parsed.pathname.replace(/\/$/, '')}${parsed.hash}`;
+  } catch {
+    return String(url || '');
+  }
+}
+
+function usesUrlPinnedCustomer(platform: string): boolean {
+  return platform === 'gmail' || platform === 'linkedin' || platform === 'outlook';
+}
+
 function pinMatchesContext(customer: PinnedCustomer | null, ctx: any): boolean {
   if (!customer) return false;
   if (isManualCustomerOverride(customer)) return true;
+  const platform = String(customer.platform || ctx?.platform || currentPlatform.platform || '').toLowerCase();
+  if (usesUrlPinnedCustomer(platform)) {
+    const ctxName = getCustomerNameFromContext(ctx);
+    if (!ctxName) return true;
+    if (platform === 'gmail' && nameCollidesWithEmailSubject(ctxName, ctx)) return true;
+    const pinEmail = normalizeComparable(customer.email);
+    const ctxEmail = normalizeComparable(ctx?.email || ctx?.customer_email);
+    if (pinEmail && ctxEmail) return pinEmail === ctxEmail;
+    return normalizeComparable(customer.name) === normalizeComparable(ctxName);
+  }
   const ctxFingerprint = getContextFingerprint(ctx);
   const pinFingerprint = customer.contextFingerprint || customer.threadFingerprint || '';
   if (ctxFingerprint && pinFingerprint && ctxFingerprint !== pinFingerprint) return false;
@@ -1443,6 +1563,11 @@ function pinMatchesContext(customer: PinnedCustomer | null, ctx: any): boolean {
 function pinMismatchReason(customer: PinnedCustomer | null, ctx: any): string | null {
   if (!customer) return null;
   if (isManualCustomerOverride(customer)) return null;
+  const platform = String(customer.platform || ctx?.platform || currentPlatform.platform || '').toLowerCase();
+  if (usesUrlPinnedCustomer(platform)) {
+    if (pinMatchesContext(customer, ctx)) return null;
+    return 'customer_changed';
+  }
   const ctxFingerprint = getContextFingerprint(ctx);
   const pinFingerprint = customer.contextFingerprint || customer.threadFingerprint || '';
   if (ctxFingerprint && pinFingerprint && ctxFingerprint !== pinFingerprint) return 'thread_changed';
@@ -1509,6 +1634,7 @@ async function resolveCustomerForDetection(ctx: any): Promise<PinnedCustomer | n
 
 function pinCustomer(root: HTMLElement, customer: PinnedCustomer | null): void {
   if (!customer?.id || !customer.name) return;
+  if (currentPlatform.platform === 'gmail' && nameCollidesWithEmailSubject(customer.name, { gmail_subject: lastGmailSubject })) return;
   customerPickerOpen = false;
   pinnedCustomer = {
     ...customer,
@@ -1949,7 +2075,9 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
   }
 
   const fingerprint = getContextFingerprint(ctx);
-  if (fingerprint && fingerprint !== customerDetectionFingerprint) {
+  const onGmail = currentPlatform.platform === 'gmail' || ctx?.platform === 'gmail';
+  const urlPinned = usesUrlPinnedCustomer(String(currentPlatform.platform || ctx?.platform || ''));
+  if (!urlPinned && fingerprint && fingerprint !== customerDetectionFingerprint) {
     customerDetectionFingerprint = fingerprint;
     if (pinnedCustomer && !pinMatchesContext(pinnedCustomer, ctx)) {
       clearStalePinnedCustomer(root, 'thread_changed');
@@ -1989,6 +2117,11 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
   const priorAnswer = answeredCustomerDetections.get(stableAnswerKey(ctx));
   if (priorAnswer === 'no') return;
 
+  if (onGmail && !pinnedCustomer) {
+    pendingCustomerSuggestion = ctx;
+    renderCustomerStamp(root);
+  }
+
   if (confidence >= 0.8) {
     const resolved = await resolveCustomerForDetection(ctx);
     if (resolved) {
@@ -2014,9 +2147,26 @@ function startCustomerDetection(root: HTMLElement): void {
     await refreshPlatform();
     const activeUrl = currentPlatform.url || '';
     if (activeUrl !== customerDetectionUrl) {
+      const prevUrl = customerDetectionUrl;
+      const threadChanged = stableThreadIdentity(activeUrl) !== stableThreadIdentity(prevUrl);
       customerDetectionUrl = activeUrl;
       customerDetectionFingerprint = '';
-      clearStalePinnedCustomer(root, 'url_changed');
+      if (usesUrlPinnedCustomer(currentPlatform.platform)) {
+        if (threadChanged) {
+          lastGmailSubject = '';
+          clearStalePinnedCustomer(root, 'url_changed');
+          autoThreadScan = null;
+          autoThreadScanStatus = 'idle';
+          autoThreadScanUrl = '';
+          linkedInEmptyScanRetries = 0;
+          const outputs = root.querySelector('#o8-outputs') as HTMLElement | null;
+          if (outputs) outputs.innerHTML = '';
+          renderAutoThreadScan(root);
+        }
+      } else {
+        lastGmailSubject = '';
+        clearStalePinnedCustomer(root, 'url_changed');
+      }
     }
     refreshCustomerDetection(root).catch(() => {});
   }, 3000);
@@ -2850,33 +3000,10 @@ async function markFirstGenerationComplete(root: HTMLElement): Promise<void> {
   card.style.display = 'none';
 }
 
-async function recordSuccessfulGeneration(root: HTMLElement): Promise<void> {
-  const data = await chrome.storage.local.get([LOCAL_GENERATION_COUNT_KEY, REVIEW_PROMPT_STATE_KEY]).catch(() => ({}));
+async function recordSuccessfulGeneration(_root: HTMLElement): Promise<void> {
+  const data = await chrome.storage.local.get([LOCAL_GENERATION_COUNT_KEY]).catch(() => ({}));
   const count = Number(data[LOCAL_GENERATION_COUNT_KEY] || 0) + 1;
   await chrome.storage.local.set({ [LOCAL_GENERATION_COUNT_KEY]: count });
-  const state = data[REVIEW_PROMPT_STATE_KEY] || {};
-  if (shouldShowReviewPrompt(count, state)) showReviewPrompt(root);
-}
-
-function showReviewPrompt(root: HTMLElement): void {
-  const prompt = root.querySelector('#o8-review-prompt') as HTMLElement | null;
-  if (!prompt) return;
-  prompt.style.display = 'block';
-  const dismiss = prompt.querySelector('#o8-review-dismiss') as HTMLButtonElement | null;
-  const link = prompt.querySelector('#o8-review-link') as HTMLButtonElement | null;
-  if (dismiss) {
-    dismiss.onclick = async () => {
-      await chrome.storage.local.set({ [REVIEW_PROMPT_STATE_KEY]: dismissedReviewState() });
-      prompt.style.display = 'none';
-    };
-  }
-  if (link) {
-    link.onclick = async () => {
-      await chrome.storage.local.set({ [REVIEW_PROMPT_STATE_KEY]: reviewClickedState() });
-      prompt.style.display = 'none';
-      chrome.tabs.create({ url: BREVMONT_CWS_REVIEWS });
-    };
-  }
 }
 
 async function showAccessEndedBanner(root: HTMLElement): Promise<void> {
@@ -3724,12 +3851,16 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     }
     if (!scan) scan = getUsableAutoThreadScan();
     if (!scan && !input) {
-      scan = await scanVisibleTextFallback(root);
+      // One quiet follow-up hop before giving up — LinkedIn often fills in
+      // between the first miss and Generate's second look.
+      await sleep(700);
+      scan = await scanThreadForGenerate(root, true);
     }
     if (!scan && !input) {
       isGenerating = false;
       renderAutoThreadScan(root);
-      showToast(root, 'Type context or open a supported conversation first.');
+      // No toast. The amber "could not read" flash was the embarrassment;
+      // silent return keeps the camera clean. Rep can tap Generate again.
       return;
     }
     const inferredChip = inferOutputChipFromSteer(input, currentPlatform.platform);
@@ -3786,8 +3917,11 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   }
 
   const _generationId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const repInputVehicle = extractVehicleMention(input) || extractVehicleMention(scan?.threadContext?.raw_text || '');
-  const vehicleForGeneration = leadContext.vehicle || leadContext.vehicleOfInterest || repInputVehicle || null;
+  const socialDm = /linkedin|facebook|instagram|whatsapp|messenger/.test(String(currentPlatform.platform || ''));
+  const scannedVehicle = socialDm
+    ? extractVehicleMention(input) || extractVehicleMention(scan?.threadContext?.last_inbound_text || '')
+    : extractVehicleMention(input) || extractVehicleMention(scan?.threadContext?.raw_text || '');
+  const vehicleForGeneration = (socialDm ? scannedVehicle : (leadContext.vehicle || leadContext.vehicleOfInterest || scannedVehicle)) || null;
   // The customer stamp is pin/thread-derived; in lead mode it must not leak
   // another conversation's identity into the payload.
   const stamp: any = selectedLeadId ? {} : customerStampPayload();
@@ -3861,7 +3995,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     } else if (response?.hold || response?.error === 'grounding_hold') {
       showGenerationHold(root, response);
     } else if (response?.error) {
-      showGenerationError(root, GENERATION_FAILURE_MESSAGE);
+      showGenerationError(root, String(response.error).slice(0, 240));
     } else {
       removeStreamingOutput(root, _generationId);
       const sec = response.sections;
@@ -3892,8 +4026,9 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       await markFirstGenerationComplete(root);
       await recordSuccessfulGeneration(root);
     }
-  } catch (_e: any) {
-    showGenerationError(root, GENERATION_FAILURE_MESSAGE);
+  } catch (err: any) {
+    const raw = String(err?.message || GENERATION_FAILURE_MESSAGE).replace(/\s+/g, ' ').trim();
+    showGenerationError(root, raw.slice(0, 240) || GENERATION_FAILURE_MESSAGE);
   } finally {
     removeStreamingOutput(root, _generationId);
     btn.innerHTML = 'Generate';
