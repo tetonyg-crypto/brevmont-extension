@@ -85,6 +85,19 @@ export function pickCleanName(candidates: Array<CustomerCandidate | null | undef
 const AUTO_MAKES_RE =
   /\b(Chevrolet|Chevy|Subaru|Toyota|Ford|Ram|Dodge|Jeep|GMC|Honda|Nissan|Hyundai|Kia|BMW|Mercedes|Buick|Cadillac|Lexus|Acura|Audi|Volvo|Mazda|Chrysler|Lincoln|Infiniti|Volkswagen|VW|Porsche|Tesla|Rivian|Mitsubishi|Genesis|Alfa\s*Romeo|Fiat|Land\s*Rover|Range\s*Rover)\b/i;
 
+// Distinctive model words that are safe without a year/make (Gmail prose
+// like "any tahoes or yukons" must not fall through as no-vehicle).
+const UNAMBIG_MODEL_RE =
+  /\b(Grand Cherokee|Grand Wagoneer|Bronco Sport|Escalade ESV|Santa Fe|Model [3YSX]|Silverado|Telluride|Tahoes?|Suburbans?|Traverse|Trailblazer|Camaro|Corvette|Tacoma|Tundra|4Runner|Sequoia|Camry|Corolla|RAV4|Highlander|Sienna|Venza|Yukons?|Acadia|Terrain|Canyon|Colorado|Equinox|Malibu|Impala|Cruze|F-?150|F-?250|F-?350|Explorer|Expedition|Bronco|Mustang|Wrangler|Cherokee|Wagoneer|Gladiator|Durango|ProMaster|Pacifica|Ridgeline|Odyssey|Civic|Accord|CR-V|HR-V|Sorento|Sportage|Seltos|Carnival|Outback|Forester|Crosstrek|Ascent|Impreza|WRX|Sentra|Altima|Maxima|Pathfinder|Murano|Armada|Elantra|Sonata|Tucson|Palisade|Enclave|Envision|Escalade)\b/i;
+
+function normalizeModelToken(raw: string): string {
+  const t = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (/^tahoes$/i.test(t)) return 'Tahoe';
+  if (/^yukons$/i.test(t)) return 'Yukon';
+  if (/^suburbans$/i.test(t)) return 'Suburban';
+  return t;
+}
+
 export function extractVehicleHint(text: string): {
   raw?: string;
   year?: number;
@@ -93,15 +106,24 @@ export function extractVehicleHint(text: string): {
 } | null {
   const raw = String(text || '');
   const m = raw.match(/\b(19|20)(\d{2})\s+([A-Z][A-Za-z-]+(?:\s+[A-Z][A-Za-z-]+)?)\s+([A-Z][A-Za-z0-9-]+(?:\s+[A-Za-z0-9-]+){0,3})/);
-  if (!m) return null;
-  const makeCand = m[3];
-  if (!AUTO_MAKES_RE.test(makeCand)) return null;
-  return {
-    raw: m[0],
-    year: Number(`${m[1]}${m[2]}`),
-    make: makeCand,
-    model: m[4]?.replace(/[.,;].*$/, '').trim(),
-  };
+  if (m) {
+    const makeCand = m[3];
+    if (AUTO_MAKES_RE.test(makeCand)) {
+      return {
+        raw: m[0],
+        year: Number(`${m[1]}${m[2]}`),
+        make: makeCand,
+        model: m[4]?.replace(/[.,;].*$/, '').trim(),
+      };
+    }
+  }
+  // Informal inbound copy ("tahoes or yukons for around 40k") has no year.
+  const modelOnly = raw.match(UNAMBIG_MODEL_RE);
+  if (modelOnly?.[1]) {
+    const model = normalizeModelToken(modelOnly[1]);
+    return { raw: model, model };
+  }
+  return null;
 }
 
 /** Resolve the closest composer of a given kind on the current page.

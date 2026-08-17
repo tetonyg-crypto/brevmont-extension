@@ -1616,10 +1616,15 @@ async function resolveCustomerForDetection(ctx: any): Promise<PinnedCustomer | n
 
   const id = String(record?.id || '').trim();
   if (!id) return null;
+  // Live page/scan vehicle wins over a stale customers.vehicle_interest
+  // (demo failure: Nika pinned as Honda Civic while Gmail said Tahoes).
+  const liveVehicle = payload.vehicle || getCustomerVehicleFromContext(ctx) || null;
+  const storedVehicle = optionalDisplayText(record.vehicle_interest) || null;
+  const vehicle = liveVehicle || storedVehicle || null;
   return {
     id,
     name: record.name || name,
-    vehicle: payload.vehicle || record.vehicle_interest || null,
+    vehicle,
     phone: record.phone || payload.phone || null,
     email: record.email || payload.email || null,
     source: record.source || payload.source || null,
@@ -2101,7 +2106,20 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
   const detectedName = name.toLowerCase();
   const isSamePinned = currentName && currentName === detectedName;
 
-  if (isSamePinned) return;
+  // Same person on Gmail/LinkedIn can still have a STALE vehicle on the
+  // customer stamp (DB said Honda Civic while this thread says Tahoes).
+  // Prefer the live page/scan vehicle when it conflicts.
+  if (isSamePinned && pinnedCustomer) {
+    const pageVehicle =
+      getCustomerVehicleFromContext(ctx)
+      || extractVehicleMention(ctx?.raw_text || ctx?.source_raw_text || ctx?.last_inbound_text || '')
+      || null;
+    if (pageVehicle && vehiclesConflict(pinnedCustomer.vehicle, pageVehicle)) {
+      pinnedCustomer = { ...pinnedCustomer, vehicle: pageVehicle, pinnedAt: Date.now() };
+      renderCustomerStamp(root);
+    }
+    return;
+  }
   if (isManualCustomerOverride(pinnedCustomer)) {
     pendingCustomerSuggestion = null;
     renderCustomerStamp(root);
@@ -3855,6 +3873,9 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       // between the first miss and Generate's second look.
       await sleep(700);
       scan = await scanThreadForGenerate(root, true);
+    }
+    if (!scan && !input) {
+      scan = await scanVisibleTextFallback(root);
     }
     if (!scan && !input) {
       isGenerating = false;
