@@ -21,12 +21,14 @@ import { getFeatureAccess } from '../../lib/featureGate';
 import { signedGet } from '../../lib/authSigning';
 import {
   TRIAL_ENDED_CTA,
-  TRIAL_ENDED_BILLING_URL,
   accessBlockedMessage,
   accessEndedBody,
   accessEndedTitle,
+  trialEndedBillingUrl,
+  TRIAL_ENDED_BILLING_STORAGE_KEY,
 } from '../../lib/accessState';
 import { sanitizeCustomerFacingOutput } from '../lib/outputContract';
+import { resolveGenerateInput } from '../lib/repInstruction';
 import { cleanCustomerNameCandidate } from '../lib/leadContextScan';
 import { isMessengerSystemCardText } from '../lib/messengerSystemText';
 import {
@@ -577,6 +579,9 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
       <button id="sp-signin-btn" type="button" style="width:100%;max-width:260px;height:44px;border-radius:12px;background:#0D6E6E;color:#F8F6F1;border:0;font-weight:800;font-size:14px;cursor:pointer;">${
         waiting ? 'Retry sign-in' : 'Sign in with Google'
       }</button>
+      <button id="sp-signin-brevmont" type="button" style="margin-top:10px;width:100%;max-width:260px;height:40px;border-radius:12px;background:transparent;color:#F8F6F1;border:1px solid rgba(255,255,255,0.22);font-weight:700;font-size:13px;cursor:pointer;display:${
+        waiting ? 'none' : 'block'
+      };">Sign in with Brevmont</button>
       <button id="sp-signin-startover" type="button" style="margin-top:10px;width:100%;max-width:260px;height:40px;border-radius:12px;background:transparent;color:#F8F6F1;border:1px solid rgba(255,255,255,0.16);font-weight:700;font-size:13px;cursor:pointer;display:${
         waiting ? 'block' : 'none'
       };">Start over — different account</button>
@@ -587,6 +592,7 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
     </div>
   `;
   const signInBtn = document.getElementById('sp-signin-btn');
+  const brevmontSignInBtn = document.getElementById('sp-signin-brevmont');
   const startOverBtn = document.getElementById('sp-signin-startover');
   const refreshBtn = document.getElementById('sp-signin-refresh');
   if (signInBtn) {
@@ -598,6 +604,13 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
       openAuthExtensionTab();
       // Restart the waiting lifecycle from scratch.
       renderSignedOutScreen();
+    };
+  }
+  if (brevmontSignInBtn) {
+    brevmontSignInBtn.onclick = () => {
+      try { chrome.runtime.sendMessage({ type: 'BREVMONT_PANEL_SIGN_IN_STARTED' }); } catch { /* noop */ }
+      try { chrome.tabs.create({ url: `${AUTH_APP_URL}?force=1&plan=automotive_rep_trial&account=signin`, active: true }); } catch { /* noop */ }
+      renderSignedOutScreen({ waiting: true });
     };
   }
   if (startOverBtn) {
@@ -726,7 +739,7 @@ function tabMessage(tabId: number, msg: any): Promise<any> {
 async function ensureContentScript(tabId: number): Promise<void> {
   const tab = await chrome.tabs.get(tabId);
   if (!canInjectIntoUrl(tab.url)) {
-    throw new Error('Open Gmail, VinSolutions, or a supported sales page, then try Inject again.');
+    throw new Error('Open a supported inbox or sales page, then try Inject again.');
   }
 
   if (!chrome.scripting?.executeScript) {
@@ -3025,7 +3038,7 @@ async function recordSuccessfulGeneration(_root: HTMLElement): Promise<void> {
 }
 
 async function showAccessEndedBanner(root: HTMLElement): Promise<void> {
-  const local = await chrome.storage.local.get(['license_revoked', 'license_revoked_message', 'license_access_state', 'dealership']);
+  const local = await chrome.storage.local.get(['license_revoked', 'license_revoked_message', 'license_access_state', 'dealership', TRIAL_ENDED_BILLING_STORAGE_KEY]);
   const existing = root.querySelector('#o8-access-ended-banner');
   if (existing) existing.remove();
   if (!local.license_revoked) return;
@@ -3055,7 +3068,7 @@ async function showAccessEndedBanner(root: HTMLElement): Promise<void> {
   if (reconnect) {
     reconnect.onclick = async () => {
       if (isTrialEnded) {
-        chrome.tabs.create({ url: TRIAL_ENDED_BILLING_URL });
+        chrome.tabs.create({ url: trialEndedBillingUrl(local[TRIAL_ENDED_BILLING_STORAGE_KEY] as string | undefined) });
         return;
       }
       reconnect.disabled = true;
@@ -3838,6 +3851,17 @@ function removeStreamingOutput(root: HTMLElement, generationId?: string): void {
   root.querySelector(selector)?.remove();
 }
 
+function readGenerateInputs(root: HTMLElement) {
+  const contextInput = (root.querySelector('#o8-context-input') as HTMLTextAreaElement | null)?.value.trim() || '';
+  const instructionInput = (root.querySelector('#o8-instruction-input') as HTMLTextAreaElement | null)?.value.trim() || '';
+  const legacyInput = (root.querySelector('#o8-input') as HTMLTextAreaElement | null)?.value.trim() || '';
+  const isPasteFirst = Boolean(root.querySelector('#o8-paste-first'));
+  if (isPasteFirst) {
+    return resolveGenerateInput(contextInput, instructionInput || legacyInput);
+  }
+  return resolveGenerateInput('', legacyInput);
+}
+
 async function doGenerate(root: HTMLElement): Promise<void> {
   stopActiveMic();
   if (isGenerating) return;
@@ -3849,7 +3873,9 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   }
   isGenerating = true;
 
-  const input = (root.querySelector('#o8-input') as HTMLTextAreaElement)?.value.trim() || '';
+  const generateInputs = readGenerateInputs(root);
+  const input = generateInputs.repInput;
+  const pasteMode = Boolean(root.querySelector('#o8-paste-first'));
   // Explicit lead selection is the single source of truth: when a lead was
   // picked from My Leads / a lead card, the open tab is never scanned and
   // scanner context never reaches the payload — otherwise a different
@@ -3858,7 +3884,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   const selectedLead: any = selectedLeadId ? (root as any).__pendingLead || null : null;
   let scan: AutoThreadScan | null = null;
   let pageLeadContext: any = {};
-  if (!selectedLeadId) {
+  if (!selectedLeadId && !pasteMode) {
     if (currentPlatform.platform !== 'unknown') {
       const [scanned, ctx] = await Promise.all([
         scanThreadForGenerate(root, true),
@@ -3886,6 +3912,10 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     }
     const inferredChip = inferOutputChipFromSteer(input, currentPlatform.platform);
     if (inferredChip) selectOutputChip(root, inferredChip);
+  }
+  if (!selectedLeadId && pasteMode && !input) {
+    isGenerating = false;
+    return;
   }
   const chips = root.querySelectorAll('.chip.on');
   const selectedType = normalizeDefaultOutputChip(Array.from(chips)[0]?.getAttribute('data-type')) || 'text';
@@ -4000,6 +4030,9 @@ async function doGenerate(root: HTMLElement): Promise<void> {
         leadContext,
         threadContext: scan?.threadContext || null,
         repInput: input,
+        repInstruction: generateInputs.repInstruction,
+        pasteContext: (root.querySelector('#o8-context-input') as HTMLTextAreaElement | null)?.value.trim() || '',
+        pasteMode,
         systemHints: { noVehicleDetected: !vehicleForGeneration },
         repName: '', dealership: '', platform: currentPlatform.platform, tone, goal,
         metadata: _meta,
