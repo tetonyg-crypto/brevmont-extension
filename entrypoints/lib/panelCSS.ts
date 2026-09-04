@@ -153,7 +153,11 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .overdrive-heartbeat-inspector > div + div { margin-top:4px; }
 .overdrive-heartbeat-inspector .overdrive-heartbeat-action { margin-top:8px; }
 .nav-count { display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; margin-left:4px; border-radius:999px; background:#DC2626; color:#fff; font-size:10px; font-weight:800; padding:0 4px; }
-.my-lead-card { border:1px solid #E5E7EB; border-radius:10px; padding:10px; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+.my-lead-card { border:1px solid #E5E7EB; border-radius:10px; padding:10px; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.04); cursor:pointer; transition:border-color .15s ease, box-shadow .15s ease, transform .05s ease; }
+.my-lead-card:hover { border-color:#0D6E6E; box-shadow:0 2px 8px rgba(13,110,110,.12); }
+.my-lead-card:active { transform:scale(.995); }
+.my-lead-card .lead-card-title { position:relative; }
+.my-lead-card:hover .lead-card-title::after { content:'View'; position:absolute; right:0; top:1px; font-size:10px; font-weight:700; color:#0D6E6E; letter-spacing:.04em; }
 .my-lead-card + .my-lead-card { margin-top:8px; }
 .my-lead-card.lost { background:#FFF7F7; border-color:#FECACA; opacity:.86; }
 .my-lead-card.lost .lead-card-title { color:#6B7280; text-decoration:line-through; }

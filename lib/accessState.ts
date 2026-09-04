@@ -5,6 +5,27 @@ export const TRIAL_ENDED_BODY = 'Keep Brevmont for $24.99/mo to reopen follow-up
 export const TRIAL_ENDED_CTA = 'Subscribe $24.99';
 export const TRIAL_ENDED_BILLING_URL = 'https://app.brevmont.com/rep/billing';
 
+// chrome.storage.local key holding a server-provided billing URL for the
+// trial-ended CTA. Falls back to TRIAL_ENDED_BILLING_URL when absent/invalid.
+export const TRIAL_ENDED_BILLING_STORAGE_KEY = 'trial_ended_billing_url';
+
+// Validate a stored billing URL before opening it: must be https and on a
+// brevmont.com host, otherwise fall back to the canonical billing URL. Never
+// open an attacker-controlled or off-domain link from stored state.
+export function trialEndedBillingUrl(stored?: string | null): string {
+  const raw = String(stored || '').trim();
+  if (!raw) return TRIAL_ENDED_BILLING_URL;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'https:') return TRIAL_ENDED_BILLING_URL;
+    const host = parsed.hostname;
+    if (host !== 'app.brevmont.com' && !host.endsWith('.brevmont.com')) return TRIAL_ENDED_BILLING_URL;
+    return parsed.toString();
+  } catch {
+    return TRIAL_ENDED_BILLING_URL;
+  }
+}
+
 const REVOKED_ERROR_CODES = new Set([
   'license_revoked',
   'rep_token_revoked',

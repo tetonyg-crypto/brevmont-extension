@@ -197,7 +197,16 @@ function parseLooseLeadText(rawText: unknown): { customer_name?: string | null; 
 
 function isBadLeadName(value: unknown): boolean {
   const raw = String(value || '').trim();
-  return !raw || /^(?:messenger|facebook|marketplace|chats|save lead|scan|unknown)$/i.test(raw);
+  if (!raw) return true;
+  if (/^(?:messenger|facebook|marketplace|chats|save lead|scan|unknown)$/i.test(raw)) return true;
+  // Marketplace listing-activity sentences leak into name parsing as a compound
+  // like "Robert changed the price for 2021 Ford Robert". Reject them so the
+  // clean fallback name (the buyer header, e.g. "Robert") wins.
+  if (/\b(?:changed the price|marked the listing|listing as sold|updated the listing)\b/i.test(raw)) return true;
+  if (/\bsold\b/i.test(raw) && /\b(?:19|20)\d{2}\b/.test(raw)) return true;
+  // A real lead name is not a sentence; anything past ~5 words is activity text.
+  if (raw.split(/\s+/).length > 5) return true;
+  return false;
 }
 
 function inferLocalLeadHeat(lead: any, payload: any): number {
@@ -240,10 +249,12 @@ function shouldPersistPartialLead(payload: any): boolean {
     looseFallback.customer_name ||
     looseFallback.vehicle_interest
   );
-  if (!hasPartial) return false;
-  if (looksLikeSystemSender(rawText) && !hasVehicleOrBuyingSignal(rawText)) return false;
-  if (payload?.phone || payload?.email || payload?.vehicle_interest || payload?.vehicle || looseFallback.vehicle_interest) return true;
-  return /^(facebook|messenger|linkedin|instagram|unknown)$/.test(platform);
+  // Product rule (founder directive): the rep chose to scan this person, so we
+  // ALWAYS capture the lead when there is any identifier — never refuse based on
+  // a "no buying intent" judgment. The rep decides who is worth tracking.
+  // Only skip when the scan produced nothing identifying at all.
+  void platform;
+  return hasPartial;
 }
 
 function cleanLeadMetaValue(value: unknown): string | null {

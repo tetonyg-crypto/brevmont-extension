@@ -90,6 +90,36 @@ function stripUnderscoreZipEntries(zipPath) {
   }
 }
 
+// Strip orphaned content-script files that the store manifest does NOT register.
+// WXT still emits every entrypoints/*.content.ts (e.g. verification-bridge,
+// lead-form-autofill), but the manifest hook drops their registration for the
+// store build — so the files ship dead. A reviewer reading a "verification-
+// bridge.js" QA harness that nothing runs is a needless denial risk; remove them.
+function stripUnregisteredContentScripts(zipPath) {
+  const referenced = new Set();
+  for (const cs of manifest.content_scripts || []) {
+    for (const js of cs.js || []) referenced.add(js.replace(/^\/+/, ''));
+  }
+  const listed = spawnSync('zipinfo', ['-1', zipPath], { encoding: 'utf8' });
+  if (listed.status !== 0) {
+    console.error('[cws-zip] Could not list zip entries');
+    process.exit(1);
+  }
+  const orphans = listed.stdout.split(/\r?\n/).filter((name) => {
+    const clean = name.trim();
+    return clean.startsWith('content-scripts/') && clean.endsWith('.js') && !referenced.has(clean);
+  });
+  for (const name of orphans) {
+    const removed = spawnSync('zip', ['-d', zipPath, name], { encoding: 'utf8' });
+    if (removed.status !== 0) {
+      console.error(`[cws-zip] Could not remove orphaned content script ${name}`);
+      process.exit(1);
+    }
+    console.log(`[cws-zip] Removed unregistered content script: ${name}`);
+  }
+}
+
 copyFileSync(wxtZip, cwsZip);
 stripUnderscoreZipEntries(cwsZip);
+stripUnregisteredContentScripts(cwsZip);
 console.log(`[cws-zip] Ready for Chrome Web Store upload: ${cwsZip}`);

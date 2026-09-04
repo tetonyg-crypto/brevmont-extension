@@ -16,6 +16,16 @@ export function isMessengerSystemCardText(value: unknown): boolean {
   if (/^(?:marketplace|sold\s*[-–].*|see details|more options)$/i.test(text)) return true;
   if (/^marketplace\s+sold\s*[-–].*\b(?:see details|more options)\b/i.test(text)) return true;
 
+  // Marketplace listing-activity lines are NOT customer messages and must never
+  // be read as the buyer's name ("Robert changed the price for 2021 Ford ...",
+  // "Robert marked the listing as sold", "Robert sold 2021 Ford Ranger").
+  if (/\bchanged the price\b/i.test(text)) return true;
+  if (/\bmarked (?:the|this) listing as sold\b/i.test(text)) return true;
+  if (/\bmarked the listing\b/i.test(text)) return true;
+  if (/\bupdated the listing\b/i.test(text)) return true;
+  if (/^.{1,48}\bsold\b\s+(?:the\s+)?(?:listing\b|(?:19|20)\d{2}\b)/i.test(text)) return true;
+  if (/\blisting as sold\b/i.test(text)) return true;
+
   return false;
 }
 

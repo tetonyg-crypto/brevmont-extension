@@ -10,7 +10,7 @@ const STOP_WORDS =
 const POISON_BEFORE = /(?:Equity|Payoff|Trade-in|trade\s+value|Credit)\b[\s\S]{0,50}$/i;
 const POISON_AFTER = /^[\s\S]{0,20}(?:Calculated|Payoff|payoff|appraised)/i;
 const LINKEDIN_UI_NAME_RE =
-  /^(?:ad options|advertising|sponsored|promoted|2023 grade|grade|follow|message|connect|open to|profile|activity|about|experience|education|people also viewed|linkedin|notifications|jobs|home|my network|premium)$/i;
+  /^(?:ad options?|advertising|sponsored(?:\s+messaging(?:\s+ad)?)?|promoted|2023 grade|grade|follow|message|messages|messaging|connect|open to|profile|activity|about|experience|education|people also viewed|linkedin|notifications|jobs|home|feed|my network|network|premium|inmail)$/i;
 
 // Any candidate that equals one of these (case-insensitive, trimmed) is a
 // UI/channel label, not a person. Discovered 2026-07-02 on live demo: on
@@ -40,6 +40,9 @@ const CHANNEL_OR_UI_NAMES = new Set([
   'actions', 'action',
   'options', 'menu', 'archive', 'archived',
   'reply', 'send', 'settings',
+  'messaging', 'messages', 'message', 'feed', 'ad options', 'ad option',
+  'sponsored', 'sponsored messaging', 'sponsored messaging ad', 'inmail',
+  'jobs', 'my network', 'network', 'premium', 'people also viewed',
 ]);
 
 export function isChannelOrUiName(value: unknown): boolean {
@@ -51,6 +54,10 @@ export function isChannelOrUiName(value: unknown): boolean {
   if (/^(?:sold|active|available|listed|new)\b/i.test(raw)) return true;
   if (/^(?:facebook|messenger|marketplace|instagram)\s/i.test(raw)) return true;
   if (/^brevmont\b/i.test(raw)) return true;
+  if (/\bbrevmont labs\b/i.test(raw)) return true;
+  if (LINKEDIN_UI_NAME_RE.test(raw)) return true;
+  if (/^sponsored\b/i.test(raw)) return true;
+  if (/\b(?:ad options?|messaging ad)\b/i.test(raw)) return true;
   // Facebook Marketplace fallback headers for accounts without a friendly
   // display name. "Conversation titled X" is the raw h1; "Chat with X"
   // is a common aria-label variant; "X started this chat" appears in
@@ -85,6 +92,7 @@ export function stripConversationWrapper(value: unknown): string {
 export function cleanCustomerNameCandidate(value: unknown): string {
   const cleaned = stripConversationWrapper(value)
     .replace(/\(\d+\)\s*/g, '')
+    .replace(/\s+\((?:he|she|they)\/(?:him|her|them)\)/ig, '')
     .replace(/\s+\|\s+(?:Messenger|Facebook|Gmail|LinkedIn).*$/i, '')
     .replace(/\s+-\s+(?:Messenger|Facebook|Gmail|LinkedIn).*$/i, '')
     .replace(/\s*[·•-]\s*(?:19|20)\d{2}\b.*$/i, '')
@@ -107,15 +115,318 @@ function isLikelyUiName(value: unknown): boolean {
   const candidate = cleanCandidateText(value);
   if (!candidate || candidate.length < 2 || candidate.length > 80) return true;
   if (candidate.includes('@')) return true;
-  if (LINKEDIN_UI_NAME_RE.test(candidate)) return true;
-  if (/\b(?:ad|options|grade|sponsored|promoted|follow|connect)\b/i.test(candidate)) return true;
+  if (isChannelOrUiName(candidate)) return true;
   return false;
+}
+
+export function deepVisibleText(root: ParentNode | null | undefined, max = 8000): string {
+  if (!root) return '';
+  const host = root as HTMLElement;
+  const direct = String(host.innerText || '').replace(/\s+/g, ' ').trim();
+  if (direct.length > 24) return direct.slice(0, max);
+  const chunks: string[] = [];
+  const visit = (node: Node) => {
+    if (chunks.join('\n').length >= max) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text) chunks.push(text);
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node as HTMLElement;
+    const tag = el.tagName;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'SVG') return;
+    if (el.shadowRoot) visit(el.shadowRoot);
+    for (const child of Array.from(el.childNodes)) visit(child);
+  };
+  visit(root as Node);
+  return chunks.join('\n').slice(0, max);
 }
 
 function textFromSelector(selector: string): string | null {
   const el = document.querySelector(selector) as HTMLElement | null;
   const text = cleanCandidateText(el?.innerText || el?.textContent || '');
   return text || null;
+}
+
+export function isLinkedInFeedOrChromeSurface(href = window.location.href): boolean {
+  return /linkedin\.com\/(?:feed|mynetwork|notifications|jobs)(?:\/|\?|$)/i.test(href);
+}
+
+export function isLinkedInMessagingSurface(href = window.location.href): boolean {
+  return /linkedin\.com\/messaging/i.test(href)
+    || Boolean(document.querySelector('.msg-entity-lockup__entity-title, .msg-thread__link-to-profile, .msg-form__contenteditable'));
+}
+
+export function isLinkedInSponsoredThread(text: string): boolean {
+  return /sponsored messaging ad|you(?:'|’)re receiving this ad because/i.test(text);
+}
+
+function normalizePersonKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function linkedInSelfNames(): Set<string> {
+  const names = new Set<string>();
+  const nodes = [
+    ...Array.from(document.querySelectorAll('.global-nav__me, .global-nav__me-photo, button.global-nav__primary-link--me, .feed-identity-module__actor-meta, [data-control-name="identity_welcome_message"]')),
+    ...Array.from(document.querySelectorAll('img.global-nav__me-photo, .global-nav__me img, a[href*="/in/"] img')),
+  ] as HTMLElement[];
+  for (const el of nodes) {
+    if (!el.closest('header, .global-nav, .feed-identity-module')) continue;
+    for (const value of [el.getAttribute('alt'), el.getAttribute('aria-label'), el.textContent]) {
+      const name = cleanLinkedInPersonLabel(String(value || ''));
+      if (name) names.add(normalizePersonKey(name.split(/\s+(?:founder|owner|ceo)\b/i)[0]));
+    }
+  }
+  return names;
+}
+
+export function isLinkedInSelfOrCompanyLabel(value: string): boolean {
+  const raw = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return true;
+  if (/\bbrevmont\b/i.test(raw)) return true;
+  const key = normalizePersonKey(raw.split(/\s+(?:founder|owner|ceo|head)\b/i)[0]);
+  if (!key) return true;
+  for (const self of linkedInSelfNames()) {
+    if (self && (key === self || key.startsWith(self) || self.startsWith(key))) return true;
+  }
+  return false;
+}
+
+/** First-line lockup on a LinkedIn bubble ("Yancy Garcia Sent ya an email"). */
+export function linkedInSenderLabelFromBubbleText(text: string): string {
+  const first = String(text || '')
+    .split('\n')[0]
+    .replace(/\s+/g, ' ')
+    .replace(/\b\d{1,2}:\d{2}\s*(?:AM|PM)\b/ig, '')
+    .replace(/\breact with\b.*$/i, '')
+    .trim();
+  if (!first) return '';
+  const match = first.match(/^([A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)?(?:\s+[A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)?){0,3})\b/);
+  return (match?.[1] || '').trim();
+}
+
+/**
+ * True when the bubble is the signed-in member's own send.
+ * LinkedIn concatenates sender + body, so matching the whole blob against
+ * the profile name always fails ("Yancy Garcia Sent ya an email" !== "Yancy Garcia").
+ */
+export function linkedInMessageLooksOutbound(text: string, personName?: string | null): boolean {
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return false;
+  const sender = linkedInSenderLabelFromBubbleText(text);
+  if (sender && isLinkedInSelfOrCompanyLabel(sender)) return true;
+  const firstLine = String(text || '').split('\n')[0].replace(/\s+/g, ' ').trim();
+  if (firstLine.length < 80 && isLinkedInSelfOrCompanyLabel(firstLine)) return true;
+  const personFirst = String(personName || '').trim().split(/\s+/)[0];
+  if (personFirst && personFirst.length >= 2) {
+    const escaped = personFirst.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const greeting = new RegExp(`^hey\\s+${escaped}\\b`, 'i');
+    const withoutSender = sender ? raw.slice(sender.length).trim() : raw;
+    if (greeting.test(raw) || greeting.test(withoutSender)) return true;
+  }
+  return false;
+}
+
+export function linkedInBubbleLooksOutbound(el: HTMLElement, text: string, personName?: string | null): boolean {
+  const classBlob = `${el.className || ''} ${el.parentElement?.className || ''}`;
+  if (/message-group--self|(?:^|[\s_-])self(?:$|[\s_-])/i.test(classBlob)) return true;
+  if (el.closest('[class*="message-group--self"]')) return true;
+  const nameEl = el.querySelector(
+    '.msg-s-message-group__name, .msg-s-event-listitem__name, [data-anonymize="person-name"]',
+  ) as HTMLElement | null;
+  const lockup = String(nameEl?.textContent || '').split('\n')[0].replace(/\s+/g, ' ').trim();
+  if (lockup && isLinkedInSelfOrCompanyLabel(lockup)) return true;
+  return linkedInMessageLooksOutbound(text, personName);
+}
+
+function cleanLinkedInPersonLabel(value: string): string | null {
+  const first = value.split('\n')[0].replace(/\s+/g, ' ').trim();
+  const name = first
+    .replace(/^(?:messaging|messages|linkedin)\s+/i, '')
+    .replace(/\bsponsored(?:\s+messaging(?:\s+ad)?)?\b/ig, ' ')
+    .replace(/\b(?:get started|learn more|not interested)\b/ig, ' ')
+    .split(/\s+[·•|]\s+/)[0]
+    .replace(/\s+[-–—].*$/, '')
+    .replace(/\s+\(.*\)$/, '')
+    .replace(/\s+(?:head of|founder|owner|ceo)\b.*$/i, '')
+    .replace(/(founder|owner|ceo),?\s+.*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!name || name.length < 2 || name.length > 80) return null;
+  if (isLikelyUiName(name) || isChannelOrUiName(name)) return null;
+  if (/\bbrevmont\b/i.test(name)) return null;
+  return name;
+}
+
+function isLinkedInListSurface(el: HTMLElement | null): boolean {
+  return Boolean(
+    el?.closest('.scaffold-layout__list, [class*="msg-conversations-container__conversations-list"], [class*="msg-conversation-list"]')
+  );
+}
+
+function substantialLinkedInPane(start: HTMLElement | null, min = 40): HTMLElement | null {
+  let best: HTMLElement | null = null;
+  let cur: HTMLElement | null = start;
+  while (cur && cur !== document.body) {
+    if (isLinkedInListSurface(cur) || cur.matches('nav, header, .global-nav')) break;
+    const text = deepVisibleText(cur, 4000);
+    if (text.length >= min && !isLinkedInListSurface(cur)) best = cur;
+    if (cur.matches('.scaffold-layout__detail, .msg-conversations-container__thread-view, [class*="thread-view"], [class*="scaffold-layout__detail"]')) {
+      return cur;
+    }
+    cur = cur.parentElement;
+  }
+  return best || start;
+}
+
+export function isLinkedInUiChromeText(value: unknown): boolean {
+  const t = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!t) return true;
+  return /open the options list/i.test(t)
+    || /in your conversation with\b/i.test(t)
+    || /^visible conversation text:/i.test(t)
+    || /^detected lead context:/i.test(t)
+    || /page inboxes/i.test(t)
+    || /^react with\b/i.test(t);
+}
+
+export function linkedInThreadRoot(): HTMLElement | null {
+  const href = String(window.location.href || '');
+  const threadId = href.match(/messaging\/thread\/([^/?#]+)/i)?.[1] || '';
+  const composer = document.querySelector(
+    '.msg-form__contenteditable, [aria-label*="Write a message" i][contenteditable="true"]',
+  ) as HTMLElement | null;
+  const fromComposer = substantialLinkedInPane(composer);
+  const detail = (
+    document.querySelector('.scaffold-layout__detail') as HTMLElement | null
+    || document.querySelector('[class*="scaffold-layout__detail"]') as HTMLElement | null
+  );
+  const ctaInThread = Array.from((detail || document).querySelectorAll('button, a')).find((el) => {
+    if (isLinkedInListSurface(el as HTMLElement)) return false;
+    return /^(get started|learn more|not interested)$/i.test(String(el.textContent || '').replace(/\s+/g, ' ').trim());
+  }) as HTMLElement | null;
+  const candidates = [
+    document.querySelector('.msg-conversations-container__thread-view') as HTMLElement | null,
+    document.querySelector('.msg-overlay-conversation-bubble--is-active, .msg-overlay-conversation-bubble.is-active') as HTMLElement | null,
+    fromComposer,
+    detail,
+    document.querySelector('.msg-s-message-list-content') as HTMLElement | null,
+    threadId ? document.querySelector(`[data-thread-urn*="${CSS.escape(decodeURIComponent(threadId))}"]`) as HTMLElement | null : null,
+    substantialLinkedInPane(ctaInThread),
+  ];
+  for (const el of candidates) {
+    if (!el || isLinkedInListSurface(el)) continue;
+    if (deepVisibleText(el, 4000).length > 24) return el;
+  }
+  return (document.querySelector('.msg-conversations-container__thread-view') as HTMLElement | null)
+    || fromComposer
+    || detail;
+}
+
+function normalizeLinkedInThreadPath(href: string): string {
+  try {
+    return decodeURIComponent(new URL(href, window.location.origin).pathname.replace(/\/$/, '')).toLowerCase();
+  } catch {
+    return String(href || '').toLowerCase();
+  }
+}
+
+export function selectedLinkedInConversationName(): string | null {
+  const href = String(window.location.href || '');
+  const threadId = href.match(/messaging\/thread\/([^/?#]+)/i)?.[1] || '';
+  const decoded = threadId ? decodeURIComponent(threadId) : '';
+  const path = normalizeLinkedInThreadPath(href);
+  const matchingThreadLink = path
+    ? Array.from(document.querySelectorAll('a[href*="/messaging/thread/"]')).find((anchor) => {
+      return normalizeLinkedInThreadPath((anchor as HTMLAnchorElement).href) === path
+        || (decoded && String((anchor as HTMLAnchorElement).getAttribute('href') || '').includes(decoded));
+    }) as HTMLElement | null
+    : null;
+  const selected = (
+    matchingThreadLink
+    || (decoded ? document.querySelector(`a[href*="${CSS.escape(decoded)}"]`) as HTMLElement | null : null)
+    || document.querySelector('.msg-conversation-listitem--active, .msg-selectable-entity--selected, [aria-current="true"]') as HTMLElement | null
+    || document.querySelector('.scaffold-layout__list [aria-current="true"], .scaffold-layout__list [aria-selected="true"]') as HTMLElement | null
+    || document.querySelector('a[href*="/messaging/thread/"][aria-current="true"]') as HTMLElement | null
+  );
+  if (!selected) return null;
+  const row = (selected.closest('li, [role="listitem"], .msg-conversation-listitem, a') as HTMLElement | null) || selected;
+  const lines = deepVisibleText(row, 800)
+    .split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  for (const line of lines) {
+    if (/^sponsored\b/i.test(line)) continue;
+    const name = cleanLinkedInPersonLabel(line);
+    if (name && !isLinkedInSelfOrCompanyLabel(name)) return name;
+  }
+  return null;
+}
+
+const LINKEDIN_PRONOUN_RE = /\((?:he|she|they)\/(?:him|her|them)\)/i;
+
+export function extractLinkedInPersonNameFromText(text: string): string | null {
+  const raw = String(text || '');
+  if (!raw.trim()) return null;
+  const pronoun = raw.match(new RegExp(`([A-Z][A-Za-z'.-]+(?:\\s+[A-Z][A-Za-z'.-]+){1,3})\\s*${LINKEDIN_PRONOUN_RE.source}`, 'i'));
+  if (pronoun) {
+    const name = cleanLinkedInPersonLabel(pronoun[1]);
+    if (name && !isLinkedInSelfOrCompanyLabel(name)) return name;
+  }
+  const timed = raw.match(/([A-Z][A-Za-z'.-]+(?:\s+[A-Z][A-Za-z'.-]+){1,3})\s+\d{1,2}:\d{2}\s*(?:AM|PM)\b/);
+  if (timed) {
+    const name = cleanLinkedInPersonLabel(timed[1].replace(LINKEDIN_PRONOUN_RE, ''));
+    if (name && !isLinkedInSelfOrCompanyLabel(name)) return name;
+  }
+  return null;
+}
+
+/** Person on a LinkedIn profile or DM thread. Never the Messaging chrome, Ad Options, or the signed-in profile. */
+export function extractLinkedInPersonName(): string | null {
+  const href = window.location.href;
+  if (isLinkedInFeedOrChromeSurface(href)) return null;
+  const messaging = isLinkedInMessagingSurface(href);
+  if (!messaging) {
+    const profile = document.querySelector('main h1.text-heading-xlarge, .pv-text-details__left-panel h1, .ph5 h1, h1.text-heading-xlarge') as HTMLElement | null;
+    const name = cleanLinkedInPersonLabel(profile?.innerText || profile?.textContent || '');
+    if (name && !isLinkedInSelfOrCompanyLabel(name)) return name;
+    return null;
+  }
+  const threadRoot = linkedInThreadRoot();
+  const scopes: Array<ParentNode | null> = [
+    threadRoot,
+    document.querySelector('.msg-conversation-listitem--active, .msg-selectable-entity--selected, li[aria-selected="true"]'),
+    document.querySelector('main, [role="main"]'),
+    threadRoot ? null : document.body,
+  ];
+  const fromList = selectedLinkedInConversationName();
+  if (fromList) return fromList;
+  const selectors = [
+    '.msg-overlay-bubble-header__title',
+    '.msg-thread__link-to-profile',
+    '.msg-entity-lockup__entity-title',
+    '.msg-s-message-group__name',
+    '.msg-s-event-listitem__name',
+    '.msg-conversation-card__participant-names',
+    '[data-anonymize="person-name"]',
+    'h1',
+    'h2',
+    'h3',
+    '[role="heading"]',
+  ];
+  for (const scope of scopes) {
+    if (!scope) continue;
+    for (const selector of selectors) {
+      for (const node of Array.from(scope.querySelectorAll(selector)) as HTMLElement[]) {
+        if (node.closest('header, .global-nav, .feed-identity-module, .scaffold-layout__list')) continue;
+        const name = cleanLinkedInPersonLabel(node.innerText || node.textContent || '');
+        if (name && !isLinkedInSelfOrCompanyLabel(name)) return name;
+      }
+    }
+  }
+  return extractLinkedInPersonNameFromText(deepVisibleText(threadRoot || document.querySelector('[role="main"]'), 2500));
 }
 
 export function extractVehicle(text: string): string {
@@ -378,14 +689,32 @@ export function safeInjectText(target: HTMLElement, text: string) {
   target.dispatchEvent(new Event('blur', { bubbles: true }));
 }
 
+function isShownElement(el: Element): boolean {
+  const node = el as HTMLElement;
+  if (node.hidden || node.getAttribute('aria-hidden') === 'true') return false;
+  const style = window.getComputedStyle(node);
+  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+  return true;
+}
+
+/** Standalone Gmail compose overlay, not the inline Reply box on an open thread. */
+export function isStandaloneGmailCompose(el: Element): boolean {
+  const label = (el.getAttribute('aria-label') || '').toLowerCase();
+  if (/new message|compose window|(?:^|\s)compose(?:\s|$)/.test(label) && !/\breply\b/.test(label)) {
+    return isShownElement(el);
+  }
+  if (/^forward\b/.test(label) && el.getAttribute('role') === 'dialog') return isShownElement(el);
+  if (/\breply\b/.test(label)) return false;
+  if (el.getAttribute('role') === 'dialog' && el.querySelector('input[name="subjectbox"]')) {
+    return isShownElement(el);
+  }
+  return false;
+}
+
 export function getActiveComposeRoot(platform: string): Element | null {
   if (platform !== 'gmail') return null;
   const candidates = Array.from(document.querySelectorAll('div[role="dialog"], [role="region"][aria-label*="compose" i]'));
-  return candidates.find((el) => {
-    const label = (el.getAttribute('aria-label') || '').toLowerCase();
-    if (/compose|new message|reply|forward/.test(label)) return true;
-    return Boolean(el.querySelector('[aria-label="Message Body"], input[name="to"], .aoI'));
-  }) || null;
+  return candidates.find((el) => isStandaloneGmailCompose(el)) || null;
 }
 
 export function hasActiveComposeSurface(platform: string): boolean {
@@ -429,21 +758,21 @@ export function extractContactName(platform: string): string | null {
       // DEVIATIONS.md D-2026-05-06-6 (compose-with-empty-To).
       return null;
     }
-    // No compose dialog open — read the currently-viewed thread.
-    const senderEl = document.querySelector('.gD') as HTMLElement | null;
+    // No compose dialog open — read the currently-viewed thread sender.
+    // Never use [data-name], h2, or .go: Gmail stamps the subject there, which
+    // made the customer box flicker between the subject and empty.
+    const subject = String((document.querySelector('h2.hP, .hP, [role="main"] h2') as HTMLElement | null)?.innerText || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    const senderEl = document.querySelector(
+      '[role="main"] .gD[email], [role="main"] .gD[name], [role="main"] span.gD, .adn [email], .h7 [email], .gD[email]',
+    ) as HTMLElement | null;
     if (senderEl) {
-      const name = senderEl.getAttribute('name') || senderEl.textContent?.trim() || null;
-      if (name && name.length > 1 && name.length < 60) return name;
-    }
-    const goEl = document.querySelector('.go');
-    if (goEl) {
-      const name = (goEl as HTMLElement).textContent?.trim();
-      if (name && name.length > 1 && name.length < 60) return name;
-    }
-    const namedEl = document.querySelector('[data-name]');
-    if (namedEl) {
-      const name = namedEl.getAttribute('data-name');
-      if (name && name.length > 1 && name.length < 60) return name;
+      const name = String(senderEl.getAttribute('name') || senderEl.textContent || '').replace(/\s+/g, ' ').trim();
+      if (name && name.length > 1 && name.length < 60 && !name.includes('@') && name.toLowerCase() !== subject) {
+        return name;
+      }
     }
     return null;
   }
@@ -518,40 +847,7 @@ export function extractContactName(platform: string): string | null {
     return null;
   }
   if (platform === 'linkedin') {
-    const selectors = [
-      'main h1.text-heading-xlarge',
-      '.pv-text-details__left-panel h1',
-      '.ph5 h1',
-      'h1.text-heading-xlarge',
-      '.msg-overlay-bubble-header__title',
-      '.msg-s-message-group__name',
-      '.msg-thread__link-to-profile',
-      '.msg-entity-lockup__entity-title',
-      '[data-anonymize="person-name"]',
-      '[aria-label^="View "] [dir="ltr"]',
-    ];
-    for (const selector of selectors) {
-      const name = textFromSelector(selector);
-      if (name && !isLikelyUiName(name)) return name;
-    }
-    const labelled = Array.from(document.querySelectorAll('[aria-label]')).find((el) => {
-      const label = el.getAttribute('aria-label') || '';
-      if (!/^(?:Message|Conversation with|Open profile for|View)\s+/i.test(label)) return false;
-      const cleaned = label
-        .replace(/^(?:Message|Conversation with|Open profile for|View)\s+/i, '')
-        .replace(/\s+(?:profile|conversation)$/i, '')
-        .trim();
-      return !isLikelyUiName(cleaned);
-    });
-    if (labelled) {
-      const label = labelled.getAttribute('aria-label') || '';
-      const cleaned = label
-        .replace(/^(?:Message|Conversation with|Open profile for|View)\s+/i, '')
-        .replace(/\s+(?:profile|conversation)$/i, '')
-        .trim();
-      if (!isLikelyUiName(cleaned)) return cleaned;
-    }
-    return null;
+    return extractLinkedInPersonName();
   }
   if (platform === 'instagram') {
     const igHeader = document.querySelector('header h2') || document.querySelector('[role="heading"]');

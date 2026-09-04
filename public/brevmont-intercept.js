@@ -1,8 +1,13 @@
 /**
- * Brevmont Network Interceptor
- * Loaded as a web_accessible_resource to bypass CSP.
- * Monkey-patches window.fetch to capture customer/lead/contact API responses
- * and postMessage the extracted data to the content script.
+ * Brevmont lead-field reader (runs in the page context).
+ *
+ * The rep is already viewing their own customer record in their dealer CRM.
+ * This script reads the lead's name/vehicle/phone/email from that same CRM's
+ * API response the page just loaded, so the rep does not have to retype it into
+ * Brevmont. It runs only on the CRM/inbox domains the extension is granted, does
+ * not modify requests, and sends the fields only to the extension's own content
+ * script on the same page (same-origin postMessage). No data leaves the page
+ * except through the extension's normal, authenticated flow.
  */
 (function() {
   const originalFetch = window.fetch;
@@ -24,7 +29,9 @@
             const email = str.match(/"(?:email|emailAddress)"\s*:\s*"([^"]+)"/i);
             if (email) extracted.email = email[1];
             if (Object.keys(extracted).length > 0) {
-              window.postMessage({ type: 'BREVMONT_LEAD_DATA', data: extracted }, '*');
+              // Same-origin only: the extension's content script runs in this
+              // page's origin and verifies event.source === window.
+              window.postMessage({ type: 'BREVMONT_LEAD_DATA', data: extracted }, window.location.origin);
             }
           } catch(x) {}
         }).catch(() => {});

@@ -83,7 +83,7 @@ export default defineConfig({
     // Private key stored in brevmont-vault/secrets/extension-keypair.pem
     // (never commit private key to source; this public key is safe to publish).
     key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkMsS75L94HSdLb6I5gYOWkaP7JwtWdeRtVTmBRjkVR8tbvnsvYBE54CPY4jrHGKR8+CUO8NSd62MRCabJZMaJ5N1QpwgttOY2XCD78wCggmRGbKlGsZOtZjwkvX93NHAgcNFc/1RKu1mq0ireFqtidDLp8tM6WKPD/maWZ83xPPeYWD5Ahmwx0qjLMyAsj4e3uBIegtyT05IrPBtpYOT30GRuoi2+kTDU/McaY6yS9VtVZXomsLH5kUlA8+RD7vzxToGitogc6g0pJdEluXtdIkSN+ulcPzOfWzmBBdbViiJlmOUr/m/OFF482E0eSy6Ek4V/Z1KAJGheOAKh0wOvwIDAQAB',
-    name: 'Brevmont Chrome Extension',
+    name: 'Brevmont AI Lead Responder',
     short_name: 'Brevmont',
     version: pkgVersion,
     version_name: pkgVersion,
