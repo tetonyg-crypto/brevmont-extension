@@ -298,6 +298,24 @@ function stripMarkdownText(value: unknown): string {
     .trim();
 }
 
+// Buyer context must be the CUSTOMER's words, never our generation/system-prompt
+// scaffolding. Older captured leads sometimes stored the "SPEAKING IDENTITY: You
+// are <rep>. Write in first person..." primer in their notes, which then showed
+// as the buyer context. Strip that scaffolding out; if nothing real remains the
+// caller falls back to a plain "captured from <source>" line.
+function sanitizeBuyerContext(value: unknown): string {
+  let text = String(value ?? '');
+  // Remove a SPEAKING IDENTITY primer block wherever it appears (through the next
+  // blank line, or to the end if it runs to the end of the text).
+  text = text.replace(/SPEAKING IDENTITY:[\s\S]*?(?:\n\s*\n|$)/gi, ' ');
+  const scaffoldLine = /^(?:speaking identity\b|write in first person\b|do not speak as\b|sign as\b|never write\b|you are\s+\S+\.?\s*(?:write|do not|never|sign)?|as this (?:person|salesperson)\b|write as\b)/i;
+  text = text
+    .split(/\n+/)
+    .filter((line) => !scaffoldLine.test(line.trim()))
+    .join('\n');
+  return stripMarkdownText(text);
+}
+
 function stripMarkdownPreserveLines(value: unknown): string {
   return String(value ?? '')
     .replace(/\r\n/g, '\n')
@@ -609,7 +627,7 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
   if (brevmontSignInBtn) {
     brevmontSignInBtn.onclick = () => {
       try { chrome.runtime.sendMessage({ type: 'BREVMONT_PANEL_SIGN_IN_STARTED' }); } catch { /* noop */ }
-      try { chrome.tabs.create({ url: `${AUTH_APP_URL}?force=1&plan=automotive_rep_trial&account=signin`, active: true }); } catch { /* noop */ }
+      try { chrome.tabs.create({ url: `${AUTH_APP_URL}?force=1&account=signin`, active: true }); } catch { /* noop */ }
       renderSignedOutScreen({ waiting: true });
     };
   }
@@ -909,8 +927,13 @@ async function collectCurrentLeadContext(): Promise<any> {
     const pageLead = await sendToContent({ type: 'GET_LEAD_CONTEXT' });
     if (pageLead && typeof pageLead === 'object') lead = pageLead;
   } catch {}
+  // Only fall back to the last thread scan's customer when that scan belongs to
+  // the CONVERSATION we're looking at now. Without this gate, a kept scan (e.g.
+  // "Perla") bleeds into every other Marketplace/Messenger thread that has no
+  // customer of its own — the name stuck while the vehicle read live. Tie the
+  // fallback to the scan's own thread identity.
   const scanName = autoThreadScan?.customerName || '';
-  if (scanName && !getCustomerNameFromContext(lead)) {
+  if (scanName && scanUrlMatchesCurrent() && !getCustomerNameFromContext(lead)) {
     return {
       ...lead,
       customerName: scanName,
@@ -1563,9 +1586,11 @@ function pinMatchesContext(customer: PinnedCustomer | null, ctx: any): boolean {
     if (pinEmail && ctxEmail) return pinEmail === ctxEmail;
     return normalizeComparable(customer.name) === normalizeComparable(ctxName);
   }
-  const ctxFingerprint = getContextFingerprint(ctx);
-  const pinFingerprint = customer.contextFingerprint || customer.threadFingerprint || '';
-  if (ctxFingerprint && pinFingerprint && ctxFingerprint !== pinFingerprint) return false;
+  // Identity is by NAME, not by content fingerprint. Facebook/Messenger
+  // re-render system cards, timestamps, and "changed the price" lines every few
+  // seconds, which churned the fingerprint and flipped the pin off/on — the
+  // "trampoline" flicker. The person hasn't changed just because the page
+  // re-rendered, so a matching (or not-yet-detected) name keeps the pin.
   const ctxName = getCustomerNameFromContext(ctx);
   if (ctxName && normalizeComparable(customer.name) !== normalizeComparable(ctxName)) return false;
   const ctxVehicle = getCustomerVehicleFromContext(ctx);
@@ -1581,9 +1606,9 @@ function pinMismatchReason(customer: PinnedCustomer | null, ctx: any): string | 
     if (pinMatchesContext(customer, ctx)) return null;
     return 'customer_changed';
   }
-  const ctxFingerprint = getContextFingerprint(ctx);
-  const pinFingerprint = customer.contextFingerprint || customer.threadFingerprint || '';
-  if (ctxFingerprint && pinFingerprint && ctxFingerprint !== pinFingerprint) return 'thread_changed';
+  // Name-based identity (see pinMatchesContext): a churning page fingerprint is
+  // not a thread change. Only a genuinely different detected name (or a
+  // conflicting vehicle) means the pinned customer is stale.
   const ctxName = getCustomerNameFromContext(ctx);
   if (ctxName && normalizeComparable(customer.name) !== normalizeComparable(ctxName)) return 'customer_changed';
   const ctxVehicle = getCustomerVehicleFromContext(ctx);
@@ -2179,24 +2204,31 @@ function startCustomerDetection(root: HTMLElement): void {
     const activeUrl = currentPlatform.url || '';
     if (activeUrl !== customerDetectionUrl) {
       const prevUrl = customerDetectionUrl;
+      // Use the STABLE thread identity (path + hash), not the raw URL. Facebook
+      // and Messenger mutate query params on the same conversation constantly,
+      // which used to clear + re-pin every few seconds (the "trampoline"
+      // flicker). Only a real conversation switch changes path/hash.
       const threadChanged = stableThreadIdentity(activeUrl) !== stableThreadIdentity(prevUrl);
       customerDetectionUrl = activeUrl;
-      customerDetectionFingerprint = '';
-      if (usesUrlPinnedCustomer(currentPlatform.platform)) {
-        if (threadChanged) {
-          lastGmailSubject = '';
-          clearStalePinnedCustomer(root, 'url_changed');
-          autoThreadScan = null;
-          autoThreadScanStatus = 'idle';
-          autoThreadScanUrl = '';
-          linkedInEmptyScanRetries = 0;
-          const outputs = root.querySelector('#o8-outputs') as HTMLElement | null;
-          if (outputs) outputs.innerHTML = '';
-          renderAutoThreadScan(root);
-        }
-      } else {
+      if (threadChanged) {
+        // A genuinely different conversation. Clear the previous lead so it can
+        // never bleed into the new thread — including when the new thread can't
+        // be read (must show empty, never the last thread's customer).
+        customerDetectionFingerprint = '';
         lastGmailSubject = '';
         clearStalePinnedCustomer(root, 'url_changed');
+        autoThreadScan = null;
+        autoThreadScanStatus = 'idle';
+        autoThreadScanUrl = '';
+        linkedInEmptyScanRetries = 0;
+        const outputs = root.querySelector('#o8-outputs') as HTMLElement | null;
+        if (outputs) outputs.innerHTML = '';
+        renderAutoThreadScan(root);
+        // Proactively re-scan the NEW conversation so the rep immediately sees
+        // "Reading conversation..." → "Replying to: <their message>" without
+        // having to hit Generate first. Clearing above set status to idle
+        // (hidden); this repopulates the chip for the thread now open.
+        scheduleAutoThreadScan(root, 200, true);
       }
     }
     refreshCustomerDetection(root).catch(() => {});
@@ -5101,7 +5133,28 @@ function wireMyLeadCardActions(root: HTMLElement): void {
         }
       };
     });
+    // Click the card body (not a button/input) to open the lead's overview —
+    // the buyer profile card so the rep can see who this is at a glance.
+    card.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('button') || target.closest('input')) return;
+      if (!lead) return;
+      showLeadOverview(root, lead);
+    });
   });
+}
+
+// Opens the buyer-profile overview for an existing My Leads lead, reusing the
+// same result card the scan flow renders (name, signal, stage, buyer context).
+function showLeadOverview(root: HTMLElement, lead: any): void {
+  showPrimaryPanel(root, '#o8-lead-panel');
+  const normalized = {
+    ...lead,
+    is_lead: true,
+    intent: lead.intent || lead.metadata?.intent || 'individual_buyer',
+    source_raw_text: lead.source_raw_text || lead.notes || lead.context || '',
+  };
+  showLeadResult(root, normalized);
 }
 
 async function openMyLeads(root: HTMLElement): Promise<void> {
@@ -5141,11 +5194,10 @@ function leadSignalSummary(lead: any, intent: string, rawText: string): string {
 function showLeadResult(root: HTMLElement, lead: any): void {
   const result = root.querySelector('#o8-lead-result') as HTMLElement;
   if (!result || !lead) return;
-  if (lead.is_lead === false || lead.intent === 'not_a_lead') {
-    result.style.display = 'block';
-    result.innerHTML = `<div class="tool-result" style="color:#64748B;text-align:center;padding:14px;line-height:1.45;">${esc(lead.notes || 'No buying intent detected. If this is a customer, use Voice or Paste tab.')}</div>`;
-    return;
-  }
+  // Founder directive: never refuse a scan with a "no buying intent" message.
+  // If the rep scanned someone, treat them as a capturable lead and render the
+  // card. Only a truly empty scan (no identifier at all) falls through to the
+  // "Unknown lead" default below.
 
   const company = optionalDisplayText(lead.company);
   const intent = String(lead.intent || '').toLowerCase();
@@ -5162,8 +5214,10 @@ function showLeadResult(root: HTMLElement, lead: any): void {
   const nextStage = getNextStage(pipelineStage);
   const sourceLabel = getDisplayLabel(lead.source_platform || currentPlatform.platform || 'Extension') || 'Extension';
   const signalSummary = leadSignalSummary(lead, intent, rawText);
-  const contextCopy = optionalDisplayText(lead.notes)
-    || (rawText ? rawText.substring(0, 160) : '')
+  const notesClean = sanitizeBuyerContext(optionalDisplayText(lead.notes) || '');
+  const rawClean = sanitizeBuyerContext(rawText || '');
+  const contextCopy = notesClean
+    || (rawClean ? rawClean.substring(0, 160) : '')
     || `${name} was captured from ${sourceLabel}${vehicle ? ` with interest in ${vehicle}` : ''}.`;
   const captureDetails = [
     sourceLabel ? `Source: ${sourceLabel}` : '',
