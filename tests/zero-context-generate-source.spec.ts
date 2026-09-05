@@ -460,8 +460,8 @@ test('explicit lead selection overrides page-scan context in the generate payloa
   // context reaches the payload; scanner context is stripped, not merged.
   expect(source).toContain('function leadContextFromSelectedLead');
   expect(body).toContain("const selectedLeadId: string | null = (root as any).__pendingLeadId || null");
-  expect(body).toContain('if (!selectedLeadId) {');
-  expect(body.indexOf('if (!selectedLeadId) {')).toBeLessThan(body.indexOf('scanThreadForGenerate(root, true)'));
+  expect(body).toContain('if (!selectedLeadId && !pasteMode) {');
+  expect(body.indexOf('if (!selectedLeadId && !pasteMode) {')).toBeLessThan(body.indexOf('scanThreadForGenerate(root, true)'));
   expect(body).toContain('leadContext = leadContextFromSelectedLead(selectedLead)');
   expect(body).toContain("generation_source: selectedLeadId ? 'selected_lead'");
   expect(body).toContain('pipeline_stage: leadContext.pipeline_stage || null');
@@ -640,8 +640,8 @@ test('Gmail customer stamp rejects the subject line as the person', () => {
 test('Gmail auto-scan does not invent last inbound from outbound or raw text fallback', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   expect(source).toContain("const isDeterministicGmailThread = (ctx.platform || currentPlatform.platform) === 'gmail' && messages.length > 0");
-  expect(source).toContain("isDeterministicGmailThread ? '' : messages[messages.length - 1]?.text");
-  expect(source).toContain("isDeterministicGmailThread ? '' : lastReadableThreadLine(rawText)");
+  expect(source).toContain("(isDeterministicGmailThread || isLinkedIn) ? '' : messages[messages.length - 1]?.text");
+  expect(source).toContain("(isDeterministicGmailThread || isLinkedIn) ? '' : lastReadableThreadLine(rawText)");
   expect(source).toContain('firstNonSystemThreadText(');
 });
 
