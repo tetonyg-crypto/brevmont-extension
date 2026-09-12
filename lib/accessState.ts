@@ -1,8 +1,8 @@
 export type LicenseAccessState = 'revoked' | 'trial_ended';
 
-export const TRIAL_ENDED_TITLE = '7-day trial ended';
-export const TRIAL_ENDED_BODY = 'Keep Brevmont for $24.99/mo to reopen follow-ups.';
-export const TRIAL_ENDED_CTA = 'Subscribe $24.99';
+export const TRIAL_ENDED_TITLE = 'Lead Responder locked';
+export const TRIAL_ENDED_BODY = 'Unlock Lead Responder for $29/mo or $290/year to keep generating.';
+export const TRIAL_ENDED_CTA = 'Unlock Lead Responder';
 export const TRIAL_ENDED_BILLING_URL = 'https://app.brevmont.com/rep/billing';
 
 // chrome.storage.local key holding a server-provided billing URL for the
@@ -49,7 +49,7 @@ export function getAccessErrorCode(body: any): string {
 export function classifyAccessError(status: number, body: any): LicenseAccessState | null {
   if (status !== 401 && status !== 403) return null;
   const code = getAccessErrorCode(body);
-  if (code === 'trial_ended') return 'trial_ended';
+  if (code === 'trial_ended' || code === 'paywall') return 'trial_ended';
   if (REVOKED_ERROR_CODES.has(code)) return 'revoked';
   return null;
 }
