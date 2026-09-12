@@ -771,13 +771,13 @@ export default defineBackground(() => {
             'rep_email', 'rep_name', 'dealership', 'dealership_id',
             'rep_id', 'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
             'brevmont_jwt_cache', 'brevmont_tier', 'dealership_tier',
-            'dealership_plan', 'brevmont_features',
+            'dealership_plan', 'brevmont_features', 'rep_industry_context', 'brevmont_access', 'rep_is_automotive',
           ];
           const IDENTITY_SYNC_KEYS = [
             'rep_email', 'rep_name', 'dealership', 'dealership_id',
             'rep_id', 'dealer_token', 'rep_auth_token',
             'brevmont_tier', 'dealership_tier', 'dealership_plan',
-            'profile_onboarded', 'profile',
+            'profile_onboarded', 'profile', 'rep_industry_context', 'rep_is_automotive',
           ];
           await Promise.allSettled([
             browser.storage.local.remove(IDENTITY_LOCAL_KEYS),
@@ -850,7 +850,7 @@ export default defineBackground(() => {
         'license_revoked', 'license_revoked_at', 'license_revoked_message',
         'license_access_state', 'brevmont_jwt_cache',
         'brevmont_tier', 'dealership_tier', 'dealership_plan',
-        'brevmont_features',
+        'brevmont_features', 'rep_industry_context', 'brevmont_access', 'rep_is_automotive',
         'rep_email', 'rep_id', 'rep_name', 'dealership_id', 'dealership',
         'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
       ];
@@ -986,6 +986,7 @@ export default defineBackground(() => {
             'install_token', 'activated_at',
             'brevmont_tier', 'brevmont_jwt_cache',
             'dealership_tier', 'dealership_plan', 'brevmont_features',
+            'rep_industry_context', 'brevmont_access', 'rep_is_automotive',
             'pending_heartbeats',
           ]);
           await chrome.storage.local.set({ [SIGNED_OUT_SENTINEL_KEY]: Date.now() });
@@ -997,7 +998,7 @@ export default defineBackground(() => {
             'dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token',
             'license_key', 'license_secret', 'brevmont_license_secret',
             'rep_id', 'rep_name', 'rep_email', 'dealership_id', 'dealership',
-            'profile', 'profile_onboarded',
+            'profile', 'profile_onboarded', 'rep_industry_context', 'brevmont_access', 'rep_is_automotive',
             'install_token', 'brevmont_tier', 'dealership_tier', 'dealership_plan',
           ]);
         } catch (err) {
@@ -1291,6 +1292,17 @@ export default defineBackground(() => {
             return;
           }
           const access = await resp.json();
+          // Cache the resolved vertical so local Coach/Ask fallbacks and
+          // prompt identity use the same server decision after refresh.
+          await browser.storage.local.set({
+            brevmont_access: access,
+            rep_industry_context: {
+              is_automotive: access.is_automotive === true,
+              feature_flags: access.feature_flags || {},
+              industry_context: access.industry_context || '',
+              industry_profile: access.industry_profile || null,
+            },
+          });
           sendResponse({
             ok: true,
             access,
@@ -2852,8 +2864,8 @@ export default defineBackground(() => {
       // affordance and assume the extension isn't installed.
       if (details.reason === 'install' && !alreadySetup) {
         try {
-          await browser.tabs.create({ url: BREVMONT_WELCOME_URL });
-          await browser.tabs.create({ url: browser.runtime.getURL('install-screen.html') });
+          await browser.tabs.create({ url: BREVMONT_WELCOME_URL, active: true });
+          await browser.tabs.create({ url: browser.runtime.getURL('install-screen.html'), active: false });
         } catch {
           // ignore; the wizard fallback below would not run anyway because
           // autoConfigured = true
@@ -2866,8 +2878,8 @@ export default defineBackground(() => {
       // they can click "I pinned it" which routes them to the legacy
       // onboarding wizard (fallback bootstrap path).
       try {
-        await browser.tabs.create({ url: BREVMONT_WELCOME_URL });
-        await browser.tabs.create({ url: browser.runtime.getURL('install-screen.html') });
+        await browser.tabs.create({ url: BREVMONT_WELCOME_URL, active: true });
+        await browser.tabs.create({ url: browser.runtime.getURL('install-screen.html'), active: false });
       } catch {
         // Final fallback — permission page (mic + setup gate).
         browser.tabs.create({ url: browser.runtime.getURL('permission.html') }).catch(() => {});
@@ -2948,14 +2960,36 @@ async function assertNotRevoked(): Promise<void> {
 // sync profile so drafts speak as the salesperson, not a stale store name.
 async function buildRepContext(): Promise<{ repName: string; dealership: string; contextBlock: string }> {
   const [local, sync] = await Promise.all([
-    browser.storage.local.get(['rep_name', 'dealership', 'dealership_name', 'profile', 'brevmont_tone']),
-    browser.storage.sync.get(['profile', 'rep_name', 'dealership']),
+    browser.storage.local.get(['rep_name', 'dealership', 'dealership_name', 'profile', 'brevmont_tone', 'rep_industry_context', 'brevmont_access']),
+    browser.storage.sync.get(['profile', 'rep_name', 'dealership', 'rep_industry_context']),
   ]);
   let profile: any = null;
   try {
     const raw = local.profile || sync.profile;
     profile = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
   } catch (e) { profile = null; }
+  const industrySource = local.rep_industry_context || local.brevmont_access || profile || sync.rep_industry_context || sync.profile;
+  const industry = (await import('./lib/repIndustryContext')).resolveRepIndustryContext(industrySource);
+  const industryProfile =
+    (industrySource && typeof industrySource === 'object' && industrySource.industry_profile) ||
+    (local.brevmont_access && typeof local.brevmont_access === 'object' && (local.brevmont_access as any).industry_profile) ||
+    (local.rep_industry_context && typeof local.rep_industry_context === 'object' && (local.rep_industry_context as any).industry_profile) ||
+    null;
+  const appendIndustryProfile = (ctx: string): string => {
+    if (!industryProfile || typeof industryProfile !== 'object' || industry.isAutomotive) return ctx;
+    const ip = industryProfile as Record<string, unknown>;
+    const pick = (key: string) => (typeof ip[key] === 'string' ? String(ip[key]).trim() : '');
+    const lines: string[] = [];
+    if (pick('industry')) lines.push(`Industry: ${pick('industry')}`);
+    if (pick('offer')) lines.push(`Offer / what they sell: ${pick('offer')}`);
+    if (pick('icp')) lines.push(`Typical buyer: ${pick('icp')}`);
+    if (pick('channels')) lines.push(`Customer channels: ${pick('channels')}`);
+    if (pick('tone')) lines.push(`Preferred tone: ${pick('tone')}`);
+    if (pick('pain_points')) lines.push(`Pain points: ${pick('pain_points')}`);
+    if (pick('guardrails')) lines.push(`Guardrails: ${pick('guardrails')}`);
+    if (!lines.length) return ctx;
+    return `${ctx}\nSALES PROFILE (from onboarding — follow this, do not invent automotive context):\n${lines.join('\n')}\n`;
+  };
 
   const localRepName = String(local.rep_name || '').trim();
   const syncRepName = String(sync.rep_name || '').trim();
@@ -2976,12 +3010,14 @@ async function buildRepContext(): Promise<{ repName: string; dealership: string;
     const rawDealership = localDealership || syncDealership || '';
     const dealership = looksLikePersonalWorkspace(rawDealership, repName) ? '' : rawDealership;
     let contextBlock = 'SPEAKING IDENTITY:\n';
-    contextBlock += `You are ${repName}, an individual automotive salesperson.\n`;
+    contextBlock += industry.isAutomotive
+      ? `You are ${repName}, an individual automotive salesperson.\n`
+      : `You are ${repName}, an individual sales professional. Do not assume a specific industry, product, or dealership.\n`;
     contextBlock += 'Write in first person as this salesperson. Do not speak as the dealership brand or a BDC bot.\n';
     contextBlock += `Sign as ${repName} only. Never write "I'm ${repName} at ${rawDealership || 'a store'}".\n`;
     if (dealership) contextBlock += `Optional store affiliation (secondary only): ${dealership}\n`;
     if (local.brevmont_tone) contextBlock += `Tone: ${local.brevmont_tone}\n`;
-    return { repName, dealership, contextBlock };
+    return { repName, dealership, contextBlock: appendIndustryProfile(contextBlock) };
   }
 
   const id = profile.identity || {};
@@ -2995,7 +3031,9 @@ async function buildRepContext(): Promise<{ repName: string; dealership: string;
   const dealership = looksLikePersonalWorkspace(rawDealership, repName) ? '' : rawDealership;
 
   let ctx = 'SPEAKING IDENTITY:\n';
-  ctx += `You are ${repName}, an individual automotive salesperson.\n`;
+  ctx += industry.isAutomotive
+    ? `You are ${repName}, an individual automotive salesperson.\n`
+    : `You are ${repName}, an individual sales professional. Do not assume a specific industry, product, or dealership.\n`;
   ctx += 'Write in first person as this salesperson. Do not speak as the dealership brand, a manager, or a BDC bot.\n';
   ctx += `Sign as ${repName} only. Never write "I'm ${repName} at ${rawDealership || 'a store'}".\n`;
   ctx += '\nREP PROFILE:\n';
@@ -3004,13 +3042,17 @@ async function buildRepContext(): Promise<{ repName: string; dealership: string;
   if (id.yearsExperience) ctx += `Experience: ${id.yearsExperience}\n`;
   if (dealership) ctx += `Store affiliation (optional context only): ${dealership}\n`;
   if (dl.city && dl.state) ctx += `Location: ${dl.city}, ${dl.state}\n`;
-  if (dl.crm) ctx += `CRM: ${dl.crm}\n`;
-  if (mk.marketType) ctx += `Market type: ${mk.marketType}\n`;
-  if (dl.saltRoads) ctx += `Road salting: ${dl.saltRoads} — ${dl.saltRoads === 'yes' ? 'affects rust and condition language for trades' : 'no road salt, less corrosion concern'}\n`;
-  if (dl.docFee) ctx += `Doc fee: $${dl.docFee}\n`;
-  if (dl.taxRate) ctx += `Tax rate: ${dl.taxRate}%\n`;
-  if (dl.avgNewPrice) ctx += `Avg new car price: ${dl.avgNewPrice}\n`;
-  if (dl.avgUsedPrice) ctx += `Avg used car price: ${dl.avgUsedPrice}\n`;
+  // Automotive-only dealership economics — omit for general sales so stale
+  // local profile fields cannot contaminate cleaning / SaaS / services drafts.
+  if (industry.isAutomotive) {
+    if (dl.crm) ctx += `CRM: ${dl.crm}\n`;
+    if (mk.marketType) ctx += `Market type: ${mk.marketType}\n`;
+    if (dl.saltRoads) ctx += `Road salting: ${dl.saltRoads} — ${dl.saltRoads === 'yes' ? 'affects rust and condition language for trades' : 'no road salt, less corrosion concern'}\n`;
+    if (dl.docFee) ctx += `Doc fee: $${dl.docFee}\n`;
+    if (dl.taxRate) ctx += `Tax rate: ${dl.taxRate}%\n`;
+    if (dl.avgNewPrice) ctx += `Avg new car price: ${dl.avgNewPrice}\n`;
+    if (dl.avgUsedPrice) ctx += `Avg used car price: ${dl.avgUsedPrice}\n`;
+  }
 
   ctx += '\nCOMMUNICATION STYLE:\n';
   const tone = vc.tone || local.brevmont_tone;
@@ -3021,14 +3063,14 @@ async function buildRepContext(): Promise<{ repName: string; dealership: string;
   if (vc.languages?.length) ctx += `Languages: ${vc.languages.join(', ')}\n`;
   if (vc.philosophy) ctx += `Selling philosophy: ${vc.philosophy}\n`;
 
-  if (mk.customerTypes?.length || mk.objections?.length || mk.customerNote) {
+  if (industry.isAutomotive && (mk.customerTypes?.length || mk.objections?.length || mk.customerNote)) {
     ctx += '\nCUSTOMER CONTEXT:\n';
     if (mk.customerTypes?.length) ctx += `Primary customer types: ${mk.customerTypes.join(', ')}\n`;
     if (mk.objections?.length) ctx += `Common objections: ${mk.objections.join(', ')}\n`;
     if (mk.customerNote) ctx += `Market notes: ${mk.customerNote}\n`;
   }
 
-  return { repName, dealership, contextBlock: ctx };
+  return { repName, dealership, contextBlock: appendIndustryProfile(ctx) };
 }
 
 /** Dealer license: local storage only; sync storage must not carry auth tokens. */
