@@ -2971,9 +2971,9 @@ async function buildRepContext(): Promise<{ repName: string; dealership: string;
   const industrySource = local.rep_industry_context || local.brevmont_access || profile || sync.rep_industry_context || sync.profile;
   const industry = (await import('./lib/repIndustryContext')).resolveRepIndustryContext(industrySource);
   const industryProfile =
-    (industrySource && typeof industrySource === 'object' && industrySource.industry_profile) ||
-    (local.brevmont_access && typeof local.brevmont_access === 'object' && (local.brevmont_access as any).industry_profile) ||
-    (local.rep_industry_context && typeof local.rep_industry_context === 'object' && (local.rep_industry_context as any).industry_profile) ||
+    (industrySource && typeof industrySource === 'object' && (industrySource.industry_profile || industrySource.feature_flags?.industry_profile)) ||
+    (local.brevmont_access && typeof local.brevmont_access === 'object' && ((local.brevmont_access as any).industry_profile || (local.brevmont_access as any).feature_flags?.industry_profile)) ||
+    (local.rep_industry_context && typeof local.rep_industry_context === 'object' && ((local.rep_industry_context as any).industry_profile || (local.rep_industry_context as any).feature_flags?.industry_profile)) ||
     null;
   const appendIndustryProfile = (ctx: string): string => {
     if (!industryProfile || typeof industryProfile !== 'object' || industry.isAutomotive) return ctx;
