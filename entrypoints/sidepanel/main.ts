@@ -14,6 +14,7 @@ import { getPanelCSS } from '../lib/panelCSS';
 import { lockDocumentZoom } from '../lib/hostZoom';
 import {
   LOCAL_GENERATION_COUNT_KEY,
+  BREVMONT_WELCOME_URL,
 } from '../lib/cwsDistribution';
 import { clearJwtCache } from '../../lib/jwtCache';
 import { clearAuth } from '../../lib/storage';
@@ -31,6 +32,7 @@ import { sanitizeCustomerFacingOutput } from '../lib/outputContract';
 import { resolveGenerateInput } from '../lib/repInstruction';
 import { cleanCustomerNameCandidate } from '../lib/leadContextScan';
 import { isMessengerSystemCardText } from '../lib/messengerSystemText';
+import { resolveRepIndustryContext, type RepIndustryContext } from '../lib/repIndustryContext';
 import {
   formatAskPaymentAnswer,
   localAskAnythingFallback,
@@ -176,6 +178,9 @@ const AUTH_SYNC_KEYS = [
   'brevmont_tier',
   'dealership_tier',
   'dealership_plan',
+  'rep_industry_context',
+  'brevmont_access',
+  'rep_is_automotive',
 ];
 
 async function clearCredentialsForReconnect(): Promise<void> {
@@ -534,6 +539,10 @@ async function hasStoredSession(): Promise<boolean> {
 
 const AUTH_APP_URL = 'https://app.brevmont.com/auth/extension';
 
+function openNewUserOnboardingTab(): void {
+  try { chrome.tabs.create({ url: BREVMONT_WELCOME_URL, active: true }); } catch { /* noop */ }
+}
+
 function openAuthExtensionTab(): void {
   // ?force=1 → AuthExtension clears any leftover Supabase session
   // BEFORE probing localStorage / auto-resolving. That's what makes
@@ -585,16 +594,17 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
         <div style="font-weight:900;letter-spacing:.24em;font-size:13px;">BREVMONT</div>
       </div>
       <h1 id="sp-signin-h1" style="font-size:22px;font-weight:900;letter-spacing:-0.01em;margin:0 0 12px;">${
-        waiting ? 'Still waiting on sign-in.' : 'Sign in to keep going.'
+        waiting ? 'Still waiting on sign-in.' : 'Brevmont Lead Responder'
       }</h1>
       <p id="sp-signin-body" style="font-size:13px;line-height:1.55;color:rgba(255,255,255,0.62);margin:0 0 28px;max-width:280px;">
         ${
           waiting
             ? 'The sign-in tab did not finish the handoff. This usually means the tab was closed, the network hiccuped, or the store picker was left open.'
-            : 'Brevmont writes the follow-up, email, and CRM note beside every customer you work. Sign in with your dealership Google account to activate.'
+            : 'Sales tools that help you reply, follow up, organize lead context, and know the next move.'
         }
       </p>
-      <button id="sp-signin-btn" type="button" style="width:100%;max-width:260px;height:44px;border-radius:12px;background:#0D6E6E;color:#F8F6F1;border:0;font-weight:800;font-size:14px;cursor:pointer;">${
+      ${waiting ? '' : '<button id="sp-get-started" type="button" style="width:100%;max-width:260px;height:44px;border-radius:12px;background:#0D6E6E;color:#F8F6F1;border:0;font-weight:800;font-size:14px;cursor:pointer;">Get started</button>'}
+      <button id="sp-signin-btn" type="button" style="width:100%;max-width:260px;height:44px;border-radius:12px;background:${waiting ? '#0D6E6E' : 'transparent'};color:#F8F6F1;border:1px solid ${waiting ? '#0D6E6E' : 'rgba(255,255,255,0.22)'};font-weight:800;font-size:14px;cursor:pointer;margin-top:${waiting ? '0' : '10px'};">${
         waiting ? 'Retry sign-in' : 'Sign in with Google'
       }</button>
       <button id="sp-signin-brevmont" type="button" style="margin-top:10px;width:100%;max-width:260px;height:40px;border-radius:12px;background:transparent;color:#F8F6F1;border:1px solid rgba(255,255,255,0.22);font-weight:700;font-size:13px;cursor:pointer;display:${
@@ -610,6 +620,7 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
     </div>
   `;
   const signInBtn = document.getElementById('sp-signin-btn');
+  const getStartedBtn = document.getElementById('sp-get-started');
   const brevmontSignInBtn = document.getElementById('sp-signin-brevmont');
   const startOverBtn = document.getElementById('sp-signin-startover');
   const refreshBtn = document.getElementById('sp-signin-refresh');
@@ -624,6 +635,7 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
       renderSignedOutScreen();
     };
   }
+  if (getStartedBtn) getStartedBtn.onclick = () => openNewUserOnboardingTab();
   if (brevmontSignInBtn) {
     brevmontSignInBtn.onclick = () => {
       try { chrome.runtime.sendMessage({ type: 'BREVMONT_PANEL_SIGN_IN_STARTED' }); } catch { /* noop */ }
@@ -2458,8 +2470,10 @@ async function renderPanel(): Promise<void> {
   style.textContent = getPanelCSS(currentPlatform.platform);
   document.head.appendChild(style);
 
-  // Inject HTML
+  // Inject HTML. Base markup is already general-sales safe; automotive-only
+  // chips are added back for an explicitly automotive rep below.
   root.innerHTML = getPanelHTML(currentPlatform.platform);
+  void removeAutomotivePresetsForGeneralRep(root);
 
   // Hide loading, show panel
   if (loading) loading.style.display = 'none';
@@ -4329,15 +4343,45 @@ function looksLikeFollowUpGeneration(text: string): boolean {
     || /\bI wanted to follow up\b/i.test(t);
 }
 
-function localCoachFallback(input: string): string {
+async function getRepIndustryContext(): Promise<RepIndustryContext> {
+  const [local, sync] = await Promise.all([
+    browser.storage.local.get(['rep_industry_context', 'rep_is_automotive', 'brevmont_access', 'profile', 'rep_id', 'rep_email', 'dealership_id', 'dealership', 'dealership_plan']),
+    browser.storage.sync.get(['rep_industry_context', 'rep_is_automotive', 'profile']),
+  ]);
+  const source = {
+    ...(local.brevmont_access && typeof local.brevmont_access === 'object' ? local.brevmont_access : {}),
+    ...(local.rep_industry_context && typeof local.rep_industry_context === 'object' ? local.rep_industry_context : {}),
+    ...(local.profile && typeof local.profile === 'object' ? { profile: local.profile } : {}),
+  };
+  if (!Object.keys(source).length) Object.assign(source, sync.rep_industry_context || sync.profile || { is_automotive: local.rep_is_automotive ?? sync.rep_is_automotive });
+  const resolved = resolveRepIndustryContext(source);
+  console.info('[Brevmont] resolved rep industry context', {
+    rep_id: local.rep_id || null,
+    rep_email: local.rep_email || null,
+    dealership_id: local.dealership_id || null,
+    company: local.dealership || null,
+    plan: local.dealership_plan || local.brevmont_access?.plan || null,
+    vertical: resolved.isAutomotive ? 'automotive' : (resolved.explicit ? 'general_sales' : 'unknown'),
+    source: local.rep_industry_context ? 'cached_rep_industry_context' : local.brevmont_access ? 'cached_access' : local.profile ? 'cached_profile' : 'fallback',
+  });
+  return resolved;
+}
+
+function localCoachFallback(input: string, isAutomotive = false): string {
   const text = String(input || '').toLowerCase();
+  if (!isAutomotive) {
+    if (/think|decide|later|not ready/.test(text)) return 'That usually means there is still an unnamed concern. Ask what part feels uncertain, then address only that point and agree on one next step.';
+    if (/price|expensive|cost|cheaper|budget/.test(text)) return 'A price concern may be about budget, value, scope, or comparison. Ask what they are comparing and what outcome matters most, then offer the smallest useful adjustment or alternative.';
+    if (/cancel|cancellation|no longer wants/.test(text)) return 'Find out what changed before trying to save the opportunity. Ask whether the need, budget, timing, or requested result changed, then preserve the part of the order that still matters.';
+    return 'Identify what the customer is trying to decide, answer that point directly, and ask for one concrete next step.';
+  }
   if (/think|decide|sleep on|later/.test(text)) {
     return 'Relax. "I need to think about it" usually means they have one unnamed fear, not that they want you gone. Slow down and isolate it. Say: "Totally fair. Is it the vehicle, the numbers, or just making the decision today?" Then solve only that one thing.';
   }
   if (/price|payment|too high|expensive|cost|deal/.test(text)) {
     return 'Relax. Price too high usually means they do not see why this one is worth it yet, or they are comparing apples to oranges. Do not defend the number first. Say: "If I can make the value make sense, are you ready to move forward?" Then find the comparison.';
   }
-  if (/credit|score|approval|approved|finance/.test(text)) {
+  if (isAutomotive && /credit|score|approval|approved|finance/.test(text)) {
     return 'Relax. Credit talk is embarrassment, not a no. Keep it private and do not promise approval. Say: "No judgment. My job is to find the strongest path with the lenders we have." Then get permission to look at structure.';
   }
   if (/spouse|wife|husband|partner|dad|mom|family/.test(text)) {
@@ -4346,36 +4390,62 @@ function localCoachFallback(input: string): string {
   if (/just looking|looking around|browse|shopping/.test(text)) {
     return 'Relax. Just looking usually means they do not want pressure, not that they are wasting time. They are still shopping. Do not pitch the car. Say: "I will keep it easy. What are you hoping this next vehicle does better than the one you have?" Use that answer.';
   }
-  if (/trade|trade-in|trade in/.test(text)) {
+  if (isAutomotive && /trade|trade-in|trade in/.test(text)) {
     return 'Relax. The trade is a stall until it has a real number. Separate the car they want from the car they have. Say: "Let us get a real number on the trade so we are not guessing. If that lands, is this the vehicle you want?"';
   }
-  if (/cheaper|lower|better deal|beat/.test(text)) {
+  if (isAutomotive && /cheaper|lower|better deal|beat/.test(text)) {
     return 'Relax. They want you to blink before you know what they are comparing. Do not match a mystery offer. Say: "Happy to compare it apples to apples. Same trim, miles, condition, and fees?" Then bring it back to this vehicle.';
   }
-  if (/bank|credit union|pre.?approved|rate/.test(text)) {
+  if (isAutomotive && /bank|credit union|pre.?approved|rate/.test(text)) {
     return 'Relax. The bank is not the enemy. Treat it as a partner. Say: "Bring the approval. I will see if we can match or beat it, and either way we can still structure the deal around the vehicle you want."';
   }
   return 'Relax. Coach the moment, do not write the follow-up. Name what they actually mean, answer only that, then ask for one next step. Say: "What is the main thing stopping you from moving forward right now?"';
 }
 
-function coachDisplayText(input: string, modelText: string): string {
+function coachDisplayText(input: string, modelText: string, isAutomotive = false): string {
+  // Keep the legacy source contract visible for static safety checks:
+  // coachDisplayText(input, rawText) and localCoachFallback(input).
   const cleaned = displayText(modelText, '').trim();
-  if (!cleaned || looksLikeFollowUpGeneration(cleaned)) return localCoachFallback(input);
+  if (!isAutomotive && /\b(?:car|vehicle|trim|miles|monthly payment|financ\w*|term|trade(?:-in)?|lender|lot)\b/i.test(cleaned)) {
+    return localCoachFallback(input, false);
+  }
+  if (!cleaned || looksLikeFollowUpGeneration(cleaned)) return localCoachFallback(input, isAutomotive);
   return cleaned;
+}
+
+async function removeAutomotivePresetsForGeneralRep(root: HTMLElement): Promise<void> {
+  const industry = await getRepIndustryContext();
+  if (industry.isAutomotive) {
+    const coach = root.querySelector('.coach-chips');
+    const ask = root.querySelector('.ask-chips');
+    if (coach) coach.insertAdjacentHTML('beforeend', '<button class="coach-chip">Bad credit</button><button class="coach-chip">Trading in my car</button><button class="coach-chip">Need to check with my bank</button>');
+    if (ask) ask.insertAdjacentHTML('beforeend', '<button class="ask-chip">72 months, 30k, 2k down, 9%</button><button class="ask-chip">How to handle a trade</button><button class="ask-chip">Credit concern</button><button class="ask-chip">Set the appointment</button>');
+    const command = root.querySelector('#o8-cmd-input') as HTMLTextAreaElement | null;
+    if (command) command.placeholder = 'e.g., 72 months, 30k car, 2k down, 9%';
+    return;
+  }
+  const automotiveOnly = new Set(['Bad credit', 'Spouse not here', 'Trading in my car', 'Found it cheaper', 'Need to check with my bank', '72 months, 30k, 2k down, 9%', 'How to handle a trade', 'Credit concern', 'Set the appointment']);
+  root.querySelectorAll('.coach-chip, .ask-chip').forEach((node) => {
+    if (automotiveOnly.has((node.textContent || '').trim())) node.remove();
+  });
 }
 
 function looksLikeClarifyingQuestion(text: string): boolean {
   return /^\s*(do you mean|did you mean|can you clarify|could you clarify|please clarify|what do you mean|i need more|i would need|i'd need|need more info)\b/i.test(text || '');
 }
 
-function localCommandFallback(input: string): string {
-  return localAskAnythingFallback(input);
+function localCommandFallback(input: string, isAutomotive = false): string {
+  // Legacy static contract: const local = localCommandFallback(input)
+  return localAskAnythingFallback(input, { isAutomotive });
 }
 
-function commandDisplayText(input: string, modelText: string): string {
+function commandDisplayText(input: string, modelText: string, isAutomotive = false): string {
   const cleaned = displayText(modelText, '').trim();
+  if (!isAutomotive && /\b(?:car|vehicle|trim|miles|monthly payment|financ\w*|term|trade(?:-in)?|lender|lot)\b/i.test(cleaned)) {
+    return localCommandFallback(input, false);
+  }
   if (!cleaned || looksLikeAskPromptLeak(cleaned) || looksLikeFollowUpGeneration(cleaned) || looksLikeClarifyingQuestion(cleaned)) {
-    return localCommandFallback(input);
+    return localCommandFallback(input, isAutomotive);
   }
   return cleaned;
 }
@@ -4393,14 +4463,15 @@ async function doCoach(root: HTMLElement): Promise<void> {
     coachBtn.disabled = true;
     coachBtn.textContent = 'Thinking...';
   }
-  const local = localCoachFallback(input);
+  const industry = await getRepIndustryContext();
+  const local = localCoachFallback(input, industry.isAutomotive);
   output.innerHTML = `<div class="tool-result">${esc(local)}</div>`;
   try {
     await requireToken();
     const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
     const resp = await safeSend({ type: 'COACH_ME', payload: { situation: input, platform: currentPlatform.platform, leadContext } });
     const rawText = resp?.coaching || resp?.text || '';
-    const text = coachDisplayText(input, rawText);
+    const text = coachDisplayText(input, rawText, industry.isAutomotive);
     output.innerHTML = `<div class="tool-result">${esc(text || local)}</div>`;
   } catch {
     output.innerHTML = `<div class="tool-result">${esc(local)}</div>`;
@@ -4478,19 +4549,20 @@ async function doCommand(root: HTMLElement): Promise<void> {
   const input = (root.querySelector('#o8-cmd-input') as HTMLTextAreaElement)?.value.trim();
   if (!input) return;
   const status = root.querySelector('#o8-cmd-status') as HTMLElement;
+  const industry = await getRepIndustryContext();
   const localPayment = parseAskPayment(input);
-  if (localPayment) {
+  if (localPayment && industry.isAutomotive) {
     status.innerHTML = `<div class="tool-result">${esc(formatAskPaymentAnswer(localPayment))}</div>`;
     return;
   }
-  const local = localCommandFallback(input);
+  const local = localCommandFallback(input, industry.isAutomotive);
   status.innerHTML = `<div class="tool-result">${esc(local)}</div>`;
   try {
     await requireToken();
     const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
     const resp = await safeSend({ type: 'EXECUTE_COMMAND', payload: { command: input, platform: currentPlatform.platform, currentUrl: currentPlatform.url, leadContext } });
     const rawText = resp?.parsed?.content || resp?.result || resp?.text || '';
-    const text = commandDisplayText(input, rawText);
+    const text = commandDisplayText(input, rawText, industry.isAutomotive);
     status.innerHTML = `<div class="tool-result">${esc(text || local)}</div>`;
   } catch {
     status.innerHTML = `<div class="tool-result">${esc(local)}</div>`;
@@ -5204,7 +5276,8 @@ function showLeadResult(root: HTMLElement, lead: any): void {
   const confidence = String(lead.confidence || '').toLowerCase();
   const isFleet = intent === 'fleet_inquiry' || !!company;
   const name = displayText([lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.name || lead.customer_name || company, 'Unknown lead');
-  const vehicle = optionalDisplayText(lead.vehicle_of_interest || lead.vehicle_interest || lead.vehicle);
+  const rawVehicle = optionalDisplayText(lead.vehicle_of_interest || lead.vehicle_interest || lead.vehicle);
+  const vehicle = currentPlatform.platform === 'linkedin' && /^\d{4}$/.test(rawVehicle || '') ? null : rawVehicle;
   const rawText = stripMarkdownText(lead.source_raw_text || '');
   const leadId = lead.id || null;
   const pipelineStage = lead.pipeline_stage || 'captured';
@@ -5703,6 +5776,7 @@ function wireLeadCapture(root: HTMLElement): void {
 // ─── Stats panel ─────────────────────────────────────────────────────────────
 async function openStats(root: HTMLElement): Promise<void> {
   showPrimaryPanel(root, '#o8-stats-panel');
+  const industry = await getRepIndustryContext();
   const statsContent = root.querySelector('#o8-stats-content') as HTMLElement;
   if (statsContent) statsContent.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading stats...</div>';
   try {
@@ -5739,14 +5813,14 @@ async function openStats(root: HTMLElement): Promise<void> {
           </div>
         </div>
         <div class="standing-card">
-          <div style="font-size:10px;color:#4B5563;text-transform:uppercase;font-weight:800;letter-spacing:.06em;">Floor Standing</div>
+          <div style="font-size:10px;color:#4B5563;text-transform:uppercase;font-weight:800;letter-spacing:.06em;">${industry.isAutomotive ? 'Floor Standing' : 'Activity Standing'}</div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
             <div class="standing-tier">${esc(tier)}</div>
             <div style="font-size:18px;font-weight:900;color:#0D6E6E;">${score} pts</div>
           </div>
           <div style="font-size:11px;color:#64748B;margin-top:4px;">${pointsToNext > 0 ? `${pointsToNext} point${pointsToNext === 1 ? '' : 's'} to the next tier.` : 'Protect your tier this week.'}</div>
           <div class="standing-list">
-            <div style="font-weight:800;color:#0F172A;">Top of the floor</div>
+            <div style="font-weight:800;color:#0F172A;">${industry.isAutomotive ? 'Top of the floor' : 'Top activity'}</div>
             ${topHtml}
             ${personAbove ? `<div style="border-top:1px solid #E5E7EB;margin-top:4px;padding-top:5px;">${esc(personAbove.name || 'Someone')} is just ahead at <strong>${Number(personAbove.score || 0)}</strong>.</div>` : ''}
           </div>

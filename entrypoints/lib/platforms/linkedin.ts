@@ -175,7 +175,9 @@ function extractCustomer(): CustomerCandidate {
 
 function extractContext(): DealContext {
   const body = ((document.querySelector('main, [role="main"]') as HTMLElement | null)?.innerText || '').slice(0, 4000);
-  const vh = extractVehicleHint(body);
+  // LinkedIn dates and profile metadata are not vehicle context. Vehicle
+  // extraction here caused bare years/profile labels to appear as lead cars.
+  const vh = null;
   return {
     vehicle: vh?.raw || null,
     vehicle_year: vh?.year || null,

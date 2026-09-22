@@ -19,6 +19,7 @@
  */
 
 import { hasCompleteActivation } from '../lib/activationState';
+import { BREVMONT_WELCOME_URL } from '../lib/cwsDistribution';
 
 type Platform = 'mac' | 'windows' | 'other';
 
@@ -142,9 +143,10 @@ async function bootstrap() {
       window.location.href = chrome.runtime.getURL('onboarding.html');
       return;
     }
-    // Not activated — open the legacy wizard so the rep pastes their license.
+    // Not activated — open the app setup page so the rep can choose their
+    // industry and create the account before Brevmont routes them further.
     try {
-      window.location.href = 'https://app.brevmont.com/auth/extension';
+      window.location.href = BREVMONT_WELCOME_URL;
     } catch {
       window.close();
     }

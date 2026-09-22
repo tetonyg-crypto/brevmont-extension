@@ -22,6 +22,17 @@ test('signed-out poll actively pulls the cookie, not just storage', () => {
   expect(loopBody).toContain('hasStoredSession()');
 });
 
+test('first-click signed-out screen offers new-user onboarding and existing-user sign-in', () => {
+  expect(panel).toContain("BREVMONT_WELCOME_URL");
+  expect(panel).toContain("function openNewUserOnboardingTab()");
+  expect(panel).toContain("id=\"sp-get-started\"");
+  expect(panel).toContain("Brevmont Lead Responder");
+  expect(panel).toContain("Sales tools that help you reply, follow up, organize lead context, and know the next move.");
+  expect(panel).toContain("Get started");
+  expect(panel).toContain("Sign in with Google");
+  expect(panel).toContain("getStartedBtn.onclick = () => openNewUserOnboardingTab()");
+});
+
 test('explicit sign-in buttons signal the sign-in gesture to the background', () => {
   expect(panel).toContain("type: 'BREVMONT_PANEL_SIGN_IN_STARTED'");
   // Both the primary "Sign in with Google" and "Start over" gestures fire it.
