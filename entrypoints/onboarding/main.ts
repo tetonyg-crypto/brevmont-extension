@@ -24,6 +24,7 @@
 import { telemetry } from '../lib/telemetry';
 import { openRepPostInstallDestination } from '../lib/repAfterInstall';
 import * as storage from '../../lib/storage';
+import { buildRepProfileSyncBody } from '../../lib/repProfileSync';
 
 const PROXY_URL = 'https://api.brevmont.com';
 
@@ -1090,32 +1091,21 @@ async function connectSetupCode() {
   await routeStoredSetup();
 }
 
+// PROFILE-SYNC-404: `/api/rep-profile` does not exist on the live API. The
+// real route (PATCH /api/v1/rep/profile) and field mapping live in
+// lib/repProfileSync.ts — see the comment there for the full contract.
 async function syncProfileToSupabase(profile: any) {
-  // Phase 1e: Supabase key removed from extension. Rep profile now flows
-  // through the proxy. If a proxy profile-sync endpoint exists it goes here;
-  // otherwise this is a best-effort no-op — the profile is already persisted
-  // locally in chrome.storage.local and the proxy can re-derive rep identity
-  // from dealer_token + heartbeat.
   try {
     const r = await chrome.storage.local.get(['dealer_token']);
     const dealerToken = r?.dealer_token as string | undefined;
     if (!dealerToken) return;
-    await fetch(`${PROXY_URL}/api/rep-profile`, {
-      method: 'POST',
+    await fetch(`${PROXY_URL}/api/v1/rep/profile`, {
+      method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${dealerToken}`,
       },
-      body: JSON.stringify({
-        first_name: profile.identity.firstName,
-        last_name: profile.identity.lastName,
-        job_title: profile.identity.jobTitle,
-        years_experience: profile.identity.yearsExperience,
-        dealership: profile.dealership.name,
-        tone: profile.voice.tone,
-        languages: profile.voice.languages,
-        market_type: profile.market.marketType,
-      }),
+      body: JSON.stringify(buildRepProfileSyncBody(profile)),
     });
   } catch (e: any) {
     telemetry.trackError(e instanceof Error ? e : new Error(String(e)), { flow: 'profile_sync' });
