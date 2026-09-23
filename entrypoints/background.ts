@@ -2858,14 +2858,22 @@ export default defineBackground(() => {
         console.error('[Brevmont] Heartbeat on auto-config failed:', e?.message);
       });
 
-      // Cookie auto-config means the rep is also seeing the install screen
-      // for the first time. Show the "Find Brevmont in Chrome" walkthrough
-      // so they can pin the icon — without it, they'll lose the toolbar
-      // affordance and assume the extension isn't installed.
+      // Cookie auto-config means the rep's org/dealership identity is
+      // already known and written to storage (license_key/dealer_token/
+      // rep_auth_token/dealership_id) — see tryCookieShareAutoConfig above.
+      // Org membership beats a self-service vertical pick: do NOT open the
+      // generic BREVMONT_WELCOME_URL chooser ("Continue - all sales" /
+      // "I sell cars") for this rep, since they already belong to a known
+      // dealership/org and that chooser exists only for genuinely unknown
+      // self-service installs. Open install-screen.html as the ACTIVE tab
+      // instead — its own "I pinned it" handler already calls
+      // isAlreadyActivated() (true here, since dealer_token/rep_auth_token
+      // are set) and routes straight to onboarding.html, which resumes from
+      // the stored credentials and only collects the remaining profile step,
+      // never re-showing the vertical chooser or re-asking for a plan.
       if (details.reason === 'install' && !alreadySetup) {
         try {
-          await browser.tabs.create({ url: BREVMONT_WELCOME_URL, active: true });
-          await browser.tabs.create({ url: browser.runtime.getURL('install-screen.html'), active: false });
+          await browser.tabs.create({ url: browser.runtime.getURL('install-screen.html'), active: true });
         } catch {
           // ignore; the wizard fallback below would not run anyway because
           // autoConfigured = true
