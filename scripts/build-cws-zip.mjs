@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,8 +9,21 @@ const root = resolve(__dirname, '..');
 const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
 const outDir = resolve(root, '.output');
 const manifestPath = resolve(root, '.output', 'chrome-mv3', 'manifest.json');
+const runtimeDir = resolve(root, '.output', 'chrome-mv3');
+const runtimeBackupDir = resolve(root, '.output', '.chrome-mv3-runtime-backup');
 const wxtZip = resolve(outDir, `brevmont-extension-${pkg.version}-chrome.zip`);
 const cwsZip = resolve(outDir, `brevmont-extension-${pkg.version}-chrome-web-store.zip`);
+
+let runtimeBuildWasBackedUp = false;
+
+function restoreRuntimeBuild() {
+  if (!runtimeBuildWasBackedUp || !existsSync(runtimeBackupDir)) return;
+  if (existsSync(runtimeDir)) rmSync(runtimeDir, { recursive: true, force: true });
+  renameSync(runtimeBackupDir, runtimeDir);
+  runtimeBuildWasBackedUp = false;
+}
+
+process.on('exit', restoreRuntimeBuild);
 
 function run(cmd, args) {
   const result = spawnSync(cmd, args, {
@@ -22,10 +35,12 @@ function run(cmd, args) {
   if (result.status !== 0) process.exit(result.status || 1);
 }
 
-if (existsSync(resolve(root, '.output', 'chrome-mv3'))) {
-  rmSync(resolve(root, '.output', 'chrome-mv3'), { recursive: true, force: true });
-}
 mkdirSync(outDir, { recursive: true });
+if (existsSync(runtimeBackupDir)) rmSync(runtimeBackupDir, { recursive: true, force: true });
+if (existsSync(runtimeDir)) {
+  renameSync(runtimeDir, runtimeBackupDir);
+  runtimeBuildWasBackedUp = true;
+}
 
 run('npx', ['wxt', 'zip']);
 
@@ -122,4 +137,5 @@ function stripUnregisteredContentScripts(zipPath) {
 copyFileSync(wxtZip, cwsZip);
 stripUnderscoreZipEntries(cwsZip);
 stripUnregisteredContentScripts(cwsZip);
+restoreRuntimeBuild();
 console.log(`[cws-zip] Ready for Chrome Web Store upload: ${cwsZip}`);
