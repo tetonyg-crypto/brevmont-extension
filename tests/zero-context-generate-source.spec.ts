@@ -730,6 +730,20 @@ test('usage-lock denials are classified structurally and never render as a gener
   expect(source).toContain('await showAccessEndedBanner(root);');
 });
 
+// DEFECT-8-MIC-LIFECYCLE (2026-09-23): live founder testing found the mic
+// kept actively listening after a rep dictated a lead and tapped "Pull
+// details" directly (without first tapping the mic button to stop it).
+// Every other consumer of dictated text (doGenerate, doCoach, doSetAlert,
+// doCommand) calls stopActiveMic() before acting on the text; the lead
+// Voice tab's Pull Details handler was the one path missing it.
+test('voice lead capture stops the mic before Pull Details acts on the transcript', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  const handlerStart = source.indexOf('voiceParseBtn.onclick = async () => {');
+  expect(handlerStart).toBeGreaterThan(-1);
+  const handlerBody = source.slice(handlerStart, handlerStart + 1200);
+  expect(handlerBody).toContain('stopActiveMic();');
+});
+
 test('sidepanel connection gate includes every adapter surface used for zero-context scan', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   for (const host of [

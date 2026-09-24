@@ -5748,6 +5748,17 @@ function wireLeadCapture(root: HTMLElement): void {
   const voiceParseBtn = root.querySelector('#o8-lead-voice-parse') as HTMLButtonElement;
   if (voiceParseBtn) {
     voiceParseBtn.onclick = async () => {
+      // DEFECT-8-MIC-LIFECYCLE (2026-09-23): every other consumer of dictated
+      // text (doGenerate, doCoach, doSetAlert, doCommand) calls
+      // stopActiveMic() before acting on the text, so the continuous
+      // SpeechRecognition session (which auto-restarts through silence by
+      // design - see attachMic's onend) is torn down instead of listening
+      // indefinitely. This handler was missing that call: a rep who
+      // dictated the lead then tapped "Pull details" directly - without
+      // first tapping the mic button to stop it - left the mic actively
+      // listening (and the browser's mic indicator on) through and after
+      // extraction completed.
+      stopActiveMic();
       const input = (root.querySelector('#o8-lead-voice-input') as HTMLTextAreaElement)?.value?.trim();
       if (!input) return;
       voiceParseBtn.innerHTML = '<span class="gen-spinner"></span> Pulling details…';
