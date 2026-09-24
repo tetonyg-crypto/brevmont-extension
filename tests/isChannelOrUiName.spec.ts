@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { cleanCustomerNameCandidate, isChannelOrUiName, stripConversationWrapper } from '../entrypoints/lib/leadContextScan';
+import { cleanCustomerNameCandidate, isChannelOrUiName, isUiActionPromptLabel, stripConversationWrapper } from '../entrypoints/lib/leadContextScan';
 
 /**
  * Regression tests for the customer-name UI-label gate.
@@ -116,5 +116,42 @@ test.describe('isChannelOrUiName — regression coverage', () => {
     expect(cleanCustomerNameCandidate('Cardog · 2025 Subaru Ascent')).toBe('Cardog');
     expect(cleanCustomerNameCandidate('Archive · 2021 GMC sierra 1500 denali')).toBe('');
     expect(cleanCustomerNameCandidate('Brevmont Labs · 2025 Subaru Ascent')).toBe('');
+  });
+
+  /**
+   * 2026-09-23 live founder-testing bug: LinkedIn lead capture produced a
+   * captured "buyer" literally named "Add section" (LinkedIn profile/detail
+   * UI chrome, not a person). Root cause was a generic h1/h2/h3/[role=
+   * "heading"] DOM-proximity fallback in extractLinkedInPersonName scoped
+   * too broadly (document.querySelector('main, [role="main"]')), which
+   * could pick up an "Add section" / "Edit profile" style prompt heading
+   * from a details/profile side-panel next to the open thread. Fix is
+   * structural (isUiActionPromptLabel: verb + noun shape), not a blacklist
+   * of the one literal string, so it also covers every sibling prompt
+   * LinkedIn (or any other platform's generic chrome) could produce.
+   */
+  test('blocks the 2026-09-23 "Add section" LinkedIn false-prospect regression, structurally', () => {
+    expect(isChannelOrUiName('Add section')).toBe(true);
+    expect(isChannelOrUiName('add section')).toBe(true);
+    expect(isUiActionPromptLabel('Add section')).toBe(true);
+    // Siblings of the same UI-action-prompt shape - none of these are names,
+    // and a literal blacklist of "Add section" alone would have let every
+    // one of these through under a different label.
+    expect(isChannelOrUiName('Edit profile')).toBe(true);
+    expect(isChannelOrUiName('View full profile')).toBe(true);
+    expect(isChannelOrUiName('Add profile photo')).toBe(true);
+    expect(isChannelOrUiName('Open to work')).toBe(true);
+    expect(isChannelOrUiName('Complete your profile')).toBe(true);
+    expect(isChannelOrUiName('Manage your network')).toBe(true);
+    expect(isChannelOrUiName('Follow this page')).toBe(true);
+    expect(isChannelOrUiName('Report this profile')).toBe(true);
+    // Structural check must never reject a real name that happens to start
+    // with a common first name that is also an English word elsewhere in
+    // the blocklist (e.g. "Add" is not a real first name, but guard the
+    // shape requirement: verb immediately followed by a noun, not verb
+    // alone or a two-word proper name).
+    expect(isChannelOrUiName('Grace Johnson')).toBe(false);
+    expect(isChannelOrUiName('Connor Reyes')).toBe(false);
+    expect(isChannelOrUiName('Sharon Add')).toBe(false);
   });
 });

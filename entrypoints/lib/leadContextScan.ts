@@ -45,10 +45,38 @@ const CHANNEL_OR_UI_NAMES = new Set([
   'jobs', 'my network', 'network', 'premium', 'people also viewed',
 ]);
 
+// STRUCTURAL FIX (2026-09-23, defect: LinkedIn "Add section" false prospect):
+// A generic-heading DOM-proximity fallback (h1/h2/h3/[role="heading"] scans
+// used when no LinkedIn-specific structural selector matches) can pick up
+// page/section UI chrome - "Add section", "Edit profile", "View profile",
+// "Open to work", etc - and hand it to the caller as though it were a
+// person's name. Blacklisting the one literal string we saw ("Add section")
+// would leave every sibling prompt ("Edit section", "View full profile",
+// "Add profile photo"...) free to reproduce the same bug under a different
+// label. Reject the whole shape instead: a UI action-prompt heading is a
+// verb followed by a generic noun phrase, which no real person's name is.
+const UI_ACTION_VERBS =
+  'add|edit|view|see|show|open|close|complete|manage|enable|disable|report|block|remove|delete|share|save|search|browse|import|export|upload|download|create|suggest|discover|explore|invite|follow|connect|join|start|try|learn|get|request|accept|decline|dismiss|hide|expand|collapse|copy|print|update|verify|confirm|cancel|skip|continue|finish|submit|turn on|turn off';
+const UI_ACTION_PROMPT_RE = new RegExp(`^(?:${UI_ACTION_VERBS})\\b\\s+\\S`, 'i');
+
+/**
+ * True for generic UI action-prompt headings/labels ("Add section", "Edit
+ * profile", "View full profile", "Open to work") that a page-wide heading
+ * scan can surface but that are never a real prospect's name. Structural -
+ * matches the whole verb+noun shape, not a fixed literal list, so it also
+ * catches labels we have not individually seen yet.
+ */
+export function isUiActionPromptLabel(value: unknown): boolean {
+  const raw = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return false;
+  return UI_ACTION_PROMPT_RE.test(raw);
+}
+
 export function isChannelOrUiName(value: unknown): boolean {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return true;
   if (CHANNEL_OR_UI_NAMES.has(raw)) return true;
+  if (isUiActionPromptLabel(raw)) return true;
   // Multi-word variants: "SOLD - 2015 Subaru Outback", "Facebook Marketplace",
   // "Marketplace Buyer" etc.
   if (/^(?:sold|active|available|listed|new)\b/i.test(raw)) return true;
@@ -395,10 +423,17 @@ export function extractLinkedInPersonName(): string | null {
     return null;
   }
   const threadRoot = linkedInThreadRoot();
+  // STRUCTURAL FIX (2026-09-23): `main, [role="main"]` is the entire message
+  // surface - conversation list, the active thread, AND any details/profile
+  // side-panel LinkedIn renders next to it (which carries its own headings
+  // like "Add section" / "Open to work" that have nothing to do with the
+  // person in the open thread). Scoping the generic heading fallback that
+  // broadly was how a page-chrome heading became a prospect's name. Only
+  // fall back to document.body (never a name-scan on `main` at large), and
+  // only when there is no thread root at all to scope into.
   const scopes: Array<ParentNode | null> = [
     threadRoot,
     document.querySelector('.msg-conversation-listitem--active, .msg-selectable-entity--selected, li[aria-selected="true"]'),
-    document.querySelector('main, [role="main"]'),
     threadRoot ? null : document.body,
   ];
   const fromList = selectedLinkedInConversationName();
