@@ -525,7 +525,13 @@ async function requireToken(): Promise<string> {
     chrome.storage.local.get(['dealer_token', 'rep_auth_token']),
     chrome.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'license_revoked', 'license_revoked_message', 'license_access_state']),
   ]);
-  if (local.license_revoked) {
+  // A credit-exhausted paywall (license_access_state === 'trial_ended') only
+  // locks Generate server-side -- Coach, Ask, Lead Capture, and Reminders
+  // are not gated by the free-generation credit (see
+  // shouldConsumePublicGenerationCredit / denyLeadResponderCreditIfExhausted
+  // on the API), so this pre-flight guard must only fire for a genuine
+  // license revocation, not a Generate-only paywall.
+  if (local.license_revoked && local.license_access_state === 'revoked') {
     throw new Error(accessBlockedMessage(local.license_access_state as string | undefined, local.license_revoked_message as string | undefined));
   }
   const token = (
@@ -550,9 +556,14 @@ async function hasStoredSession(): Promise<boolean> {
   try {
     const [sync, local] = await Promise.all([
       chrome.storage.sync.get(['dealer_token', 'rep_auth_token']),
-      chrome.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'license_revoked']),
+      chrome.storage.local.get(['dealer_token', 'rep_auth_token', 'brevmont_rep_auth_token', 'license_revoked', 'license_access_state']),
     ]);
-    if (local.license_revoked) return false;   // revoked = signed out for our purposes
+    // Only a genuine license revocation counts as "signed out" here. A
+    // credit-exhausted paywall (license_access_state === 'trial_ended')
+    // still has a real, signed-in session -- the rep should see the normal
+    // panel (with showAccessEndedBanner's lock banner on top), not get
+    // bounced to the sign-in screen and lose Coach/Ask/My Leads too.
+    if (local.license_revoked && local.license_access_state === 'revoked') return false;
     return !!(sync.dealer_token || local.dealer_token || sync.rep_auth_token || local.rep_auth_token || local.brevmont_rep_auth_token);
   } catch { return false; }
 }

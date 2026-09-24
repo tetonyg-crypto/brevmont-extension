@@ -748,6 +748,36 @@ test('usage-lock denials are classified structurally and never render as a gener
   expect(source).toContain('await showAccessEndedBanner(root);');
 });
 
+// A credit-exhausted paywall (license_access_state === 'trial_ended') must
+// only lock Generate. Coach, Ask, Lead Capture, and Reminders are not
+// gated by the free-generation credit server-side (see
+// shouldConsumePublicGenerationCredit / denyLeadResponderCreditIfExhausted
+// in brevmont-api), so requireToken() and hasStoredSession() must only
+// pre-block on a genuine 'revoked' state, never a blanket license_revoked
+// check -- otherwise a rep who's used up their free credits also loses
+// Coach/Ask/My Leads/Reminders and gets bounced to the sign-in screen,
+// even though the extension is fully working and they're still signed in.
+test('a credit-exhausted paywall does not lock Coach/Ask/Lead Capture or bounce to sign-in', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+
+  const requireTokenStart = source.indexOf('async function requireToken');
+  const requireTokenEnd = source.indexOf('\n}', requireTokenStart);
+  const requireTokenBody = source.slice(requireTokenStart, requireTokenEnd);
+  expect(requireTokenBody).toContain("local.license_revoked && local.license_access_state === 'revoked'");
+  expect(requireTokenBody).not.toContain('if (local.license_revoked) {');
+
+  const hasSessionStart = source.indexOf('async function hasStoredSession');
+  const hasSessionEnd = source.indexOf('\n}', hasSessionStart);
+  const hasSessionBody = source.slice(hasSessionStart, hasSessionEnd);
+  expect(hasSessionBody).toContain("local.license_revoked && local.license_access_state === 'revoked'");
+  expect(hasSessionBody).not.toContain('if (local.license_revoked) return false;');
+
+  // showAccessEndedBanner still fires unconditionally off license_revoked --
+  // the lock banner itself should still show for both revoked and
+  // trial_ended, only the pre-flight blocking guards above are scoped down.
+  expect(source).toContain('if (!local.license_revoked) return;');
+});
+
 // DEFECT-8-MIC-LIFECYCLE (2026-09-23): live founder testing found the mic
 // kept actively listening after a rep dictated a lead and tapped "Pull
 // details" directly (without first tapping the mic button to stop it).
