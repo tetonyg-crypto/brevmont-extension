@@ -80,6 +80,10 @@ export interface CustomerCandidate {
   last_name?: string | null;
   phone?: string | null;
   email?: string | null;
+  /** Handle-style identity, e.g. Instagram "@username" (without the @) or LinkedIn vanity slug. */
+  username?: string | null;
+  /** Full profile URL on the platform, when visible in the current UI (never fetched via an API). */
+  profile_url?: string | null;
   raw_source?: string;   // "profile_header" / "gmail_sender" / "listing_buyer" / etc
   confidence?: number;   // 0..1, adapter-scored
 }
