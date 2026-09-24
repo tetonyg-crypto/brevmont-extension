@@ -44,6 +44,10 @@ import {
   resolveChangelogUrl,
   resolveManualUrl,
 } from '../../lib/helpLinks';
+import {
+  discoverLinkedInConversationFrame,
+  type LinkedInFrameProbe,
+} from '../lib/linkedinFrameRouting';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Platform =
@@ -147,6 +151,7 @@ let autoThreadScanTimer: number | null = null;
 let autoThreadScanErrorPaintTimer: number | null = null;
 let autoThreadScanListenersAttached = false;
 let linkedInEmptyScanRetries = 0;
+let linkedInFrameCache: { tabId: number; topUrl: string; probe: LinkedInFrameProbe; selectedAt: number } | null = null;
 let outputSelectionTouched = false;
 let lastChipPlatform = '';
 const dismissedChallengeIds = new Set<string>();
@@ -754,9 +759,9 @@ function canInjectIntoUrl(url?: string): boolean {
   }
 }
 
-function tabMessage(tabId: number, msg: any): Promise<any> {
+function tabMessage(tabId: number, msg: any, target: { frameId?: number } = {}): Promise<any> {
   return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, msg, (response) => {
+    chrome.tabs.sendMessage(tabId, msg, target, (response) => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message || 'Content message failed'));
         return;
@@ -764,6 +769,58 @@ function tabMessage(tabId: number, msg: any): Promise<any> {
       resolve(response);
     });
   });
+}
+
+function isLinkedInMessagingContext(): boolean {
+  return currentPlatform.platform === 'linkedin'
+    && /linkedin\.com\/messaging(?:\/|$)/i.test(String(currentPlatform.url || ''));
+}
+
+function clearLinkedInFrameCache(): void {
+  linkedInFrameCache = null;
+}
+
+async function resolveLinkedInFrame(force = false): Promise<LinkedInFrameProbe | null> {
+  const { tabId, url } = currentPlatform;
+  if (tabId < 0 || !isLinkedInMessagingContext()) return null;
+  const cached = linkedInFrameCache;
+  if (!force && cached && cached.tabId === tabId && cached.topUrl === url && Date.now() - cached.selectedAt < 5000) {
+    return cached.probe;
+  }
+  const probe = await discoverLinkedInConversationFrame(tabId);
+  linkedInFrameCache = probe ? { tabId, topUrl: url, probe, selectedAt: Date.now() } : null;
+  try {
+    console.info('[brevmont-linkedin-frame]', {
+      tab_id: tabId,
+      frame_id: probe?.frameId ?? null,
+      frame_url: probe?.href || null,
+      score: probe?.score ?? 0,
+    });
+  } catch { /* ignore logging failures */ }
+  return probe;
+}
+
+async function sendToLinkedInConversationFrame(msg: any): Promise<any> {
+  const first = await resolveLinkedInFrame();
+  if (!first) throw new Error('linkedin_conversation_frame_not_found');
+  try {
+    return await tabMessage(currentPlatform.tabId, msg, { frameId: first.frameId });
+  } catch (error) {
+    clearLinkedInFrameCache();
+    const retry = await resolveLinkedInFrame(true);
+    if (!retry) throw error;
+    try {
+      console.info('[brevmont-linkedin-frame]', {
+        tab_id: currentPlatform.tabId,
+        frame_id: retry.frameId,
+        frame_url: retry.href,
+        score: retry.score,
+        message_type: msg?.type || null,
+        retry_reason: error instanceof Error ? error.message : String(error || 'frame_message_failed'),
+      });
+    } catch { /* ignore logging failures */ }
+    return tabMessage(currentPlatform.tabId, msg, { frameId: retry.frameId });
+  }
 }
 
 async function ensureContentScript(tabId: number): Promise<void> {
@@ -793,10 +850,15 @@ async function sendToContent(msg: any): Promise<any> {
   if (currentPlatform.tabId < 0) return null;
 
   try {
+    if (isLinkedInMessagingContext()) return await sendToLinkedInConversationFrame(msg);
     return await tabMessage(currentPlatform.tabId, msg);
   } catch (error) {
     if (!isContentScriptMissing(error)) throw error;
     await ensureContentScript(currentPlatform.tabId);
+    if (isLinkedInMessagingContext()) {
+      clearLinkedInFrameCache();
+      return await sendToLinkedInConversationFrame(msg);
+    }
     return await tabMessage(currentPlatform.tabId, msg);
   }
 }
@@ -2252,11 +2314,14 @@ async function refreshPlatform(): Promise<void> {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab?.url && tab.id) {
       const platform = detectPlatformFromURL(tab.url);
+      if (tab.id !== currentPlatform.tabId || tab.url !== currentPlatform.url) clearLinkedInFrameCache();
       currentPlatform = { platform, tabId: tab.id, url: tab.url };
     } else {
+      clearLinkedInFrameCache();
       currentPlatform = { platform: 'unknown', tabId: -1, url: '' };
     }
   } catch {
+    clearLinkedInFrameCache();
     currentPlatform = { platform: 'unknown', tabId: -1, url: '' };
   }
 }

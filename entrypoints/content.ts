@@ -2318,7 +2318,7 @@ export default defineContentScript({
             ].filter(Boolean).join('\n');
           } else if (isLinkedIn) {
             const thread = document.querySelector('.msg-s-message-list-content, [class*="msg-thread"], [class*="message-list"], .msg-conversations-container__thread-view, [class*="scaffold-layout__detail"]') as HTMLElement | null;
-            rawText = thread?.innerText || document.body?.innerText || '';
+            rawText = thread?.innerText || '';
           } else if (isGmail) {
             const msgEl = document.querySelector('.h7, [role="list"], .a3s') as HTMLElement | null;
             rawText = msgEl?.innerText || document.body?.innerText || '';
@@ -2430,7 +2430,7 @@ export default defineContentScript({
             text = main ? main.innerText.slice(0, 5000) : document.body.innerText.slice(0, 5000);
           } else if (isLinkedIn) {
             const thread = document.querySelector('.msg-s-message-list-content, [class*="msg-thread"], [class*="message-list"], .msg-conversations-container__thread-view, [class*="scaffold-layout__detail"]');
-            text = thread ? (thread as HTMLElement).innerText.slice(0, 5000) : document.body.innerText.slice(0, 5000);
+            text = thread ? (thread as HTMLElement).innerText.slice(0, 5000) : '';
           } else if (isGmail) {
             const msgEl = document.querySelector('.h7, [role="list"], .a3s');
             text = msgEl ? (msgEl as HTMLElement).innerText.slice(0, 5000) : document.body.innerText.slice(0, 5000);

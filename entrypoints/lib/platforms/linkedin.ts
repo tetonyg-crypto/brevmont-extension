@@ -167,8 +167,11 @@ function scrapeThread(): ThreadContext {
 }
 
 function extractCustomer(): CustomerCandidate {
+  const threadRoot = linkedInThreadRoot();
+  const isMessaging = /linkedin\.com\/messaging/i.test(String(window.location.href || ''))
+    || !!document.querySelector('.msg-s-message-list-content, .msg-form__contenteditable, .msg-overlay-conversation-bubble');
   const name = extractLinkedInPersonName()
-    || extractLinkedInPersonNameFromText(deepVisibleText(linkedInThreadRoot() || document.querySelector('[role="main"]'), 2500));
+    || extractLinkedInPersonNameFromText(deepVisibleText(threadRoot || (isMessaging ? null : document.querySelector('[role="main"]')), 2500));
   if (!name) return { name: null };
   return { name, raw_source: 'linkedin_person', confidence: 0.88 };
 }

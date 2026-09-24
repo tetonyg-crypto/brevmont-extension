@@ -9,6 +9,8 @@
 // No SYSTEM_PROMPT in extension — proxy resolves from vertical_config.
 // No API keys in extension — all calls routed through PROXY_URL.
 
+import { discoverLinkedInConversationFrame } from './lib/linkedinFrameRouting';
+
 const PROXY_URL = 'https://api.brevmont.com';
 const GENERATION_POLL_TIMEOUT_MS = 60_000;
 const SIGNED_OUT_SENTINEL_KEY = 'brevmont_signed_out_at';
@@ -2158,8 +2160,14 @@ export default defineBackground(() => {
           try {
             const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (activeTab?.id) {
-              const ctx = await chrome.tabs.sendMessage(activeTab.id, { type: 'GET_CONVERSATION_TEXT' }).catch(() => null);
-              const lead = await chrome.tabs.sendMessage(activeTab.id, { type: 'GET_LEAD_CONTEXT' }).catch(() => null);
+              const linkedinMessaging = /linkedin\.com\/messaging(?:\/|$)/i.test(String(activeTab.url || ''));
+              const frame = linkedinMessaging
+                ? await discoverLinkedInConversationFrame(activeTab.id).catch(() => null)
+                : null;
+              if (linkedinMessaging && !frame) throw new Error('linkedin_conversation_frame_not_found');
+              const target = frame ? { frameId: frame.frameId } : {};
+              const ctx = await chrome.tabs.sendMessage(activeTab.id, { type: 'GET_CONVERSATION_TEXT' }, target).catch(() => null);
+              const lead = await chrome.tabs.sendMessage(activeTab.id, { type: 'GET_LEAD_CONTEXT' }, target).catch(() => null);
               const bits = [
                 ctx?.text ? `Visible conversation text: ${String(ctx.text).slice(0, 5000)}` : '',
                 lead?.customerName ? `Customer: ${lead.customerName}` : '',
