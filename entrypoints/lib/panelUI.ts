@@ -89,6 +89,7 @@ function getSettingsHTML(): string {
       </div>
     </div>
     <div class="settings-footer-links">
+      <button id="sp-link-billing" type="button">Billing</button>
       <button id="sp-link-help" type="button">Owner's manual</button>
       <button id="sp-link-changelog" type="button">Changelog</button>
       <button id="sp-link-support" type="button">Contact support</button>

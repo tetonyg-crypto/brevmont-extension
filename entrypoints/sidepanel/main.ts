@@ -3460,6 +3460,20 @@ function wireHandlers(root: HTMLElement): void {
       }
     };
   }
+  // DEFECT-2-BILLING-PATH (2026-09-23): Settings had no Current plan / Billing
+  // / Manage subscription surface - only preferences, voice learning,
+  // disclosure, sign-out, and the support/help links. app.brevmont.com/rep/
+  // billing already resolves the correct paid/locked/canceled view AND
+  // exposes the real Stripe Customer Portal ("Manage billing" -> POST
+  // /api/billing-portal) once a rep is there - reuse that existing, working
+  // surface instead of building a second billing UI inside the extension.
+  const billingBtn = root.querySelector('#sp-link-billing') as HTMLButtonElement | null;
+  if (billingBtn) {
+    billingBtn.onclick = async () => {
+      const local = await chrome.storage.local.get([TRIAL_ENDED_BILLING_STORAGE_KEY]).catch(() => ({} as Record<string, unknown>));
+      chrome.tabs.create({ url: trialEndedBillingUrl(local[TRIAL_ENDED_BILLING_STORAGE_KEY] as string | undefined) });
+    };
+  }
   const helpBtn = root.querySelector('#sp-link-help') as HTMLButtonElement | null;
   if (helpBtn) {
     helpBtn.onclick = (event) => {
