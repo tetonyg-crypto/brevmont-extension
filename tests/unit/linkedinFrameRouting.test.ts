@@ -13,6 +13,7 @@ function probe(frameId: number, overrides: Partial<LinkedInFrameProbe> = {}): Li
     messageListCount: overrides.messageListCount || 0,
     composerCount: overrides.composerCount || 0,
     visibleMessageCount: overrides.visibleMessageCount || 0,
+    frameVisible: overrides.frameVisible,
   });
   return { frameId, ...scored, ...overrides };
 }
@@ -46,6 +47,43 @@ describe('LinkedIn conversation frame routing', () => {
     const strongerHighId = probe(8, { hasThreadView: true, messageListCount: 1, visibleMessageCount: 10 });
     const strongerLowId = probe(3, { hasThreadView: true, messageListCount: 1, visibleMessageCount: 10 });
     expect(selectLinkedInConversationFrame([weaker, strongerHighId, strongerLowId])?.frameId).toBe(3);
+  });
+
+  it('BUG-LINKEDIN-WRONG-FRAME: a minimized/hidden chat-bubble frame never wins over the visibly open thread, even with more content', () => {
+    // Live repro (2026-09-23): Darrin's open thread returned unrelated "Zoom
+    // Join" content from a different, more content-rich frame. A minimized
+    // chat bubble can carry its own thread view + composer + several
+    // messages, so pure content scoring can make it beat the actually-open
+    // conversation. frameVisible: false must disqualify it regardless of
+    // how content-rich it looks.
+    const openThread = probe(5, {
+      hasThreadView: true,
+      messageListCount: 1,
+      composerCount: 1,
+      visibleMessageCount: 2,
+      frameVisible: true,
+    });
+    const minimizedBubble = probe(11, {
+      hasThreadView: true,
+      messageListCount: 1,
+      composerCount: 1,
+      visibleMessageCount: 20, // more messages than the open thread
+      frameVisible: false,
+    });
+    const winner = selectLinkedInConversationFrame([openThread, minimizedBubble]);
+    expect(winner?.frameId).toBe(5);
+    expect(minimizedBubble.score).toBe(0);
+    expect(minimizedBubble.hasMessagingSurface).toBe(true); // content was real, just not visible
+  });
+
+  it('BUG-LINKEDIN-WRONG-FRAME: frameVisible omitted/undetermined behaves exactly like the pre-fix logic (no regression)', () => {
+    // The top frame has no frameElement of its own, so frameVisible can
+    // never be determined there - it must default to "visible" and never
+    // disqualify a frame just because visibility couldn't be checked.
+    const frame = probe(2, { hasThreadView: true, messageListCount: 1, visibleMessageCount: 5 });
+    expect(frame.frameVisible).toBeUndefined();
+    expect(frame.score).toBeGreaterThan(0);
+    expect(selectLinkedInConversationFrame([frame])?.frameId).toBe(2);
   });
 
   it('ignores UI chrome and recognizes a real conversation document', () => {
