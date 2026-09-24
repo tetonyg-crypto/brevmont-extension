@@ -54,6 +54,19 @@ test('sidepanel renders manual, changelog, support, and issue entry points', () 
   expect(html).not.toContain('href="https://app.brevmont.com/changelog"');
 });
 
+// DEFECT-2-BILLING-PATH (2026-09-23): Settings had no Current plan / Billing
+// / Manage subscription surface at all. Reuses the existing, working
+// app.brevmont.com/rep/billing page (real Stripe Customer Portal via
+// PaidPanel's "Manage billing") instead of building a second billing UI.
+test('sidepanel Settings exposes a Billing entry point wired to the validated rep/billing URL', () => {
+  const html = getPanelHTML('gmail');
+  expect(html).toContain('id="sp-link-billing"');
+  expect(html).toContain('>Billing<');
+  const source = readFileSync(resolve(process.cwd(), 'entrypoints/sidepanel/main.ts'), 'utf8');
+  expect(source).toContain("root.querySelector('#sp-link-billing')");
+  expect(source).toContain('trialEndedBillingUrl(local[TRIAL_ENDED_BILLING_STORAGE_KEY]');
+});
+
 test('popup keeps manual reading separate from support reporting', () => {
   const source = readFileSync(resolve(process.cwd(), 'entrypoints/popup/main.tsx'), 'utf8');
   expect(source).toContain("openManual('install-login')");
