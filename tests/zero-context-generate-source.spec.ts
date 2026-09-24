@@ -709,6 +709,27 @@ test('Save Lead > Scan copy is patched for non-automotive verticals using the ex
   expect(source).toContain("copyEl.textContent = 'Reads this page and looks for buying intent, requests, and customer details.';");
 });
 
+// DEFECT-7-USAGE-LOCK-UX (2026-09-23): live founder testing found that after
+// entitlement exhaustion, the extension correctly showed "Lead Responder
+// locked" but the generation area ALSO simultaneously showed a red "Error -
+// Generation failed" card, making a normal commercial paywall event look
+// like a system outage. Root cause: background.ts classified access errors
+// with a regex ("trial ended", "access at this dealership has ended",
+// "license has been revoked") that had gone stale against
+// accessBlockedMessage()'s actual current copy ("Lead Responder locked...").
+// Fix reads the same license_revoked storage flag handleRevocationResponse()
+// already writes for this exact failure, and passes an explicit
+// access_blocked flag through instead of message-sniffing on both ends.
+test('usage-lock denials are classified structurally and never render as a generic generation error', () => {
+  const background = read('entrypoints/background.ts');
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(background).toContain("browser.storage.local.get(['license_revoked', 'license_access_state'])");
+  expect(background).toContain('revokedState.license_revoked === true');
+  expect(background).toContain('access_blocked: isAccessError');
+  expect(source).toContain('response?.error && response?.access_blocked');
+  expect(source).toContain('await showAccessEndedBanner(root);');
+});
+
 test('sidepanel connection gate includes every adapter surface used for zero-context scan', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   for (const host of [

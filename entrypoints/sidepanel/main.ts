@@ -4109,6 +4109,16 @@ async function doGenerate(root: HTMLElement): Promise<void> {
       showToast(root, response.message || 'Saved. Will sync when online.');
     } else if (response?.hold || response?.error === 'grounding_hold') {
       showGenerationHold(root, response);
+    } else if (response?.error && response?.access_blocked) {
+      // DEFECT-7-USAGE-LOCK-UX: a commercial entitlement denial (trial
+      // ended / usage exhausted) already has its own dedicated locked/
+      // paywall banner (showAccessEndedBanner, driven by the same
+      // license_revoked storage write the background made for this exact
+      // response). Rendering the generic red "Error" card on top of it
+      // made a normal paywall event look like a system outage. Refresh
+      // that banner instead of duplicating it as a generation error.
+      removeStreamingOutput(root, _generationId);
+      await showAccessEndedBanner(root);
     } else if (response?.error) {
       showGenerationError(root, String(response.error).slice(0, 240));
     } else {

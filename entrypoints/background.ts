@@ -1185,7 +1185,22 @@ export default defineBackground(() => {
           }
         } catch (err: any) {
           const errMessage = err?.message || 'Generation failed. Try again or contact founder@brevmont.com';
-          const isAccessError = /trial ended|access at this dealership has ended|license has been revoked/i.test(errMessage);
+          // DEFECT-7-USAGE-LOCK-UX (2026-09-23): this string-matched regex
+          // ("trial ended", "access at this dealership has ended", "license
+          // has been revoked") went stale against accessBlockedMessage()'s
+          // actual current copy (TRIAL_ENDED_TITLE = "Lead Responder
+          // locked" + TRIAL_ENDED_BODY), so a real entitlement-exhausted
+          // denial fell through as isAccessError === false and got
+          // overwritten with the generic "Generation failed" message -
+          // which the sidepanel then rendered as a red Error card ON TOP
+          // OF the correct "Lead Responder locked" paywall banner that
+          // handleRevocationResponse() had just written to storage moments
+          // earlier in this same call. Read that same freshly-written flag
+          // instead of re-parsing the error message text, so this never
+          // drifts out of sync with accessBlockedMessage()'s copy again.
+          const revokedState = await browser.storage.local.get(['license_revoked', 'license_access_state']).catch(() => ({} as Record<string, unknown>));
+          const isAccessError = revokedState.license_revoked === true
+            || /license has been revoked|access at this dealership has ended/i.test(errMessage);
           const errType = errMessage?.includes('License') || isAccessError ? 'AUTH_ERROR'
             : err.message?.includes('429') ? 'API_ERROR'
             : 'UNKNOWN';
@@ -1193,7 +1208,15 @@ export default defineBackground(() => {
           reportError(errType, err.message).catch(e => {
             console.error('[Brevmont] Error reporting failed for generation error:', e?.message, 'Original:', err?.message);
           });
-          sendResponse({ error: isAccessError ? errMessage : 'Generation failed. Try again or contact founder@brevmont.com' });
+          sendResponse({
+            error: isAccessError ? errMessage : 'Generation failed. Try again or contact founder@brevmont.com',
+            // Explicit flag so the sidepanel can distinguish a commercial
+            // entitlement denial (already has its own locked/paywall UI)
+            // from a genuine system failure, without re-sniffing message
+            // text on that side too.
+            access_blocked: isAccessError,
+            access_state: isAccessError ? (revokedState.license_access_state || null) : null,
+          });
         }
       })();
       return true;
