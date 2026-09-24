@@ -691,6 +691,24 @@ test('production content script installs NO page-callable debug harness (store-s
   expect(overdriveIndex).not.toContain("export { installSpikeHarness }");
 });
 
+// DEFECT-5-GENERAL-SALES-LEAD-COPY (2026-09-23): live founder testing with a
+// General Sales (HVAC) rep found Save Lead > Scan still framed itself with
+// automotive-only language ("fleet requests", "vehicle interest") regardless
+// of vertical. Fix reuses the existing isAutomotive vertical-detection
+// pattern (same one Stats already uses for "Floor Standing" vs "Activity
+// Standing") to swap the copy, instead of a second lead-capture UI.
+test('Save Lead > Scan copy is patched for non-automotive verticals using the existing industry-context pattern', () => {
+  const panelUI = read('entrypoints/lib/panelUI.ts');
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(panelUI).toContain('id="o8-scan-copy"');
+  expect(source).toContain('async function applyIndustryAwareLeadCaptureCopy(root: HTMLElement)');
+  expect(source).toContain('if (industry.isAutomotive) return;');
+  expect(source).toContain("root.querySelector('#o8-scan-copy')");
+  expect(source).toContain('void applyIndustryAwareLeadCaptureCopy(root);');
+  // Neutral copy must drop the automotive-only terms ("fleet", "vehicle").
+  expect(source).toContain("copyEl.textContent = 'Reads this page and looks for buying intent, requests, and customer details.';");
+});
+
 test('sidepanel connection gate includes every adapter surface used for zero-context scan', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   for (const host of [

@@ -3432,6 +3432,7 @@ function wireHandlers(root: HTMLElement): void {
   // ─── Account info (migrated from popup) ─────────────────────────────────────
   loadAccountInfo(root);
   loadRepPreferences(root);
+  void applyIndustryAwareLeadCaptureCopy(root);
   const saveSettingsBtn = root.querySelector('#sp-save-settings') as HTMLButtonElement | null;
   if (saveSettingsBtn) {
     saveSettingsBtn.onclick = () => { void saveRepPreferences(root); };
@@ -4379,6 +4380,27 @@ async function getRepIndustryContext(): Promise<RepIndustryContext> {
     source: local.rep_industry_context ? 'cached_rep_industry_context' : local.brevmont_access ? 'cached_access' : local.profile ? 'cached_profile' : 'fallback',
   });
   return resolved;
+}
+
+// DEFECT-5-GENERAL-SALES-LEAD-COPY (2026-09-23): live founder testing with a
+// General Sales (HVAC) rep found the Save Lead > Scan tab still describing
+// itself with automotive-only framing ("fleet requests", "vehicle interest")
+// no matter the rep's vertical. The static panel HTML has no vertical info
+// at build time, so patch the copy once resolveRepIndustryContext() answers,
+// the same way Stats already swaps "Floor Standing" for "Activity Standing"
+// (industry.isAutomotive) instead of introducing a second lead-capture UI or
+// a new industry taxonomy.
+async function applyIndustryAwareLeadCaptureCopy(root: HTMLElement): Promise<void> {
+  try {
+    const industry = await getRepIndustryContext();
+    if (industry.isAutomotive) return; // automotive keeps its existing copy
+    const copyEl = root.querySelector('#o8-scan-copy') as HTMLElement | null;
+    if (copyEl) {
+      copyEl.textContent = 'Reads this page and looks for buying intent, requests, and customer details.';
+    }
+  } catch {
+    /* fail-open: leave the default copy in place */
+  }
 }
 
 function localCoachFallback(input: string, isAutomotive = false): string {
