@@ -2899,6 +2899,7 @@ async function renderAccountChip(): Promise<void> {
   const emailEl = document.getElementById('o8-account-chip-email');
   const planEl = document.getElementById('o8-account-chip-plan') as HTMLElement | null;
   const upgradeBtn = document.getElementById('o8-account-chip-upgrade') as HTMLButtonElement | null;
+  const creditEl = document.getElementById('o8-account-chip-credit') as HTMLElement | null;
   if (!chip || !nameEl || !dealershipEl || !planEl) return;
 
   // Always-show fallback: read whatever we have in storage so the chip
@@ -2999,6 +3000,9 @@ async function renderAccountChip(): Promise<void> {
       chrome.tabs.create({ url: 'https://brevmont.com/pricing?utm_source=extension&utm_medium=account_chip&utm_campaign=upgrade' });
     };
   }
+  // Free-credit line only ever has data once GET_RESOLVED_ACCESS returns
+  // below; hide it on the fallback paint so it never flashes stale/empty.
+  if (creditEl) creditEl.style.display = 'none';
   chip.style.display = 'block';
 
   // Now upgrade with the live resolved access. If this fails (cold SW,
@@ -3020,6 +3024,26 @@ async function renderAccountChip(): Promise<void> {
     setPlanBadge(plan, status, isOverridden);
     if (upgradeBtn) {
       upgradeBtn.style.display = (plan === 'free' && status === 'active') ? 'inline-block' : 'none';
+    }
+    // Free-generation credit remaining. Only public_credit/locked personal-rep
+    // accounts carry a numeric generations_remaining -- paid, invite, and
+    // canceled-but-active accounts resolve it to null (unlimited), and
+    // non-personal-rep dealerships never get a `commercial` object at all,
+    // so this line only ever shows for reps who are actually credit-limited.
+    if (creditEl) {
+      const commercial = access.commercial;
+      const remaining = commercial?.generations_remaining;
+      if (typeof remaining === 'number') {
+        const used = typeof commercial.generations_used === 'number' ? commercial.generations_used : null;
+        const total = used != null ? used + remaining : null;
+        creditEl.textContent = remaining > 0
+          ? (total != null ? `${remaining} of ${total} free replies left` : `${remaining} free ${remaining === 1 ? 'reply' : 'replies'} left`)
+          : 'Free replies used up';
+        creditEl.classList.toggle('credit-exhausted', remaining <= 0);
+        creditEl.style.display = 'block';
+      } else {
+        creditEl.style.display = 'none';
+      }
     }
   } catch {
     /* keep fallback render */

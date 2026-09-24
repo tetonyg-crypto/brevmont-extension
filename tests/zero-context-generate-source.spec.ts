@@ -778,6 +778,41 @@ test('a credit-exhausted paywall does not lock Coach/Ask/Lead Capture or bounce 
   expect(source).toContain('if (!local.license_revoked) return;');
 });
 
+// Phase 4 of the free-generation-limit rollout: surface remaining free
+// credits in the account chip instead of leaving a free rep to discover
+// the cap only by hitting Generate and getting blocked.
+test('account chip shows remaining free-generation credit for capped personal-rep accounts only', () => {
+  const panelUI = read('entrypoints/lib/panelUI.ts');
+  const panelCSS = read('entrypoints/lib/panelCSS.ts');
+  const source = read('entrypoints/sidepanel/main.ts');
+
+  expect(panelUI).toContain('id="o8-account-chip-credit" class="account-chip-credit" style="display:none;"');
+  expect(panelCSS).toContain('.account-chip-credit');
+  expect(panelCSS).toContain('.account-chip-credit.credit-exhausted');
+
+  const fnStart = source.indexOf('async function renderAccountChip');
+  const fnEnd = source.indexOf('\n}', source.indexOf('wireSignOutMenu();', fnStart));
+  const body = source.slice(fnStart, fnEnd);
+
+  // Reads the live resolved-access commercial object, not a client guess.
+  expect(body).toContain('const commercial = access.commercial;');
+  expect(body).toContain('const remaining = commercial?.generations_remaining;');
+  // Only renders when generations_remaining is an actual number -- paid,
+  // invite, and canceled-but-active accounts resolve it to null (unlimited)
+  // server-side, and non-personal-rep dealerships never get a `commercial`
+  // object at all, so this line stays hidden for everyone except reps
+  // still inside the free-credit system.
+  expect(body).toContain("if (typeof remaining === 'number') {");
+  expect(body).toContain("creditEl.style.display = 'none';");
+  expect(body).toContain("creditEl.classList.toggle('credit-exhausted', remaining <= 0);");
+  // Fallback paint (before GET_RESOLVED_ACCESS resolves) hides it so it
+  // never flashes empty/stale before the live count is known.
+  const fallbackHide = source.indexOf("if (creditEl) creditEl.style.display = 'none';");
+  const apiCallStart = source.indexOf("chrome.runtime.sendMessage({ type: 'GET_RESOLVED_ACCESS' })");
+  expect(fallbackHide).toBeGreaterThan(-1);
+  expect(fallbackHide).toBeLessThan(apiCallStart);
+});
+
 // DEFECT-8-MIC-LIFECYCLE (2026-09-23): live founder testing found the mic
 // kept actively listening after a rep dictated a lead and tapped "Pull
 // details" directly (without first tapping the mic button to stop it).

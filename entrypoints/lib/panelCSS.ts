@@ -409,6 +409,19 @@ ${domMode && isLinkedIn ? `
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.account-chip-credit {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #7BC4C4;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-chip-credit.credit-exhausted {
+  color: #F4A5A5;
+}
 .account-btn {
   width: 18px;
   height: 18px;
