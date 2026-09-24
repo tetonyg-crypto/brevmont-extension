@@ -154,4 +154,23 @@ test.describe('isChannelOrUiName — regression coverage', () => {
     expect(isChannelOrUiName('Connor Reyes')).toBe(false);
     expect(isChannelOrUiName('Sharon Add')).toBe(false);
   });
+
+  test('blocks the 2026-09-23 "0 notifications" regression and sibling nav-badge counts', () => {
+    // Live founder repro: same root cause as the "Add section" bug above
+    // (extractLinkedInPersonName scanning page chrome when no thread root
+    // was found), a different symptom - a global-nav notification-count
+    // badge instead of a details-panel prompt. LINKEDIN_UI_NAME_RE already
+    // blocked the bare word "notifications"; it did not block a numeric
+    // count prefixed onto it or onto its nav-chrome siblings.
+    expect(isChannelOrUiName('0 notifications')).toBe(true);
+    expect(isChannelOrUiName('3 notifications')).toBe(true);
+    expect(isChannelOrUiName('12 messages')).toBe(true);
+    expect(isChannelOrUiName('1 job')).toBe(true);
+    expect(isChannelOrUiName('5 invitations')).toBe(true);
+    expect(isChannelOrUiName('2 requests')).toBe(true);
+    expect(isChannelOrUiName('7 updates')).toBe(true);
+    // A real name is never "<digit> <word>" - shape check must not rot into
+    // rejecting anything with a leading number, only the known nav nouns.
+    expect(isChannelOrUiName('3M Company')).toBe(false);
+  });
 });

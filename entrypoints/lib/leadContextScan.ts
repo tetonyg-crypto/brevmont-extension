@@ -84,6 +84,13 @@ export function isChannelOrUiName(value: unknown): boolean {
   if (/^brevmont\b/i.test(raw)) return true;
   if (/\bbrevmont labs\b/i.test(raw)) return true;
   if (LINKEDIN_UI_NAME_RE.test(raw)) return true;
+  // 2026-09-23: "0 notifications" reached extractLinkedInPersonName's
+  // now-removed document.body fallback as a nav-badge count (LINKEDIN_UI_NAME_RE
+  // only matched the bare word "notifications", not a numeric-prefixed count
+  // badge like "3 notifications"/"0 messages"/"12 jobs"). Reject the whole
+  // shape - a count followed by one of the known nav-chrome nouns - instead
+  // of adding one more literal string each time a badge count changes.
+  if (/^\d+\s+(?:notifications?|messages?|jobs?|invitations?|requests?|updates?)\b/i.test(raw)) return true;
   if (/^sponsored\b/i.test(raw)) return true;
   if (/\b(?:ad options?|messaging ad)\b/i.test(raw)) return true;
   // Facebook Marketplace fallback headers for accounts without a friendly
@@ -423,18 +430,20 @@ export function extractLinkedInPersonName(): string | null {
     return null;
   }
   const threadRoot = linkedInThreadRoot();
-  // STRUCTURAL FIX (2026-09-23): `main, [role="main"]` is the entire message
-  // surface - conversation list, the active thread, AND any details/profile
-  // side-panel LinkedIn renders next to it (which carries its own headings
-  // like "Add section" / "Open to work" that have nothing to do with the
-  // person in the open thread). Scoping the generic heading fallback that
-  // broadly was how a page-chrome heading became a prospect's name. Only
-  // fall back to document.body (never a name-scan on `main` at large), and
-  // only when there is no thread root at all to scope into.
+  // STRUCTURAL FIX (2026-09-23, tightened same day): the original version of
+  // this fix scoped the heading fallback to `document.body` whenever no
+  // threadRoot was found - but a whole-document scan is exactly as unsafe as
+  // the `main`-wide scan it replaced, just with a different blast radius. It
+  // produced "Add section" (a details-panel prompt) and, hours later on the
+  // same broken page, "0 notifications" (the global-nav notifications
+  // badge) - two different UI-chrome strings from the same root cause: no
+  // real thread root exists to scope into, so ANY page-wide heading scan is
+  // manufacturing an identity rather than finding one. If threadRoot cannot
+  // be established, there is no high-confidence scope left to search - fail
+  // safe (return null / UNKNOWN) instead of guessing at page chrome.
   const scopes: Array<ParentNode | null> = [
     threadRoot,
     document.querySelector('.msg-conversation-listitem--active, .msg-selectable-entity--selected, li[aria-selected="true"]'),
-    threadRoot ? null : document.body,
   ];
   const fromList = selectedLinkedInConversationName();
   if (fromList) return fromList;
@@ -461,7 +470,11 @@ export function extractLinkedInPersonName(): string | null {
       }
     }
   }
-  return extractLinkedInPersonNameFromText(deepVisibleText(threadRoot || document.querySelector('[role="main"]'), 2500));
+  // Same fail-safe principle as the scopes above: `[role="main"]` is the
+  // whole messaging page (list + thread + side panel), not just the open
+  // conversation - only mine free text from a confirmed thread root.
+  if (!threadRoot) return null;
+  return extractLinkedInPersonNameFromText(deepVisibleText(threadRoot, 2500));
 }
 
 export function extractVehicle(text: string): string {
