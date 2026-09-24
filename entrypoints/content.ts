@@ -808,8 +808,13 @@ export default defineContentScript({
       return { customerName: name, phone, email, vehicle, source, status, lastContact };
     }
 
-    // Only inject in top frame
-    if (window !== window.top) return;
+    // Most supported sites are read from the top document, so keep their
+    // content script top-frame-only. LinkedIn is the exception: its current
+    // messaging UI renders the active thread inside a same-origin /preload/
+    // iframe. Frame discovery in the side panel deliberately targets that
+    // frame, so it must be allowed to register this message listener there.
+    // (Cross-origin child frames already returned above as PLATFORM=unknown.)
+    if (window !== window.top && !isLinkedIn) return;
     const brevmontState = ((window as any).__BREVMONT_CONTENT_SCRIPT_STATE = (window as any).__BREVMONT_CONTENT_SCRIPT_STATE || {}) as {
       initialized?: boolean;
       messageListenerRegistered?: boolean;

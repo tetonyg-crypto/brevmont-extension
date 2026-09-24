@@ -7,10 +7,13 @@ const read = (file: string) => readFileSync(resolve(process.cwd(), file), 'utf8'
 test('LinkedIn messaging discovers and targets the active conversation frame', () => {
   const source = read('entrypoints/sidepanel/main.ts');
   const routing = read('entrypoints/lib/linkedinFrameRouting.ts');
+  const content = read('entrypoints/content.ts');
   expect(source).toContain('discoverLinkedInConversationFrame');
   expect(source).toContain("tabMessage(currentPlatform.tabId, msg, { frameId: first.frameId })");
   expect(source).toContain("tabMessage(currentPlatform.tabId, msg, { frameId: retry.frameId })");
   expect(source).toContain('linkedin_conversation_frame_not_found');
+  expect(content).toContain('if (window !== window.top && !isLinkedIn) return;');
+  expect(content).not.toContain('if (window !== window.top) return;');
   expect(routing).toContain('target: { tabId, allFrames: true }');
   expect(routing).toContain("document.querySelectorAll('.msg-s-message-list-content').length");
   expect(routing).toContain("'.msg-form__contenteditable, [aria-label*=\"Write a message\" i][contenteditable=\"true\"]'");
