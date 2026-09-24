@@ -91,6 +91,19 @@ export function isChannelOrUiName(value: unknown): boolean {
   // shape - a count followed by one of the known nav-chrome nouns - instead
   // of adding one more literal string each time a badge count changes.
   if (/^\d+\s+(?:notifications?|messages?|jobs?|invitations?|requests?|updates?)\b/i.test(raw)) return true;
+  // 2026-09-23: "Zoom Join" reached this gate from a Zoom meeting-widget
+  // card embedded in a real conversation thread (LinkedIn shares the same
+  // generic entity-lockup-style component for meeting/call widgets as it
+  // does for the person-name header, so extractLinkedInPersonName's
+  // fallback selectors match the widget's title). "Zoom Join" is two
+  // capitalized words, so it isn't caught by the verb+noun or numeric-badge
+  // shapes above - it reads structurally like a real name. Reject the whole
+  // class of meeting-widget labels (brand name, or a join/meeting/call
+  // action phrase), not just this one literal string, so Google
+  // Meet/Teams/Webex cards can't reproduce the same bug under a different
+  // label.
+  if (/\b(?:zoom|google meet|microsoft teams|webex|gotomeeting|skype)\b/i.test(raw)) return true;
+  if (/\bjoin\s+(?:video\s+)?(?:meeting|call)\b/i.test(raw)) return true;
   if (/^sponsored\b/i.test(raw)) return true;
   if (/\b(?:ad options?|messaging ad)\b/i.test(raw)) return true;
   // Facebook Marketplace fallback headers for accounts without a friendly

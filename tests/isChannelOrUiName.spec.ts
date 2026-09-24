@@ -173,4 +173,27 @@ test.describe('isChannelOrUiName — regression coverage', () => {
     // rejecting anything with a leading number, only the known nav nouns.
     expect(isChannelOrUiName('3M Company')).toBe(false);
   });
+
+  test('blocks the 2026-09-23 "Zoom Join" meeting-widget regression, structurally', () => {
+    // Live founder repro: Darrin's real conversation contains a Zoom
+    // meeting-widget card. LinkedIn reuses the same generic component
+    // styling for that card as for the person-name header, so
+    // extractLinkedInPersonName's fallback selectors matched the widget's
+    // title ("Zoom Join") instead of Darrin's actual name. "Zoom Join" is
+    // two capitalized words - it reads structurally like a real name, so
+    // neither the verb+noun nor the numeric-badge shape catches it. Reject
+    // the whole class of meeting-widget brand/action labels.
+    expect(isChannelOrUiName('Zoom Join')).toBe(true);
+    expect(isChannelOrUiName('Zoom')).toBe(true);
+    expect(isChannelOrUiName('Join Zoom Meeting')).toBe(true);
+    expect(isChannelOrUiName('Google Meet')).toBe(true);
+    expect(isChannelOrUiName('Microsoft Teams')).toBe(true);
+    expect(isChannelOrUiName('Webex')).toBe(true);
+    expect(isChannelOrUiName('Join video meeting')).toBe(true);
+    expect(isChannelOrUiName('Join call')).toBe(true);
+    // A real name is never a meeting-brand or join-action phrase - must not
+    // reject unrelated real names in the same two-capitalized-word shape.
+    expect(isChannelOrUiName('Darrin Guttman')).toBe(false);
+    expect(isChannelOrUiName('Gerardo Flores')).toBe(false);
+  });
 });
