@@ -10,8 +10,14 @@ describe('resolveRepIndustryContext', () => {
     expect(resolveRepIndustryContext({ is_automotive: true }).isAutomotive).toBe(true);
   });
 
-  it('defaults unknown accounts to general-sales safe behavior', () => {
-    expect(resolveRepIndustryContext({}).isAutomotive).toBe(false);
+  // 2026-09-24: dealership-table accounts (the whole product) never get an
+  // explicit is_automotive/vertical flag synced today, so "unknown" must
+  // default to automotive or every real dealership rep's Coach Me / Ask
+  // Anything silently discards genuine AI responses. General-sales accounts
+  // are still protected via the explicit personal/rep_monthly/
+  // industry_agnostic checks above (see the first test in this file).
+  it('defaults unknown dealership accounts to automotive behavior', () => {
+    expect(resolveRepIndustryContext({}).isAutomotive).toBe(true);
   });
 
   it('prefers industry_profile over legacy automotive market heuristics', () => {

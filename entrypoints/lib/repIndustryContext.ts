@@ -1,6 +1,17 @@
 export type RepIndustryContext = { isAutomotive: boolean; explicit: boolean };
 
-/** Automotive behavior is opt-in; unknown/new profiles stay general-sales safe. */
+// 2026-09-24: /api/v1/access/resolved never returns an industry/vertical
+// field, and the `dealerships` table has no industry column at all — every
+// row in it is a car dealership by definition (that IS the product). With
+// the old "unknown defaults to non-automotive" fallback, every real
+// dealership account with no explicit flags synced (which was all of them)
+// fell through to isAutomotive: false, so coachDisplayText/commandDisplayText
+// silently discarded every genuine AI response that used car/vehicle/
+// financing language and replaced it with generic canned text — Coach Me and
+// Ask Anything looked completely broken for every dealership rep, not just
+// edge cases. General Sales (HVAC-style, non-dealership) accounts are caught
+// explicitly above via personal/rep_monthly plan or an industry_agnostic
+// flag, so they are unaffected by this default and stay general-sales safe.
 export function resolveRepIndustryContext(input: any): RepIndustryContext {
   const source = input && typeof input === 'object' ? input : {};
   const flags = source.feature_flags && typeof source.feature_flags === 'object' ? source.feature_flags : source;
@@ -25,5 +36,9 @@ export function resolveRepIndustryContext(input: any): RepIndustryContext {
   const profile = source.profile || {};
   const dealership = profile.dealership || {};
   if (profile.market?.marketType || dealership.crm || dealership.saltRoads || dealership.avgNewPrice || dealership.avgUsedPrice) return { isAutomotive: true, explicit: true };
-  return { isAutomotive: false, explicit: false };
+  // No explicit non-automotive signal (personal/rep_monthly plan,
+  // industry_agnostic flag, or a non-auto industry_profile/vertical) was
+  // found above, so this is a dealership-table account with nothing synced
+  // yet — treat it as automotive, since that's what the dealerships table is.
+  return { isAutomotive: true, explicit: false };
 }

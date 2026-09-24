@@ -12,6 +12,32 @@ const POISON_AFTER = /^[\s\S]{0,20}(?:Calculated|Payoff|payoff|appraised)/i;
 const LINKEDIN_UI_NAME_RE =
   /^(?:ad options?|advertising|sponsored(?:\s+messaging(?:\s+ad)?)?|promoted|2023 grade|grade|follow|message|messages|messaging|connect|open to|profile|activity|about|experience|education|people also viewed|linkedin|notifications|jobs|home|feed|my network|network|premium|inmail)$/i;
 
+// X (x.com) DM adapter (2026-09-23) — X's own left-nav renders as a stack
+// of link labels (Home, Explore, Notifications, Messages, Grok, Bookmarks,
+// Communities, Premium, Verified Orgs, Profile, More) directly beside the
+// DM thread pane. A generic heading/link scan in x.ts's structural
+// fallback can surface one of these instead of the counterpart's real
+// name if the fallback ever climbs too far. Reject the whole nav-label
+// set the same way LINKEDIN_UI_NAME_RE rejects LinkedIn's, rather than
+// waiting for a live regression to name each one individually.
+const X_UI_NAME_RE =
+  /^(?:home|explore|notifications|messages|message|grok|bookmarks|communities|premium|verified orgs|verified organizations|profile|more|jobs|lists|settings|compose|post|posts|following|followers|for you|search|x|twitter)$/i;
+
+// WhatsApp Web adapter (2026-09-23) — live test found a generic
+// legacy fallback (customerDetection.ts's detectConversationContext,
+// its "currently selected chat-list row" heuristic) can pick up
+// WhatsApp Web's chat-list FILTER TABS ("All", "Unread", "Favorites",
+// "Groups") instead of the open contact, because those tabs also sit
+// in an `[aria-selected="true"]`-style element near the chat list.
+// The observed symptom was a one-tap customer-confirm prompt reading
+// "This for All Unread?" — "All"/"Unread" reached the customer-name
+// pipeline as if they were a two-word person name. Reject the whole
+// filter-tab vocabulary the same way X's own left-nav labels are
+// rejected above, rather than special-casing the one literal string
+// seen live.
+const WHATSAPP_UI_NAME_RE =
+  /^(?:all|unread|favorites|favourites|groups|group|status|channels|calls|starred|muted|pinned|archived|archive|new chat|new group|new community)$/i;
+
 // Any candidate that equals one of these (case-insensitive, trimmed) is a
 // UI/channel label, not a person. Discovered 2026-07-02 on live demo: on
 // messenger.com/marketplace/t/... the top div[role="main"] h1 is literally
@@ -84,6 +110,17 @@ export function isChannelOrUiName(value: unknown): boolean {
   if (/^brevmont\b/i.test(raw)) return true;
   if (/\bbrevmont labs\b/i.test(raw)) return true;
   if (LINKEDIN_UI_NAME_RE.test(raw)) return true;
+  if (X_UI_NAME_RE.test(raw)) return true;
+  if (WHATSAPP_UI_NAME_RE.test(raw)) return true;
+  // Concatenated filter-tab chrome ("All Unread", "All Unread Favorites
+  // Groups") when a page-wide scan flattens several adjacent tab labels
+  // into one string with no separator. Every whitespace-separated token
+  // matching the filter-tab vocabulary (2+ tokens) is rejected as a
+  // whole, rather than only the single-word exact match above.
+  {
+    const tokens = raw.split(/\s+/).filter(Boolean);
+    if (tokens.length >= 2 && tokens.every((t) => WHATSAPP_UI_NAME_RE.test(t))) return true;
+  }
   // 2026-09-23: "0 notifications" reached extractLinkedInPersonName's
   // now-removed document.body fallback as a nav-badge count (LINKEDIN_UI_NAME_RE
   // only matched the bare word "notifications", not a numeric-prefixed count

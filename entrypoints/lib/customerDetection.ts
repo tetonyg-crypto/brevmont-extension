@@ -162,7 +162,16 @@ export function detectConversationContext(): DetectedCustomer | null {
     if (name) return result(name, { source, vehicle: extractVehicle(body), phone: extractPhone(body), email: extractEmail(body), confidence: 0.86, method: 'conversation_context' });
   }
 
-  const activeList = document.querySelector('[aria-current="page"], [data-testid="mwthreadlist-item-open"], [role="row"][aria-selected="true"]');
+  // WhatsApp Web (2026-09-23): its chat-list filter tabs ("All",
+  // "Unread", "Favorites", "Groups") can carry `aria-selected="true"`
+  // on the active tab, which this selector was never designed to
+  // exclude — a live test showed "All"/"Unread" reaching the customer
+  // name pipeline as a false candidate. Explicitly skip tab/tablist
+  // chrome so this generic "currently selected row" heuristic never
+  // matches a filter tab on any platform.
+  const activeList = Array.from(
+    document.querySelectorAll('[aria-current="page"], [data-testid="mwthreadlist-item-open"], [role="row"][aria-selected="true"]')
+  ).find((el) => el.getAttribute('role') !== 'tab' && !el.closest('[role="tablist"], [role="tab"]')) || null;
   const activeText = textFrom(activeList);
   const listName = cleanName(activeText.split(/\n|You:|Draft:|sent|·/i)[0], source === 'facebook');
   if (listName) return result(listName, { source, vehicle: extractVehicle(activeText || document.title), confidence: 0.74, method: 'conversation_context' });

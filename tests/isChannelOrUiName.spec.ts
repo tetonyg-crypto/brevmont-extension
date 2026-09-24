@@ -196,4 +196,31 @@ test.describe('isChannelOrUiName — regression coverage', () => {
     expect(isChannelOrUiName('Darrin Guttman')).toBe(false);
     expect(isChannelOrUiName('Gerardo Flores')).toBe(false);
   });
+
+  test('blocks X (x.com) left-nav chrome labels, structurally (2026-09-23 X adapter)', () => {
+    // X's own left-nav renders as a stack of link labels directly beside
+    // the DM thread pane (Home, Explore, Notifications, Messages, Grok,
+    // Bookmarks, Communities, Premium, Verified Orgs, Profile, More). If
+    // x.ts's structural header fallback ever climbs too far it could
+    // surface one of these instead of the counterpart's real name - block
+    // the whole nav-label set up front rather than waiting for a live
+    // regression to name each one individually.
+    expect(isChannelOrUiName('Home')).toBe(true);
+    expect(isChannelOrUiName('Explore')).toBe(true);
+    expect(isChannelOrUiName('Grok')).toBe(true);
+    expect(isChannelOrUiName('Bookmarks')).toBe(true);
+    expect(isChannelOrUiName('Communities')).toBe(true);
+    expect(isChannelOrUiName('Premium')).toBe(true);
+    expect(isChannelOrUiName('Verified Orgs')).toBe(true);
+    expect(isChannelOrUiName('More')).toBe(true);
+    expect(isChannelOrUiName('For you')).toBe(true);
+    expect(isChannelOrUiName('Following')).toBe(true);
+    // 'x' and 'twitter' were already blocked pre-existing (CHANNEL_OR_UI_NAMES).
+    expect(isChannelOrUiName('X')).toBe(true);
+    expect(isChannelOrUiName('Twitter')).toBe(true);
+    // A real name is never one of these bare nav words - must not reject
+    // unrelated real names that happen to share a word structurally.
+    expect(isChannelOrUiName('Homer Simpson')).toBe(false);
+    expect(isChannelOrUiName('Grant Explorer')).toBe(false);
+  });
 });

@@ -64,6 +64,7 @@ type Platform =
   | 'autotrader'
   | 'dealersocket'
   | 'elead'
+  | 'x'
   | 'unknown';
 
 type OutputChip = 'text' | 'email' | 'crm';
@@ -142,6 +143,11 @@ let customerPickerOpen = false;
 let customerDetectionTimer: number | null = null;
 let customerDetectionUrl = '';
 let customerDetectionFingerprint = '';
+// WhatsApp Web's URL never changes between chats (always
+// https://web.whatsapp.com/), so the plain URL-diff check in
+// startCustomerDetection's poller below can never detect a chat switch
+// on its own — see the comment at that check for the full story.
+let customerDetectionConversationKey = '';
 let lastGmailSubject = '';
 let autoThreadScan: AutoThreadScan | null = null;
 let autoThreadScanStatus: AutoThreadScanStatus = 'idle';
@@ -225,6 +231,7 @@ function detectPlatformFromURL(url: string): Platform {
   if (url.includes('autotrader.com')) return 'autotrader';
   if (url.includes('dealersocket.com')) return 'dealersocket';
   if (url.includes('elead-crm.com') || url.includes('eleadcrm.com')) return 'elead';
+  if (url.includes('x.com')) return 'x';
   return 'unknown';
 }
 
@@ -244,6 +251,7 @@ function getBadge(platform: Platform) {
     case 'autotrader': return { label: 'AutoTrader', color: '#0D6E6E', bg: '#F0FAFA' };
     case 'dealersocket': return { label: 'DealerSocket', color: '#0D6E6E', bg: '#F0FAFA' };
     case 'elead': return { label: 'Elead', color: '#0D6E6E', bg: '#F0FAFA' };
+    case 'x': return { label: 'X', color: '#000000', bg: '#f1f5f9' };
     default: return { label: '', color: '#64748b', bg: '#f1f5f9' };
   }
 }
@@ -276,7 +284,11 @@ const DISPLAY_LABELS: Record<string, string> = {
   crm: 'CRM note',
   crm_note: 'CRM note',
   coach: 'Coach',
+  coach_me: 'Coach',
   command: 'Ask Anything',
+  ask_anything: 'Ask Anything',
+  all: 'Text + Email + CRM',
+  unknown: 'Not detected',
   screenshot_reply: 'Screenshot reply',
   gmail: 'Gmail',
   outlook: 'Outlook',
@@ -448,7 +460,10 @@ function isSystemPasteWithoutBuyingSignal(rawText: unknown): boolean {
 
 function downloadCsvFile(filename: string, rows: unknown[][]): void {
   const csv = rows.map(row => row.map(csvField).join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  // Leading BOM: without it, Excel/Numbers on Mac guess Latin-1 for this
+  // file and mangle any non-ASCII character (em dashes, curly quotes) into
+  // garbage like "â€”". The BOM makes UTF-8 detection unambiguous.
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -753,7 +768,8 @@ function canInjectIntoUrl(url?: string): boolean {
       || host === 'elead-crm.com'
       || host.endsWith('.elead-crm.com')
       || host === 'eleadcrm.com'
-      || host.endsWith('.eleadcrm.com');
+      || host.endsWith('.eleadcrm.com')
+      || host === 'x.com';
   } catch {
     return false;
   }
@@ -1245,6 +1261,22 @@ function leadContextFromSelectedLead(lead: any): any {
 
 function scanUrlMatchesCurrent(): boolean {
   if (!autoThreadScanUrl || !currentPlatform.url) return false;
+  // WhatsApp Web (2026-09-23): its URL never names a conversation — it
+  // is always https://web.whatsapp.com/ regardless of which contact is
+  // open (unlike Gmail/LinkedIn/Instagram/X, which all carry a
+  // per-thread path segment). stableThreadIdentity() is URL-only, so it
+  // would report "same thread" for every WhatsApp contact, letting a
+  // cached scan from a PREVIOUS contact be reused as "current" after
+  // switching chats (release-blocker context-leakage risk — spec
+  // section 13/14). The WhatsApp adapter's own conversation_key fixes
+  // this for the actual Generate call (doGenerate always force-rescans
+  // live DOM), but the cached-preview path here has no URL signal to
+  // fall back on, so treat every WhatsApp render as needing a fresh
+  // scan rather than trusting the cache — the same cost model
+  // Instagram/X already accept for their pull-based re-scan-on-call
+  // design, just applied unconditionally here since there is no
+  // cheaper way to verify identity without re-scanning anyway.
+  if (currentPlatform.platform === 'whatsapp') return false;
   return stableThreadIdentity(autoThreadScanUrl) === stableThreadIdentity(currentPlatform.url);
 }
 
@@ -2271,39 +2303,63 @@ function startCustomerDetection(root: HTMLElement): void {
   if (customerDetectionTimer) window.clearInterval(customerDetectionTimer);
   customerDetectionUrl = currentPlatform.url || '';
   customerDetectionFingerprint = '';
+  customerDetectionConversationKey = '';
   renderCustomerStamp(root);
   refreshCustomerDetection(root).catch(() => {});
   customerDetectionTimer = window.setInterval(async () => {
     await refreshPlatform();
     const activeUrl = currentPlatform.url || '';
-    if (activeUrl !== customerDetectionUrl) {
+    // WhatsApp Web (2026-09-24): its URL is always https://web.whatsapp.com/
+    // regardless of which chat is open, so the URL-diff check below can
+    // never detect a chat switch here — confirmed live: switching from one
+    // contact to another left the "Replying to:" chip stuck on the PREVIOUS
+    // contact's last message indefinitely, since this whole block never ran.
+    // Use the adapter's own conversation_key (via a cheap SCAN_LEAD_V2 call,
+    // same message type the real Generate scan already uses) as the change
+    // signal instead of the URL for this platform only. First tick after a
+    // panel (re)open just seeds the baseline rather than treating "unset →
+    // some key" as a change, matching customerDetectionUrl's own seeding at
+    // the top of startCustomerDetection above.
+    let threadChanged = false;
+    if (currentPlatform.platform === 'whatsapp') {
+      let liveKey = '';
+      try {
+        const scan = await sendToContent({ type: 'SCAN_LEAD_V2' });
+        liveKey = String(scan?.conversation_key || scan?.threadContext?.conversation_key || '');
+      } catch { /* leave liveKey empty — treated as no signal, no change */ }
+      if (customerDetectionConversationKey && liveKey && liveKey !== customerDetectionConversationKey) {
+        threadChanged = true;
+      }
+      if (liveKey) customerDetectionConversationKey = liveKey;
+      customerDetectionUrl = activeUrl;
+    } else if (activeUrl !== customerDetectionUrl) {
       const prevUrl = customerDetectionUrl;
       // Use the STABLE thread identity (path + hash), not the raw URL. Facebook
       // and Messenger mutate query params on the same conversation constantly,
       // which used to clear + re-pin every few seconds (the "trampoline"
       // flicker). Only a real conversation switch changes path/hash.
-      const threadChanged = stableThreadIdentity(activeUrl) !== stableThreadIdentity(prevUrl);
+      threadChanged = stableThreadIdentity(activeUrl) !== stableThreadIdentity(prevUrl);
       customerDetectionUrl = activeUrl;
-      if (threadChanged) {
-        // A genuinely different conversation. Clear the previous lead so it can
-        // never bleed into the new thread — including when the new thread can't
-        // be read (must show empty, never the last thread's customer).
-        customerDetectionFingerprint = '';
-        lastGmailSubject = '';
-        clearStalePinnedCustomer(root, 'url_changed');
-        autoThreadScan = null;
-        autoThreadScanStatus = 'idle';
-        autoThreadScanUrl = '';
-        linkedInEmptyScanRetries = 0;
-        const outputs = root.querySelector('#o8-outputs') as HTMLElement | null;
-        if (outputs) outputs.innerHTML = '';
-        renderAutoThreadScan(root);
-        // Proactively re-scan the NEW conversation so the rep immediately sees
-        // "Reading conversation..." → "Replying to: <their message>" without
-        // having to hit Generate first. Clearing above set status to idle
-        // (hidden); this repopulates the chip for the thread now open.
-        scheduleAutoThreadScan(root, 200, true);
-      }
+    }
+    if (threadChanged) {
+      // A genuinely different conversation. Clear the previous lead so it can
+      // never bleed into the new thread — including when the new thread can't
+      // be read (must show empty, never the last thread's customer).
+      customerDetectionFingerprint = '';
+      lastGmailSubject = '';
+      clearStalePinnedCustomer(root, 'url_changed');
+      autoThreadScan = null;
+      autoThreadScanStatus = 'idle';
+      autoThreadScanUrl = '';
+      linkedInEmptyScanRetries = 0;
+      const outputs = root.querySelector('#o8-outputs') as HTMLElement | null;
+      if (outputs) outputs.innerHTML = '';
+      renderAutoThreadScan(root);
+      // Proactively re-scan the NEW conversation so the rep immediately sees
+      // "Reading conversation..." → "Replying to: <their message>" without
+      // having to hit Generate first. Clearing above set status to idle
+      // (hidden); this repopulates the chip for the thread now open.
+      scheduleAutoThreadScan(root, 200, true);
     }
     refreshCustomerDetection(root).catch(() => {});
   }, 3000);
@@ -4516,10 +4572,14 @@ function localCoachFallback(input: string, isAutomotive = false): string {
 function coachDisplayText(input: string, modelText: string, isAutomotive = false): string {
   // Keep the legacy source contract visible for static safety checks:
   // coachDisplayText(input, rawText) and localCoachFallback(input).
+  // 2026-09-24: this used to discard any real AI response that merely
+  // contained car/vehicle/financing vocabulary when isAutomotive was false,
+  // silently replacing a genuine, on-topic answer with generic canned text.
+  // Reps' real questions are not reliably classifiable by keyword — an
+  // automotive rep asks non-car questions constantly, and industry detection
+  // itself can be wrong — so Coach Me only ever falls back for a literally
+  // empty or malformed response, never based on the response's content.
   const cleaned = displayText(modelText, '').trim();
-  if (!isAutomotive && /\b(?:car|vehicle|trim|miles|monthly payment|financ\w*|term|trade(?:-in)?|lender|lot)\b/i.test(cleaned)) {
-    return localCoachFallback(input, false);
-  }
   if (!cleaned || looksLikeFollowUpGeneration(cleaned)) return localCoachFallback(input, isAutomotive);
   return cleaned;
 }
@@ -4551,10 +4611,11 @@ function localCommandFallback(input: string, isAutomotive = false): string {
 }
 
 function commandDisplayText(input: string, modelText: string, isAutomotive = false): string {
+  // 2026-09-24: same fix as coachDisplayText — no content-based rejection.
+  // Ask Anything is meant to answer whatever the rep types, on-topic or not;
+  // it must never silently swap a real answer for canned text just because
+  // that answer happens to mention a car/finance term.
   const cleaned = displayText(modelText, '').trim();
-  if (!isAutomotive && /\b(?:car|vehicle|trim|miles|monthly payment|financ\w*|term|trade(?:-in)?|lender|lot)\b/i.test(cleaned)) {
-    return localCommandFallback(input, false);
-  }
   if (!cleaned || looksLikeAskPromptLeak(cleaned) || looksLikeFollowUpGeneration(cleaned) || looksLikeClarifyingQuestion(cleaned)) {
     return localCommandFallback(input, isAutomotive);
   }
@@ -5157,6 +5218,7 @@ function renderLeadCard(lead: any, index: number): string {
         <button class="lead-secondary-action" data-action="contacted">→ Contacted</button>
         <button class="lead-secondary-action" data-action="appt">Set Appt</button>
         <button class="lead-secondary-action" data-action="lost">Mark Lost</button>
+        <button class="lead-secondary-action lead-delete-action" data-action="delete" title="Permanently remove this lead">Delete</button>
       </div>
       <div class="appt-inline" style="display:none;margin-top:8px;">
         <input type="datetime-local" class="appt-input" style="width:100%;padding:8px;border:1px solid #E5E7EB;border-radius:7px;font-size:12px;font-family:inherit;" />
@@ -5277,6 +5339,21 @@ function wireMyLeadCardActions(root: HTMLElement): void {
           showQuickView(root);
           renderAutoThreadScan(root);
           showToast(root, 'Lead context loaded. Hit Generate.');
+          return;
+        }
+        if (action === 'delete') {
+          const name = displayText(lead.customer_name, 'this lead');
+          if (!confirm(`Permanently delete ${name}? This can't be undone — it will stop showing up in My Leads.`)) return;
+          try {
+            await safeSend({ type: 'DELETE_LEAD', payload: { leadId } });
+          } catch (e: any) {
+            showToast(root, `Couldn't delete: ${e?.message || 'unknown error'}`);
+            return;
+          }
+          card.classList.add('my-lead-card-exiting');
+          await sleep(300);
+          showToast(root, `${name} deleted.`);
+          await renderMyLeads(root);
           return;
         }
         if (action === 'appt') {
@@ -5956,15 +6033,28 @@ async function openStats(root: HTMLElement): Promise<void> {
       if (csvBtn) {
         csvBtn.onclick = () => {
           const history = Array.isArray(resp.history) ? resp.history : [];
+          // 2026-09-24: this export used to dump the raw prompt (including the
+          // "SPEAKING IDENTITY: ..." system scaffolding) as if it were what the
+          // rep typed, left out which lead/customer and vehicle the activity was
+          // for even though the API already returns both, and mislabeled common
+          // workflow types ("all" instead of what that actually means). Rebuilt
+          // so a rep can open this file and immediately tell who they were
+          // talking to, on what channel, and what was actually said.
           const rows: unknown[][] = [
-            ['Date', 'Workflow Type', 'Rep Input', 'AI Output', 'Channel'],
-            ...history.map((event: any) => [
-              event.created_at || event.server_ts || '',
-              getDisplayLabel(event.workflow_type || event.output_type || ''),
-              truncateCsv(event.scenario_input || event.rep_input || ''),
-              truncateCsv(event.ai_output || event.output || ''),
-              getDisplayLabel(event.platform || ''),
-            ]),
+            ['Date', 'Type', 'Channel', 'Lead / Customer', 'Vehicle / Interest', 'What You Asked', 'AI Output'],
+            ...history.map((event: any) => {
+              const created = event.created_at || event.server_ts || '';
+              const dateLabel = created ? new Date(created).toLocaleString() : '';
+              return [
+                dateLabel,
+                getDisplayLabel(event.workflow_type || event.output_type || '') || 'Activity',
+                getDisplayLabel(event.platform || '') || 'Not detected',
+                displayText(event.customer_name, 'Not linked to a lead'),
+                optionalDisplayText(event.vehicle),
+                truncateCsv(sanitizeBuyerContext(event.scenario_input || event.rep_input || ''), 2000),
+                truncateCsv(event.ai_output || event.output || '', 2000),
+              ];
+            }),
           ];
           downloadCsvFile(`brevmont-stats-${new Date().toISOString().slice(0, 10)}.csv`, rows);
           showToast(root, 'CSV downloaded');

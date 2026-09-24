@@ -111,7 +111,7 @@ async function fetchWithRetry(url: string, opts: RequestInit, attempts = 3): Pro
   throw new Error('fetch failed after retries');
 }
 
-import { signedFetch, signedPatch, signedGet } from '../lib/authSigning';
+import { signedFetch, signedPatch, signedGet, signedDelete } from '../lib/authSigning';
 import { enqueue, processQueue, getQueueCount as getDexieQueueCount } from '../lib/retryQueue';
 import { parseGenerationSections, sanitizeCustomerFacingOutput } from './lib/outputContract';
 import { telemetry } from './lib/telemetry';
@@ -1754,7 +1754,23 @@ export default defineBackground(() => {
             : !isBadLeadName(leadForSave.name)
               ? leadForSave.name
               : null;
-          const customerName = parsedName || fallbackName;
+          // Phone/email fallback (2026-09-24): a scan with no legible name at
+          // all — e.g. an unsaved WhatsApp/Google Messages contact, where the
+          // adapter correctly returns { name: null, phone } rather than
+          // fabricating one — used to fall all the way through this function
+          // with no name, hitting the `if (customerName)` gate below as
+          // false and silently never reaching leadDb.captured_leads.put().
+          // That directly contradicted the founder-directive comment on
+          // shouldPersistPartialLead() above ("capture when there is any
+          // identifier... only skip when the scan produced nothing
+          // identifying at all") — a phone number IS an identifier. Widen
+          // customerName's own fallback chain (rather than adding a second
+          // save path) so every downstream use of customerName — the saved
+          // record, resolveCustomerForContext(), etc. — gets a sensible
+          // display value for free.
+          const phoneFallback = leadForSave.phone || msg.payload?.phone || null;
+          const emailFallback = leadForSave.email || msg.payload?.email || null;
+          const customerName = parsedName || fallbackName || phoneFallback || emailFallback;
 
           if (customerName) {
             const leadId = crypto.randomUUID();
@@ -1969,6 +1985,48 @@ export default defineBackground(() => {
           } catch { /* lead may not be in local DB — that's fine */ }
 
           sendResponse({ success: true, lead });
+        } catch (e: any) {
+          sendResponse({ error: e.message });
+        }
+      })();
+      return true;
+    }
+
+    // ── Lead Inbox: DELETE_LEAD — permanently remove a lead from My Leads.
+    // Mirrors CHANGE_LEAD_STAGE's pattern: try the server first (soft-delete
+    // via DELETE /api/v1/leads/:id, already supported server-side), fall
+    // back to local-only removal for a lead that never synced or that the
+    // server doesn't recognize (404), and always clear it from the local
+    // Dexie table so it disappears immediately regardless of network state.
+    if (msg.type === 'DELETE_LEAD') {
+      (async () => {
+        try {
+          const { leadId } = msg.payload || {};
+          if (!leadId) { sendResponse({ error: 'Missing leadId' }); return; }
+
+          let serverDeleted = false;
+          try {
+            const resp = await signedDelete(`${PROXY_URL}/api/v1/leads/${leadId}`);
+            if (resp.ok) {
+              serverDeleted = true;
+            } else if (resp.status !== 404) {
+              const err = await resp.json().catch(() => ({ error: resp.statusText }));
+              sendResponse({ error: err.error || `HTTP ${resp.status}` });
+              return;
+            }
+            // 404 means the server never had this lead (local-only, still
+            // pending sync) — that's fine, proceed to local removal below.
+          } catch (e: any) {
+            // Network failure — still remove locally so the rep's own view
+            // updates immediately; nothing to reconcile server-side since
+            // there was nothing sent to a server that never received it.
+          }
+
+          try {
+            await leadDb.captured_leads.delete(leadId);
+          } catch { /* lead may not be in local DB — that's fine */ }
+
+          sendResponse({ success: true, server_deleted: serverDeleted });
         } catch (e: any) {
           sendResponse({ error: e.message });
         }

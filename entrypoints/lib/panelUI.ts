@@ -21,6 +21,7 @@ type Platform =
   | 'autotrader'
   | 'dealersocket'
   | 'elead'
+  | 'x'
   | 'unknown';
 
 export function esc(s: string): string {
@@ -42,6 +43,7 @@ function getBadge(platform: Platform) {
     case 'autotrader': return { label: 'AutoTrader', color: '#0D6E6E', bg: '#F0FAFA' };
     case 'dealersocket': return { label: 'DealerSocket', color: '#0D6E6E', bg: '#F0FAFA' };
     case 'elead': return { label: 'Elead', color: '#0D6E6E', bg: '#F0FAFA' };
+    case 'x': return { label: 'X', color: '#000000', bg: '#f1f5f9' };
     default: return { label: '', color: '#64748b', bg: '#f1f5f9' };
   }
 }

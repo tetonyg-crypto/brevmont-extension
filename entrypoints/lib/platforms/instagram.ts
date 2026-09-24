@@ -107,12 +107,54 @@ export function hasOpenInstagramThread(): boolean {
   }
 }
 
+/** Fallback for when Instagram's markup has no `<header>` element at
+ *  all (confirmed live 2026-09-23 via DevTools on a real, open 1:1
+ *  thread: `document.querySelector('header')` returned null). The
+ *  counterpart's display name still renders as an h1/h2 wrapped by
+ *  their profile link — just not inside a `<header>` tag. Climbing
+ *  from that link, the smallest ancestor containing exactly one
+ *  h1/h2 is the counterpart's name; the ancestor picks up a SECOND
+ *  heading only once climbing reaches the shared container with the
+ *  conversation-list pane (which is headed by the rep's own
+ *  username) — so climbing stops the instant a second heading
+ *  appears, keeping this a purely structural check that never needs
+ *  to know what the rep's own username is. Confirmed against the
+ *  real DOM before writing this: the target heading resolved
+ *  cleanly from depth 0 through depth 8, and only merged with the
+ *  rep's own username heading at depth 9+.
+ */
+function readHeadingNearProfileLink(): HTMLElement | null {
+  try {
+    const main = document.querySelector('[role="main"]');
+    if (!main) return null;
+    const link = main.querySelector('a[role="link"][href^="/"]') as HTMLElement | null;
+    if (!link) return null;
+    let el: HTMLElement | null = link;
+    let candidate: HTMLElement | null = null;
+    let depth = 0;
+    while (el && depth < 15) {
+      const heads = el.querySelectorAll('h1, h2');
+      if (heads.length === 1) {
+        candidate = heads[0] as HTMLElement;
+      } else if (heads.length > 1) {
+        break;
+      }
+      el = el.parentElement;
+      depth++;
+    }
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
 function readHeaderAnchor(): HTMLElement | null {
   try {
     return (
       (document.querySelector('[role="main"] header h1') as HTMLElement | null) ||
       (document.querySelector('[role="main"] header h2') as HTMLElement | null) ||
-      (document.querySelector('[role="main"] header a[role="link"]') as HTMLElement | null)
+      (document.querySelector('[role="main"] header a[role="link"]') as HTMLElement | null) ||
+      readHeadingNearProfileLink()
     );
   } catch {
     return null;
@@ -170,10 +212,45 @@ function scrapeThread(): ThreadContext {
       // Candidate message rows. Instagram groups messages under
       // role="row" in some builds and plain divs with an aria-label
       // containing "Message" in others — both are checked, neither is
-      // a generated class name.
-      const bubbles = Array.from(
+      // a generated class name. Kept as a source for media-only
+      // bubbles (a photo/video message may carry an aria-label with
+      // no dir="auto" text at all).
+      const roleCandidates = Array.from(
         main.querySelectorAll('[role="row"], [aria-label*="Message" i], [data-testid*="message" i]')
-      ).slice(-40);
+      );
+      // Confirmed live 2026-09-23: on a real, open 1:1 thread, none of
+      // the role/aria candidates above actually matched real message
+      // text — every match was screen-reader-only announcement text
+      // ("React to message from X", "New message"). The real bubble
+      // text lives in leaf `div[dir="auto"]` nodes with no nested
+      // dir="auto" descendant (confirmed via DevTools: querying these
+      // inside [role="main"], excluding the composer's own subtree,
+      // returned the actual conversation text). Union both candidate
+      // sets rather than replacing the role-based one outright, so
+      // this fix doesn't regress whatever media-message handling the
+      // role-based selectors were covering.
+      const composerBox = main.querySelector('div[role="textbox"][contenteditable="true"]');
+      const textLeafCandidates = Array.from(main.querySelectorAll('div[dir="auto"]')).filter((el) => {
+        if (composerBox && (el === composerBox || composerBox.contains(el) || el.contains(composerBox))) {
+          return false;
+        }
+        if (!(el.textContent || '').trim()) return false;
+        return !el.querySelector('div[dir="auto"]');
+      });
+      const seen = new Set<Element>();
+      const merged: Element[] = [];
+      for (const el of [...roleCandidates, ...textLeafCandidates]) {
+        if (seen.has(el)) continue;
+        seen.add(el);
+        merged.push(el);
+      }
+      merged.sort((a, b) => {
+        const pos = a.compareDocumentPosition(b);
+        if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+        if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+        return 0;
+      });
+      const bubbles = merged.slice(-40);
       const mainRect = (main as HTMLElement).getBoundingClientRect();
       const mid = mainRect.left + mainRect.width / 2;
 

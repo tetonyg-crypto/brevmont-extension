@@ -675,6 +675,24 @@ test('Outlook adapter is registered and allowed by manifest/content script', () 
   expect(config).toContain('*://outlook.office.com/*');
 });
 
+test('X adapter is registered and allowed by manifest/content script', () => {
+  expect(existsSync(resolve(process.cwd(), 'entrypoints/lib/platforms/x.ts'))).toBe(true);
+  const registry = read('entrypoints/lib/platforms/registry.ts');
+  const content = read('entrypoints/content.ts');
+  const config = read('wxt.config.ts');
+  const sidepanel = read('entrypoints/sidepanel/main.ts');
+  expect(registry).toContain("x: () => import('./x')");
+  expect(registry).toContain("x.com/i/chat/");
+  expect(content).toContain("'*://x.com/*'");
+  expect(config).toContain("'*://x.com/*'");
+  // twitter.com is deliberately NOT added anywhere — it redirects to x.com
+  // at the network level, and the spec explicitly says not to add a host
+  // permission without a genuine reason.
+  expect(config).not.toContain('twitter.com');
+  expect(content).not.toContain('twitter.com');
+  expect(sidepanel).toContain("url.includes('x.com')");
+});
+
 test('production content script installs NO page-callable debug harness (store-safety)', () => {
   // 2026-07-26: the __brevmontVerify / __overdriveSpike DevTools hooks were
   // removed from the shipped content script — page-callable automation hooks on

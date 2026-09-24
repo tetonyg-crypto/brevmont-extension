@@ -21,7 +21,7 @@ import { detectCustomerFromPage, findGmailThreadSender, gmailSubjectText, nameMa
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 import { withInjectInFlight as overdriveWithInjectInFlight } from './lib/overdrive/safetyEnvelope';
 
-type Platform = 'vinsolutions' | 'gmail' | 'outlook' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'google-messages' | 'cargurus' | 'carsdotcom' | 'autotrader' | 'dealersocket' | 'elead' | 'unknown';
+type Platform = 'vinsolutions' | 'gmail' | 'outlook' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'google-messages' | 'cargurus' | 'carsdotcom' | 'autotrader' | 'dealersocket' | 'elead' | 'x' | 'unknown';
 
 /**
  * Return the first element matching any selector, honoring selector ORDER.
@@ -64,7 +64,15 @@ export default defineContentScript({
     '*://*.autotrader.com/*',
     '*://*.dealersocket.com/*',
     '*://*.elead-crm.com/*',
-    '*://*.eleadcrm.com/*'
+    '*://*.eleadcrm.com/*',
+    // X (x.com) DM/XChat — 2026-09-23. Broad domain match (like Facebook,
+    // not the narrower Instagram-path match) is deliberate: X is a heavy
+    // SPA reps reach a DM thread inside by clicking around, not usually a
+    // fresh page load into /i/chat/<id>, so the content script must stay
+    // alive across that in-page navigation. The x.ts adapter's own
+    // hasOpenXThread() — not this match list — is what narrows "is a
+    // thread actually open right now."
+    '*://x.com/*'
   ],
   allFrames: true,
   runAt: 'document_idle',
@@ -87,6 +95,7 @@ export default defineContentScript({
       : _url.includes('autotrader.com') ? 'autotrader'
       : _url.includes('dealersocket.com') ? 'dealersocket'
       : _url.includes('elead-crm.com') || _url.includes('eleadcrm.com') ? 'elead'
+      : _url.includes('x.com') ? 'x'
       : 'unknown';
     dlog('[Brevmont] Content script loaded on', PLATFORM, _url);
     addBreadcrumb({ category: 'state', message: 'content_script_loaded', data: { platform: PLATFORM } }).catch(() => {});

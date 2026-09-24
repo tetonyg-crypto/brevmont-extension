@@ -171,6 +171,13 @@ export default defineConfig({
       '*://*.dealersocket.com/*',
       '*://*.elead-crm.com/*',
       '*://*.eleadcrm.com/*',
+      // X (x.com) native DM adapter — 2026-09-23. Narrowest permission that
+      // makes native extraction possible: reading the DOM the rep already
+      // has open. The legacy bird-site domain is intentionally NOT added —
+      // it redirects to x.com at the network level before any script runs,
+      // so a second host permission buys nothing and the spec explicitly
+      // says not to add one without a genuine reason.
+      '*://x.com/*',
       '*://*.brevmont.com/*',
       // FLAG: photo inject fetches dealer CDN images in the service worker.
       // Without this, jazelc photo blobs fail from facebook.com's origin.

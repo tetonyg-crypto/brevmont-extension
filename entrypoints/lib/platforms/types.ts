@@ -21,7 +21,8 @@ export type PlatformId =
   | 'carsdotcom'
   | 'autotrader'
   | 'dealersocket'
-  | 'elead';
+  | 'elead'
+  | 'x';
 
 export type SurfaceKind =
   | 'social_dm'          // Messenger, Instagram DM, LinkedIn DM, WhatsApp

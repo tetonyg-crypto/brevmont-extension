@@ -26,6 +26,7 @@ type Platform =
   | 'autotrader'
   | 'dealersocket'
   | 'elead'
+  | 'x'
   | 'unknown';
 
 export interface PanelCSSOptions {
@@ -156,12 +157,13 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .my-lead-card { border:1px solid #E5E7EB; border-radius:10px; padding:10px; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.04); cursor:pointer; transition:border-color .15s ease, box-shadow .15s ease, transform .05s ease; }
 .my-lead-card:hover { border-color:#0D6E6E; box-shadow:0 2px 8px rgba(13,110,110,.12); }
 .my-lead-card:active { transform:scale(.995); }
-.my-lead-card .lead-card-title { position:relative; }
-.my-lead-card:hover .lead-card-title::after { content:'View'; position:absolute; right:0; top:1px; font-size:10px; font-weight:700; color:#0D6E6E; letter-spacing:.04em; }
+.my-lead-card:hover .lead-card-title::after { content:'View'; display:inline-block; margin-left:6px; font-size:10px; font-weight:700; color:#0D6E6E; letter-spacing:.04em; vertical-align:middle; }
 .my-lead-card + .my-lead-card { margin-top:8px; }
 .my-lead-card.lost { background:#FFF7F7; border-color:#FECACA; opacity:.86; }
 .my-lead-card.lost .lead-card-title { color:#6B7280; text-decoration:line-through; }
-.my-lead-card.lost .lead-primary-action, .my-lead-card.lost .lead-secondary-row, .my-lead-card.lost .appt-inline { display:none !important; }
+.my-lead-card.lost .lead-primary-action, .my-lead-card.lost .appt-inline { display:none !important; }
+.my-lead-card.lost .lead-secondary-row { grid-template-columns:1fr; }
+.my-lead-card.lost .lead-secondary-row > button:not(.lead-delete-action) { display:none !important; }
 .my-lead-card-exiting { transform:translateX(-24px); opacity:0; transition:transform .3s ease, opacity .3s ease; }
 .my-leads-filter-row { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:10px; }
 .my-leads-filter-btn { border:1px solid #E5E7EB; border-radius:8px; background:#fff; color:#64748B; font-family:inherit; font-size:11px; font-weight:800; line-height:1.2; padding:8px; cursor:pointer; }
@@ -175,9 +177,11 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .lead-pill { display:inline-flex; align-items:center; gap:3px; border-radius:999px; padding:2px 7px; font-size:10px; font-weight:700; background:#F1F5F9; color:#475569; }
 .lead-primary-action { width:100%; border:0; border-radius:8px; background:#0D6E6E; color:#fff; padding:9px; margin-top:9px; font-size:12px; font-weight:800; font-family:inherit; cursor:pointer; }
 .lead-primary-action:hover { background:#0A5555; }
-.lead-secondary-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; margin-top:6px; }
+.lead-secondary-row { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:5px; margin-top:6px; }
 .lead-secondary-action { border:1px solid #E5E7EB; border-radius:7px; background:#fff; color:#475569; padding:7px 4px; font-size:10px; font-weight:700; font-family:inherit; cursor:pointer; }
 .lead-secondary-action:hover { background:#F8FAFC; color:#0D6E6E; }
+.lead-delete-action { color:#DC2626; border-color:#FECACA; }
+.lead-delete-action:hover { background:#FEF2F2; color:#DC2626; }
 .lost-reason-backdrop { position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center; padding:14px; background:rgba(15,20,25,.45); }
 .lost-reason-modal { width:100%; max-width:330px; max-height:calc(100% - 18px); overflow:auto; border-radius:12px; background:#fff; box-shadow:0 18px 50px rgba(15,23,42,.25); padding:14px; }
 .lost-reason-header { display:flex; align-items:start; justify-content:space-between; gap:10px; margin-bottom:10px; }
