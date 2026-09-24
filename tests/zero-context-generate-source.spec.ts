@@ -776,3 +776,16 @@ test('sidepanel connection gate includes every adapter surface used for zero-con
     expect(source).toContain(host);
   }
 });
+
+test('generating from a selected My Leads card stamps the lead\'s own platform, not whatever tab is active', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  // Regression: this used to always send platform: currentPlatform.platform,
+  // so generating from a saved lead while sitting on a tab with no matching
+  // adapter permanently stamped that generation's event_log_v2 row as
+  // platform "unknown" -- even though the lead card already shows the
+  // correct source (Instagram/X/etc). event_log_v2 rows confirmed this live
+  // for real captured leads (Jayson hanz, German Tzompa, Joy Casas), and the
+  // Stats CSV export surfaced it as "Not detected".
+  expect(source).toContain("platform: (selectedLeadId ? leadContext.source : null) || currentPlatform.platform");
+  expect(source).not.toContain("platform: currentPlatform.platform, tone, goal");
+});

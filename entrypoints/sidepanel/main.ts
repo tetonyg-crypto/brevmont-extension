@@ -4216,7 +4216,16 @@ async function doGenerate(root: HTMLElement): Promise<void> {
         pasteContext: (root.querySelector('#o8-context-input') as HTMLTextAreaElement | null)?.value.trim() || '',
         pasteMode,
         systemHints: { noVehicleDetected: !vehicleForGeneration },
-        repName: '', dealership: '', platform: currentPlatform.platform, tone, goal,
+        // 2026-09-24: "Generate Follow-up" from a saved My Leads card always
+        // sent whatever tab the browser happened to be on right now as the
+        // platform — not the lead's own captured source. A rep generating a
+        // follow-up while sitting on Settings, or any tab with no matching
+        // adapter, permanently stamped that generation's platform as
+        // "unknown" in event_log_v2, even though the lead card itself
+        // already shows the correct channel pill (Instagram/X/etc). The
+        // lead's own source_platform (already threaded into leadContext.source
+        // by leadContextFromSelectedLead) is the honest answer in lead mode.
+        repName: '', dealership: '', platform: (selectedLeadId ? leadContext.source : null) || currentPlatform.platform, tone, goal,
         metadata: _meta,
         lead_id: (root as any).__pendingLeadId || null,
       },
