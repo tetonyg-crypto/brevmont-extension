@@ -59,14 +59,22 @@ function stripLinkedInChrome(text: string): string {
     .trim();
 }
 
-function stripLinkedInMessageChrome(text: string, personName?: string | null): string {
+export function stripLinkedInMessageChrome(text: string, personName?: string | null): string {
   let t = stripLinkedInChrome(text);
   t = t.replace(/\bview\s+[^.]{1,48}\s+profile\b/ig, ' ');
   t = t.replace(/\((?:he|she|they)\/(?:him|her|them)\)/ig, ' ');
   t = t.replace(/\b\d{1,2}:\d{2}\s*(?:AM|PM)\b/ig, ' ');
   if (personName) {
     const escaped = personName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    t = t.replace(new RegExp(`(?:^|\\s)${escaped}\\b`, 'ig'), ' ');
+    // LinkedIn's saved custom-nickname feature renders "(Nickname)" directly
+    // after the real name in bubble lockup text, e.g. "Tony Valladolid (Bad
+    // Ass) sent the following message at 7:39 PM". header_text/personName is
+    // always the real name only, so stripping just the name left the
+    // nickname parenthetical orphaned in place -- confirmed live 2026-09-25,
+    // it surfaced mid-sentence in the "Replying to" preview. Consume an
+    // optional trailing "(...)" as part of the same strip so the nickname
+    // never survives independently of the name it was attached to.
+    t = t.replace(new RegExp(`(?:^|\\s)${escaped}\\b(?:\\s*\\([^)]{0,40}\\))?`, 'ig'), ' ');
   }
   return t.replace(/\s+/g, ' ').trim();
 }
