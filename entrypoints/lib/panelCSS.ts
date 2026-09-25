@@ -65,17 +65,18 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .chip.tab-active { background:#0D6E6E; color:#F5F1E8; border-color:#0D6E6E; }
 .chip.tab-active.on::after { background:#F5F1E8; border-color:#0D6E6E; }
 .input-wrap { position:relative; display:flex; align-items:flex-start; }
-.main-input { flex:1; padding:8px 40px 8px 10px; border:1px solid #e2e8f0; border-radius:6px; font-size:13px; font-family:inherit; resize:none; outline:none; color:#1a202c; }
+.main-input { flex:1; padding:8px 78px 8px 10px; border:1px solid #e2e8f0; border-radius:6px; font-size:13px; font-family:inherit; resize:none; outline:none; color:#1a202c; }
 .main-input:focus { border-color:#0D6E6E; } .main-input::placeholder { color:#94a3b8; }
 .inline-mic { position:absolute; right:6px; top:6px; width:28px; height:28px; border-radius:50%; border:none; background:#0D6E6E; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; }
 .inline-mic:hover { background:#0A5555; transform:scale(1.05); }
 .inline-mic.mic-active { background:#B91C1C; animation:mic-pulse 1s infinite; }
 /* Clears the steer textarea in one click instead of select-all + delete
-   when switching to a new lead. Stacked directly under the mic button
-   (same right edge, 6px gap) so it never overlaps it; only shown once the
-   textarea has content. */
-.inline-clear { position:absolute; right:6px; top:40px; width:22px; height:22px; border-radius:50%; border:none; background:#94a3b8; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; padding:0; }
-.inline-clear:hover { background:#64748b; transform:scale(1.08); }
+   when switching to a new lead. Sits to the left of the mic, same row, as
+   a skinny rounded pill rather than stacking under it -- always visible
+   (not conditional on the textarea having content) so its position never
+   shifts. */
+.inline-clear { position:absolute; right:40px; top:6px; width:28px; height:28px; border-radius:10px; border:none; background:#94a3b8; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; padding:0; }
+.inline-clear:hover { background:#64748b; transform:scale(1.05); }
 .input-wrap input.main-input + .inline-mic { top:50%; right:6px; transform:translateY(-50%); }
 .input-wrap input.main-input + .inline-mic:hover { transform:translateY(-50%) scale(1.05); }
 .input-wrap input.main-input + .inline-mic.mic-active { animation:mic-pulse-centered 1s infinite; }
@@ -345,9 +346,9 @@ ${domMode && isGmail ? `
 .input-section { padding:10px 12px; }
 .chips { gap:4px; margin-bottom:8px; }
 .chip { padding:4px 10px; font-size:11px; border-radius:14px; }
-.main-input { padding:8px 36px 8px 10px; font-size:13px; }
+.main-input { padding:8px 66px 8px 10px; font-size:13px; }
 .inline-mic { width:26px; height:26px; right:5px; top:5px; }
-.inline-clear { width:20px; height:20px; right:5px; top:37px; }
+.inline-clear { width:26px; height:26px; right:35px; top:5px; }
 .gen-btn { padding:9px; font-size:13px; margin-top:8px; border-radius:6px; }
 .inline-links { margin-top:6px; gap:5px; } .link-btn { font-size:11px; }
 .outputs { padding:0 12px; overflow:visible; flex:0 0 auto; min-height:0; }

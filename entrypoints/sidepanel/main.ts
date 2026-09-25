@@ -3528,15 +3528,10 @@ function wireHandlers(root: HTMLElement): void {
   if (mic && mainInput) attachMic(mainInput, mic);
 
   // Clear button — one click instead of select-all + delete when switching
-  // to a new lead's thread. Only visible once the steer textarea has
-  // content; hidden again immediately after clearing.
+  // to a new lead's thread. Always visible (fixed position next to the mic)
+  // so it never shifts the layout; clicking it when already empty is a no-op.
   const inputClear = el('o8-input-clear') as HTMLButtonElement | null;
   if (inputClear && mainInput) {
-    const syncClearVisibility = () => {
-      inputClear.style.display = mainInput.value.trim() ? 'flex' : 'none';
-    };
-    syncClearVisibility();
-    mainInput.addEventListener('input', syncClearVisibility);
     inputClear.onclick = () => {
       mainInput.value = '';
       mainInput.dispatchEvent(new Event('input', { bubbles: true }));
