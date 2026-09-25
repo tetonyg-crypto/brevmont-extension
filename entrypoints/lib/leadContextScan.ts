@@ -279,6 +279,21 @@ export function isLinkedInSelfOrCompanyLabel(value: string): boolean {
   return false;
 }
 
+// LinkedIn prepends an ALL-CAPS day-divider ("TODAY", "YESTERDAY", "WEDNESDAY")
+// or a date string ("SEP 23") to the first message bubble under a new day
+// group, concatenated onto the same line as the sender lockup
+// ("WEDNESDAY Yancy Garcia sent the following message..."). Root cause of a
+// 2026-09-25 founder-runtime defect: the sender-name regex below is anchored
+// to the start of the string and requires Title Case, so an all-caps divider
+// made it fail silently -- the message then fell through to inbound even
+// when it was the signed-in member's own send, corrupting the LAST CUSTOMER
+// MESSAGE / conversation-role signal for that thread (only the FIRST
+// message of each day group was affected; later same-day messages had no
+// divider and classified correctly, which is why the bug looked
+// intermittent rather than total).
+const LEADING_DAY_DIVIDER_RE =
+  /^(?:TODAY|YESTERDAY|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\s+\d{1,2}(?:,?\s*\d{4})?)\s+/i;
+
 /** First-line lockup on a LinkedIn bubble ("Yancy Garcia Sent ya an email"). */
 export function linkedInSenderLabelFromBubbleText(text: string): string {
   const first = String(text || '')
@@ -286,6 +301,7 @@ export function linkedInSenderLabelFromBubbleText(text: string): string {
     .replace(/\s+/g, ' ')
     .replace(/\b\d{1,2}:\d{2}\s*(?:AM|PM)\b/ig, '')
     .replace(/\breact with\b.*$/i, '')
+    .replace(LEADING_DAY_DIVIDER_RE, '')
     .trim();
   if (!first) return '';
   const match = first.match(/^([A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)?(?:\s+[A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)?){0,3})\b/);
