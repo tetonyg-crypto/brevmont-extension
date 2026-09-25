@@ -70,6 +70,12 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .inline-mic { position:absolute; right:6px; top:6px; width:28px; height:28px; border-radius:50%; border:none; background:#0D6E6E; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; }
 .inline-mic:hover { background:#0A5555; transform:scale(1.05); }
 .inline-mic.mic-active { background:#B91C1C; animation:mic-pulse 1s infinite; }
+/* Clears the steer textarea in one click instead of select-all + delete
+   when switching to a new lead. Stacked directly under the mic button
+   (same right edge, 6px gap) so it never overlaps it; only shown once the
+   textarea has content. */
+.inline-clear { position:absolute; right:6px; top:40px; width:22px; height:22px; border-radius:50%; border:none; background:#94a3b8; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; padding:0; }
+.inline-clear:hover { background:#64748b; transform:scale(1.08); }
 .input-wrap input.main-input + .inline-mic { top:50%; right:6px; transform:translateY(-50%); }
 .input-wrap input.main-input + .inline-mic:hover { transform:translateY(-50%) scale(1.05); }
 .input-wrap input.main-input + .inline-mic.mic-active { animation:mic-pulse-centered 1s infinite; }
@@ -341,6 +347,7 @@ ${domMode && isGmail ? `
 .chip { padding:4px 10px; font-size:11px; border-radius:14px; }
 .main-input { padding:8px 36px 8px 10px; font-size:13px; }
 .inline-mic { width:26px; height:26px; right:5px; top:5px; }
+.inline-clear { width:20px; height:20px; right:5px; top:37px; }
 .gen-btn { padding:9px; font-size:13px; margin-top:8px; border-radius:6px; }
 .inline-links { margin-top:6px; gap:5px; } .link-btn { font-size:11px; }
 .outputs { padding:0 12px; overflow:visible; flex:0 0 auto; min-height:0; }

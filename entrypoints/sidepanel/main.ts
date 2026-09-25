@@ -3523,6 +3523,23 @@ function wireHandlers(root: HTMLElement): void {
   const mic = el('o8-mic');
   if (mic && mainInput) attachMic(mainInput, mic);
 
+  // Clear button — one click instead of select-all + delete when switching
+  // to a new lead's thread. Only visible once the steer textarea has
+  // content; hidden again immediately after clearing.
+  const inputClear = el('o8-input-clear') as HTMLButtonElement | null;
+  if (inputClear && mainInput) {
+    const syncClearVisibility = () => {
+      inputClear.style.display = mainInput.value.trim() ? 'flex' : 'none';
+    };
+    syncClearVisibility();
+    mainInput.addEventListener('input', syncClearVisibility);
+    inputClear.onclick = () => {
+      mainInput.value = '';
+      mainInput.dispatchEvent(new Event('input', { bubbles: true }));
+      mainInput.focus();
+    };
+  }
+
   // Settings panel
   const settingsPanel = el('o8-settings-panel');
   const settingsBack = el('o8-settings-back');
