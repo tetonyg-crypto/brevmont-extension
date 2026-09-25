@@ -3237,6 +3237,11 @@ async function recordSuccessfulGeneration(_root: HTMLElement): Promise<void> {
   const data = await chrome.storage.local.get([LOCAL_GENERATION_COUNT_KEY]).catch(() => ({}));
   const count = Number(data[LOCAL_GENERATION_COUNT_KEY] || 0) + 1;
   await chrome.storage.local.set({ [LOCAL_GENERATION_COUNT_KEY]: count });
+  // AUTH-RUNTIME-002: the footer's "N of 7 free replies left" chip is only
+  // ever painted from GET_RESOLVED_ACCESS at panel init/sign-in. Without
+  // this, it keeps showing the count captured at load time no matter how
+  // many real generations the account uses in the same session.
+  renderAccountChip().catch(() => {});
 }
 
 async function showAccessEndedBanner(root: HTMLElement): Promise<void> {

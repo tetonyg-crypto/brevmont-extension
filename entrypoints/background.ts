@@ -781,9 +781,20 @@ export default defineBackground(() => {
             'brevmont_tier', 'dealership_tier', 'dealership_plan',
             'profile_onboarded', 'profile', 'rep_industry_context', 'rep_is_automotive',
           ];
+          // AUTH-RUNTIME-002 (2026-09-24): captured_leads is a global,
+          // unkeyed Dexie table (leads never get dealership_id/rep_id
+          // stamped back locally — see lib/leadSync.ts). Without this it
+          // survives every identity purge above and mergeLeadInboxRows()
+          // in the sidepanel folds every row it has ever held — including
+          // a prior rep's leads on a shared browser profile — into "My
+          // Leads" for whichever account happens to be signed in now.
+          // Any unsynced ('pending'/'error') local lead cannot be safely
+          // reattributed to the incoming identity either, so the whole
+          // table is cleared, not selectively filtered.
           await Promise.allSettled([
             browser.storage.local.remove(IDENTITY_LOCAL_KEYS),
             browser.storage.sync.remove(IDENTITY_SYNC_KEYS),
+            leadDb.captured_leads.clear(),
           ]);
           await traceBackgroundAuthBridge('session_ready_purge_complete', 'wipe', {
             expected_email: payload.expected_rep_email || '',
@@ -871,6 +882,8 @@ export default defineBackground(() => {
           await Promise.allSettled([
             browser.storage.sync.remove(SYNC_KEYS),
             browser.storage.local.remove(LOCAL_KEYS),
+            // AUTH-RUNTIME-002: see matching clear() in BREVMONT_REP_SESSION_READY.
+            leadDb.captured_leads.clear(),
           ]);
           await browser.storage.local.set({ [SIGNED_OUT_SENTINEL_KEY]: Date.now() });
           const after = await snapshotExtensionStorage();
