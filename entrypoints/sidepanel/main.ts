@@ -2618,7 +2618,7 @@ async function renderPanel(): Promise<void> {
 
   chrome.runtime.sendMessage({ type: 'SYNC_AUTH_FROM_COOKIE' }).then((resp: any) => {
     if (resp?.configured) {
-      renderAccountChip().catch(() => {});
+      renderAccountChip().then(() => removeAutomotivePresetsForGeneralRep(root)).catch(() => {});
     }
   }).catch(() => {});
 
@@ -2627,7 +2627,7 @@ async function renderPanel(): Promise<void> {
   showAccessEndedBanner(root);
   startChallengePolling(root);
   renderMyLeads(root).catch(() => {});
-  renderAccountChip().catch(() => {});
+  renderAccountChip().then(() => removeAutomotivePresetsForGeneralRep(root)).catch(() => {});
   renderRadarStatus(root).catch(() => {});
   renderOverdriveStatusPill(root).catch(() => {});
   renderOverdriveHeartbeatStrip(root).catch(() => {});
@@ -4633,21 +4633,40 @@ function coachDisplayText(input: string, modelText: string, isAutomotive = false
   return cleaned;
 }
 
+const AUTOMOTIVE_PRESET_PLACEHOLDER = 'e.g., 72 months, 30k car, 2k down, 9%';
+const GENERAL_COMMAND_PLACEHOLDER = 'Ask about this customer, objection, follow-up, or next step';
+
+// AUTH-RUNTIME-002: this runs once, synchronously, right after the panel's
+// static markup is injected — before GET_RESOLVED_ACCESS (fired later by
+// renderAccountChip) has had any chance to resolve the real account
+// industry. getRepIndustryContext() correctly defaults unresolved/empty
+// data to automotive (see repIndustryContext.ts), so on every fresh
+// sign-in this call applies the automotive preset first and never revisits
+// it once the real, non-automotive industry data lands a moment later.
+// Made idempotent (data-automotive-preset guard) and re-invoked after
+// renderAccountChip() below so it can correct itself once real data exists.
 async function removeAutomotivePresetsForGeneralRep(root: HTMLElement): Promise<void> {
   const industry = await getRepIndustryContext();
+  const command = root.querySelector('#o8-cmd-input') as HTMLTextAreaElement | null;
   if (industry.isAutomotive) {
     const coach = root.querySelector('.coach-chips');
     const ask = root.querySelector('.ask-chips');
-    if (coach) coach.insertAdjacentHTML('beforeend', '<button class="coach-chip">Bad credit</button><button class="coach-chip">Trading in my car</button><button class="coach-chip">Need to check with my bank</button>');
-    if (ask) ask.insertAdjacentHTML('beforeend', '<button class="ask-chip">72 months, 30k, 2k down, 9%</button><button class="ask-chip">How to handle a trade</button><button class="ask-chip">Credit concern</button><button class="ask-chip">Set the appointment</button>');
-    const command = root.querySelector('#o8-cmd-input') as HTMLTextAreaElement | null;
-    if (command) command.placeholder = 'e.g., 72 months, 30k car, 2k down, 9%';
+    if (coach && !coach.querySelector('[data-automotive-preset]')) {
+      coach.insertAdjacentHTML('beforeend', '<button class="coach-chip" data-automotive-preset>Bad credit</button><button class="coach-chip" data-automotive-preset>Trading in my car</button><button class="coach-chip" data-automotive-preset>Need to check with my bank</button>');
+    }
+    if (ask && !ask.querySelector('[data-automotive-preset]')) {
+      ask.insertAdjacentHTML('beforeend', '<button class="ask-chip" data-automotive-preset>72 months, 30k, 2k down, 9%</button><button class="ask-chip" data-automotive-preset>How to handle a trade</button><button class="ask-chip" data-automotive-preset>Credit concern</button><button class="ask-chip" data-automotive-preset>Set the appointment</button>');
+    }
+    if (command) command.placeholder = AUTOMOTIVE_PRESET_PLACEHOLDER;
     return;
   }
   const automotiveOnly = new Set(['Bad credit', 'Spouse not here', 'Trading in my car', 'Found it cheaper', 'Need to check with my bank', '72 months, 30k, 2k down, 9%', 'How to handle a trade', 'Credit concern', 'Set the appointment']);
   root.querySelectorAll('.coach-chip, .ask-chip').forEach((node) => {
     if (automotiveOnly.has((node.textContent || '').trim())) node.remove();
   });
+  if (command && command.placeholder === AUTOMOTIVE_PRESET_PLACEHOLDER) {
+    command.placeholder = GENERAL_COMMAND_PLACEHOLDER;
+  }
 }
 
 function looksLikeClarifyingQuestion(text: string): boolean {

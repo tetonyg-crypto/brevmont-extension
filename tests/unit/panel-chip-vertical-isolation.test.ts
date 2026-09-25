@@ -56,8 +56,18 @@ describe('sidepanel/main.ts: automotive/general chip wiring (source-level, match
   });
 
   it('automotive branch adds exactly the chips missing from the base template, with no overlap/duplication risk', () => {
-    expect(src).toContain('<button class="coach-chip">Bad credit</button><button class="coach-chip">Trading in my car</button><button class="coach-chip">Need to check with my bank</button>');
-    expect(src).toContain('<button class="ask-chip">72 months, 30k, 2k down, 9%</button><button class="ask-chip">How to handle a trade</button><button class="ask-chip">Credit concern</button><button class="ask-chip">Set the appointment</button>');
+    expect(src).toContain('<button class="coach-chip" data-automotive-preset>Bad credit</button><button class="coach-chip" data-automotive-preset>Trading in my car</button><button class="coach-chip" data-automotive-preset>Need to check with my bank</button>');
+    expect(src).toContain('<button class="ask-chip" data-automotive-preset>72 months, 30k, 2k down, 9%</button><button class="ask-chip" data-automotive-preset>How to handle a trade</button><button class="ask-chip" data-automotive-preset>Credit concern</button><button class="ask-chip" data-automotive-preset>Set the appointment</button>');
+  });
+
+  it('automotive chip insertion is idempotent so re-running after real access data lands never duplicates the chips (AUTH-RUNTIME-003)', () => {
+    expect(src).toContain("!coach.querySelector('[data-automotive-preset]')");
+    expect(src).toContain("!ask.querySelector('[data-automotive-preset]')");
+  });
+
+  it('removeAutomotivePresetsForGeneralRep is re-run after renderAccountChip resolves real industry data, not only once before it exists (AUTH-RUNTIME-003)', () => {
+    const occurrences = src.match(/renderAccountChip\(\)\.then\(\(\) => removeAutomotivePresetsForGeneralRep\(root\)\)/g) || [];
+    expect(occurrences.length).toBeGreaterThanOrEqual(2);
   });
 
   it('general-sales branch removes every automotive-only chip label, including the two baked into the base template', () => {
