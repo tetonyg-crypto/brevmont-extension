@@ -128,7 +128,7 @@ import {
 } from '../lib/accessState';
 import {
   BREVMONT_UNINSTALL_URL,
-  BREVMONT_WELCOME_URL,
+  openOrFocusWelcomeTab,
   REFERRAL_CLAIMED_KEY,
   REFERRAL_CODE_KEY,
 } from './lib/cwsDistribution';
@@ -2997,7 +2997,12 @@ export default defineBackground(() => {
       // they can click "I pinned it" which routes them to the legacy
       // onboarding wizard (fallback bootstrap path).
       try {
-        await browser.tabs.create({ url: BREVMONT_WELCOME_URL, active: true });
+        // 2026-09-25: routed through the shared guard (see
+        // openOrFocusWelcomeTab in ./lib/cwsDistribution) so this never
+        // stacks a second welcome tab on top of one the side panel's own
+        // "Get started" button already opened -- confirmed live, both
+        // fired independently and produced duplicate near-identical tabs.
+        await openOrFocusWelcomeTab(browser.tabs, browser.windows);
         await browser.tabs.create({ url: browser.runtime.getURL('install-screen.html'), active: false });
       } catch {
         // Final fallback — permission page (mic + setup gate).

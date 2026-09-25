@@ -14,7 +14,7 @@ import { getPanelCSS } from '../lib/panelCSS';
 import { lockDocumentZoom } from '../lib/hostZoom';
 import {
   LOCAL_GENERATION_COUNT_KEY,
-  BREVMONT_WELCOME_URL,
+  openOrFocusWelcomeTab,
 } from '../lib/cwsDistribution';
 import { clearJwtCache } from '../../lib/jwtCache';
 import { clearAuth } from '../../lib/storage';
@@ -571,7 +571,11 @@ async function hasStoredSession(): Promise<boolean> {
 const AUTH_APP_URL = 'https://app.brevmont.com/auth/extension';
 
 function openNewUserOnboardingTab(): void {
-  try { chrome.tabs.create({ url: BREVMONT_WELCOME_URL, active: true }); } catch { /* noop */ }
+  // 2026-09-25: routed through the shared guard so this never opens a
+  // second welcome tab on top of one background.ts's onInstalled handler
+  // already opened automatically -- see openOrFocusWelcomeTab in
+  // ../lib/cwsDistribution.ts.
+  openOrFocusWelcomeTab(chrome.tabs, chrome.windows).catch(() => {});
 }
 
 function openAuthExtensionTab(): void {

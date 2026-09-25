@@ -15,7 +15,11 @@ describe("web store post-install flow", () => {
     // (autoConfigured === false) — it must keep showing the generic
     // two-button /welcome chooser.
     expect(background).toContain("} else if (details.reason === 'install' && !alreadySetup) {");
-    expect(background).toContain("browser.tabs.create({ url: BREVMONT_WELCOME_URL, active: true });");
+    // 2026-09-25: routed through the shared openOrFocusWelcomeTab guard
+    // (see tests/unit/welcomeTabDedup.test.ts) instead of a raw
+    // tabs.create, so a duplicate welcome tab never stacks on top of one
+    // the side panel's own "Get started" button already opened.
+    expect(background).toContain("await openOrFocusWelcomeTab(browser.tabs, browser.windows);");
     expect(background).toContain("browser.tabs.create({ url: browser.runtime.getURL('install-screen.html'), active: false });");
   });
 
