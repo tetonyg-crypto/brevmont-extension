@@ -564,13 +564,22 @@ export default defineBackground(() => {
       } else if (data.dealer_token || data.rep_auth_token || data.brevmont_rep_auth_token) {
         await chrome.tabs.create({ url: chrome.runtime.getURL('onboarding.html') });
       } else {
-        // First time — open permission page as a full tab
-        await chrome.tabs.create({ url: 'https://app.brevmont.com/auth/extension' });
+        // First time (2026-09-25 fix): land on /welcome, not directly on
+        // /auth/extension's generic "Create your account" screen. /welcome's
+        // no-session branch is the CWS-install workspace choice ("Continue -
+        // all sales" vs "I sell cars - automotive workspace") that already
+        // exists for this exact purpose — it forwards to
+        // /auth/extension?plan=... once the rep picks, so account creation
+        // never happens before the rep understands which workspace they're
+        // creating. Returning-user re-auth (AUTH_APP_URL in sidepanel/main.ts,
+        // used with ?force=1) is untouched — that always goes straight to
+        // /auth/extension since the persona is already persisted.
+        await chrome.tabs.create({ url: 'https://app.brevmont.com/welcome' });
       }
     } catch (e) {
       console.warn('[Brevmont] action.onClicked handler error:', e);
-      // Fallback: try opening permission page
-      chrome.tabs.create({ url: 'https://app.brevmont.com/auth/extension' }).catch(() => {});
+      // Fallback: try opening the same first-time entry point
+      chrome.tabs.create({ url: 'https://app.brevmont.com/welcome' }).catch(() => {});
     }
   });
 
