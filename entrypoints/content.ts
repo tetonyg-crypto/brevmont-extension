@@ -16,7 +16,7 @@
 import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
-import { cleanCustomerNameCandidate, extractContactName as extractContactNameForPlatform, gatherAllText, hasActiveComposeSurface, isChannelOrUiName, stripConversationWrapper } from './lib/leadContextScan';
+import { cleanCustomerNameCandidate, extractContactName as extractContactNameForPlatform, extractLinkedInPersonName, gatherAllText, hasActiveComposeSurface, isChannelOrUiName, isLinkedInSelfOrCompanyLabel, stripConversationWrapper } from './lib/leadContextScan';
 import { detectCustomerFromPage, findGmailThreadSender, gmailSubjectText, nameMatchesGmailSubject } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 import { withInjectInFlight as overdriveWithInjectInFlight } from './lib/overdrive/safetyEnvelope';
@@ -328,38 +328,37 @@ export default defineContentScript({
         const text = (el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
         return text || null;
       };
-      // Founder-reported defect 2026-09-26: on a /messaging/thread/ page, the
-      // profile-page selectors below (h1.text-heading-xlarge etc) were tried
-      // FIRST -- but LinkedIn's own persistent left-rail/global identity
-      // markup can carry the SAME h1.text-heading-xlarge class for the
-      // logged-in rep's own name, and since it's a real name (not generic
-      // chrome text), isLikelyUiName() never filters it out. Confirmed live:
-      // "Scan This Page" on Darrin Guttman's and Alec Langton's threads both
-      // captured "Yancy Garcia" (the rep) as the buyer, even though the
-      // separate lead-radar detector (which reads the messaging-specific
-      // selectors directly) correctly showed "This for Alec Langton?" first.
-      // On a messaging thread, the thread-participant selectors are always
-      // the correct signal and must be tried before the generic profile h1s,
-      // never after.
-      const isMessagingThread = /\/messaging\//i.test(String(location.href || ''))
-        || !!document.querySelector('.msg-s-message-list-content, .msg-form__contenteditable, .msg-overlay-conversation-bubble');
-      const messagingSelectors = [
-        '.msg-overlay-bubble-header__title',
-        '.msg-s-message-group__name',
-        '.msg-thread__link-to-profile',
-        '.msg-entity-lockup__entity-title',
-      ];
-      const profileSelectors = [
+      // Founder-reported defect 2026-09-26: "Scan This Page" on a LinkedIn
+      // messaging thread (Darrin Guttman, then Alec Langton) captured the
+      // REP as the Buyer. First attempt reordered the raw selector list
+      // (messaging selectors before profile-page h1s) -- that made it WORSE
+      // ("Brevmont Yancy Garcia"), because .msg-thread__link-to-profile and
+      // .msg-s-message-group__name are PER-MESSAGE-GROUP selectors, not a
+      // single header element: an unscoped document.querySelector grabs
+      // whichever sender's name-lockup happens to appear FIRST in DOM order,
+      // which is the rep's own name whenever the rep sent the first message
+      // in the thread (exactly this case -- Yancy initiated contact).
+      // extractLinkedInPersonName() in lib/leadContextScan.ts (already used
+      // by the separate, correctly-working lead-radar detector that showed
+      // "This for Alec Langton?") does this right: it scopes to the actual
+      // open thread root, prefers the selected conversation-list item's
+      // name, and filters every candidate through isLinkedInSelfOrCompanyLabel
+      // so the rep's own name/company can never win. Delegate to it instead
+      // of maintaining a second, weaker reimplementation here.
+      const fallbackNameSelectors = [
         'main h1.text-heading-xlarge',
         '.pv-text-details__left-panel h1',
         '.ph5 h1',
         'h1.text-heading-xlarge',
+        '.msg-overlay-bubble-header__title',
+        '.msg-s-message-group__name',
+        '.msg-thread__link-to-profile',
+        '.msg-entity-lockup__entity-title',
         '[data-anonymize="person-name"]',
       ];
-      const nameSelectors = isMessagingThread
-        ? [...messagingSelectors, '[data-anonymize="person-name"]', ...profileSelectors]
-        : [...profileSelectors, ...messagingSelectors];
-      const rawName = nameSelectors.map(pickText).find((candidate) => candidate && !isLikelyUiName(candidate)) || null;
+      const rawName = extractLinkedInPersonName()
+        || fallbackNameSelectors.map(pickText).find((candidate) => candidate && !isLikelyUiName(candidate) && !isLinkedInSelfOrCompanyLabel(candidate))
+        || null;
       const headline = pickText('.text-body-medium.break-words')
         || pickText('.pv-text-details__left-panel .text-body-medium')
         || pickText('.msg-entity-lockup__entity-info')
