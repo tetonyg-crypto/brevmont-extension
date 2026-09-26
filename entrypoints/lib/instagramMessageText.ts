@@ -50,6 +50,33 @@ export interface InstagramClassifiedMessage {
   contentType: InstagramMessageContentType;
 }
 
+export interface HorizontalBox {
+  left: number;
+  width: number;
+}
+
+/**
+ * Sender side of a message row, measured against the THREAD column (the
+ * composer's box), never against `[role="main"]`: on instagram.com/direct,
+ * `[role="main"]` spans the inbox list AND the thread, so its midpoint sits
+ * inside the inbox list and every thread bubble read as "outbound".
+ * Confirmed live 2026-09-25: Gaaabby<3's own messages were sent to the model
+ * as `[outbound]` and the rep's own message became "LAST CUSTOMER MESSAGE".
+ *
+ * Returns 'outside' for rows left of the thread column (inbox previews),
+ * which callers must drop.
+ */
+export function instagramBubbleSide(
+  bubble: HorizontalBox,
+  pane: HorizontalBox,
+): 'inbound' | 'outbound' | 'unknown' | 'outside' {
+  if (!(pane.width > 0) || !(bubble.width > 0)) return 'unknown';
+  if (bubble.left + bubble.width <= pane.left) return 'outside';
+  if (bubble.width >= pane.width * 0.9) return 'unknown';
+  const mid = pane.left + pane.width / 2;
+  return bubble.left + bubble.width / 2 > mid ? 'outbound' : 'inbound';
+}
+
 export function normalizeInstagramText(value: unknown): string {
   return String(value || '')
     .replace(/\s+/g, ' ')

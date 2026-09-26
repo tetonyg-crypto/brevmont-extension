@@ -57,7 +57,7 @@ import type {
   ThreadContext,
 } from './types';
 import { extractVehicleHint, stableKeyFromPath } from './shared';
-import { classifyInstagramBubble, isInstagramNoiseText } from '../instagramMessageText';
+import { classifyInstagramBubble, instagramBubbleSide, isInstagramNoiseText } from '../instagramMessageText';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
@@ -251,8 +251,15 @@ function scrapeThread(): ThreadContext {
         return 0;
       });
       const bubbles = merged.slice(-40);
+      // Thread column = the composer's box, widened to the first ancestor at
+      // least 300px wide (the textbox itself can sit between icon buttons).
+      // [role="main"] also contains the inbox list, so it cannot be used.
       const mainRect = (main as HTMLElement).getBoundingClientRect();
-      const mid = mainRect.left + mainRect.width / 2;
+      let paneEl: HTMLElement | null = (composerBox as HTMLElement | null)
+        || (main.querySelector('textarea[placeholder]') as HTMLElement | null);
+      while (paneEl && paneEl !== main && paneEl.getBoundingClientRect().width < 300) paneEl = paneEl.parentElement;
+      const paneRect = paneEl ? paneEl.getBoundingClientRect() : mainRect;
+      const pane = { left: paneRect.left, width: paneRect.width };
 
       for (const b of bubbles) {
         const el = b as HTMLElement;
@@ -279,11 +286,9 @@ function scrapeThread(): ThreadContext {
         if (!classified.text) continue;
 
         const rect = el.getBoundingClientRect();
-        let direction: ThreadContext['messages'][number]['direction'] = 'unknown';
-        if (rect.width > 0 && mainRect.width > 0 && rect.width < mainRect.width * 0.9) {
-          const center = rect.left + rect.width / 2;
-          direction = center > mid ? 'outbound' : 'inbound';
-        }
+        const side = instagramBubbleSide({ left: rect.left, width: rect.width }, pane);
+        if (side === 'outside') continue;
+        const direction: ThreadContext['messages'][number]['direction'] = side;
         messages.push({ text: classified.text.slice(0, 600), direction });
         if (direction === 'inbound' && classified.contentType === 'text') {
           last_inbound_text = classified.text.slice(0, 2000);
