@@ -417,6 +417,16 @@ export function linkedInBubbleDirection(
   personName: string | null | undefined,
   inherited: 'inbound' | 'outbound' | 'unknown' | null,
 ): { direction: 'inbound' | 'outbound' | 'unknown'; group: 'inbound' | 'outbound' | 'unknown' | null } {
+  // LinkedIn marks the other participant's bubbles with
+  // msg-s-event-listitem--other (confirmed on the live site 2026-09-26). When
+  // the thread uses that class at all, it is the direction: it works even
+  // when both participants share a name, where sender headers can't.
+  const item = el.matches('.msg-s-event-listitem') ? el : el.querySelector('.msg-s-event-listitem');
+  const threadUsesOther = Boolean(el.ownerDocument?.querySelector('.msg-s-event-listitem--other'));
+  if (item && threadUsesOther) {
+    const direction = item.classList.contains('msg-s-event-listitem--other') ? 'inbound' : 'outbound';
+    return { direction, group: direction };
+  }
   const header = linkedInBubbleSenderHeader(el, text);
   const group = header ? linkedInSenderDirection(header, personName) : inherited;
   let direction = group || 'unknown';
