@@ -69,6 +69,16 @@ export default defineConfig({
       // fills with dozens of warnings. The files are already static
       // imports from local disk. The hint buys nothing.
       modulePreload: false,
+      rollupOptions: {
+        output: {
+          // Chrome reserves file names that start with "_", and the store
+          // zip deletes them. Vite names its virtual html-plugins chunk
+          // "_virtual_...", which every extension page imports, so deleting
+          // it left the side panel, popup and onboarding stuck loading.
+          // Never emit a leading underscore in the first place.
+          sanitizeFileName: (name: string) => name.replace(/\0/g, '').replace(/[?*:<>|"]/g, '-').replace(/(^|\/)_+/g, '$1'),
+        },
+      },
       minify: 'terser',
       terserOptions: {
         mangle: {

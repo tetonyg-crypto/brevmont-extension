@@ -333,7 +333,7 @@ function App() {
           <div style={{ fontWeight: 700, fontSize: 15, color: PALETTE.charcoal, letterSpacing: '-0.02em' }}>brevmont</div>
         </div>
         <p style={{ fontSize: 13, color: PALETTE.textBody, lineHeight: '1.5', margin: 0, fontWeight: 700 }}>Sign in to activate Brevmont.</p>
-        <p style={{ fontSize: 12, color: PALETTE.textMuted, lineHeight: '1.5', margin: 0 }}>Use your dealership Google account. Brevmont finds your store and activates the extension automatically.</p>
+        <p style={{ fontSize: 12, color: PALETTE.textMuted, lineHeight: '1.5', margin: 0 }}>Use your work Google account. Brevmont finds your team and activates the extension automatically.</p>
         <button
           type="button"
           onClick={openGoogleActivation}

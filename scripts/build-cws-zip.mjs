@@ -103,6 +103,7 @@ function stripUnderscoreZipEntries(zipPath) {
     }
     console.log(`[cws-zip] Removed underscore entry: ${name}`);
   }
+  return banned;
 }
 
 // Strip orphaned content-script files that the store manifest does NOT register.
@@ -132,10 +133,38 @@ function stripUnregisteredContentScripts(zipPath) {
     }
     console.log(`[cws-zip] Removed unregistered content script: ${name}`);
   }
+  return orphans;
+}
+
+// Every local module a page or chunk imports must still be in the zip. A
+// stripped "_virtual_wxt-html-plugins" chunk once left the side panel, popup
+// and onboarding stuck on their loading screens (2026-09-26).
+function assertNoDanglingImports(zipPath, removed) {
+  const entries = new Set(spawnSync('zipinfo', ['-1', zipPath], { encoding: 'utf8' }).stdout.split(/\r?\n/).filter(Boolean));
+  const missing = [];
+  for (const name of entries) {
+    if (!/\.(js|html)$/.test(name)) continue;
+    const text = spawnSync('unzip', ['-p', zipPath, name], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).stdout || '';
+    for (const gone of removed) {
+      const base = gone.split('/').pop();
+      if (base && text.includes(base)) missing.push(`${name} references removed ${gone}`);
+    }
+    const dir = name.includes('/') ? name.slice(0, name.lastIndexOf('/') + 1) : '';
+    for (const m of text.matchAll(/(?:from|import)\s*\(?\s*["'](\.{1,2}\/[^"']+\.js)["']|src=["']\/?([^"':]+\.js)["']/g)) {
+      const spec = m[1] || m[2];
+      const resolved = m[1] ? new URL(spec, `file:///${dir}`).pathname.slice(1) : spec.replace(/^\/+/, '');
+      if (!entries.has(resolved)) missing.push(`${name} imports missing ${resolved}`);
+    }
+  }
+  if (missing.length) {
+    console.error('[cws-zip] Store zip has broken imports:');
+    for (const line of [...new Set(missing)]) console.error(`  - ${line}`);
+    process.exit(1);
+  }
 }
 
 copyFileSync(wxtZip, cwsZip);
-stripUnderscoreZipEntries(cwsZip);
-stripUnregisteredContentScripts(cwsZip);
+const removedEntries = [...stripUnderscoreZipEntries(cwsZip), ...stripUnregisteredContentScripts(cwsZip)];
+assertNoDanglingImports(cwsZip, removedEntries);
 restoreRuntimeBuild();
 console.log(`[cws-zip] Ready for Chrome Web Store upload: ${cwsZip}`);
