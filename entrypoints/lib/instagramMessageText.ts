@@ -63,7 +63,8 @@ export interface HorizontalBox {
  * Confirmed live 2026-09-25: Gaaabby<3's own messages were sent to the model
  * as `[outbound]` and the rep's own message became "LAST CUSTOMER MESSAGE".
  *
- * Returns 'outside' for rows left of the thread column (inbox previews),
+ * Returns 'outside' for rows entirely left of the thread column (inbox
+ * previews) or entirely right of it (an open conversation-details panel),
  * which callers must drop.
  */
 export function instagramBubbleSide(
@@ -72,9 +73,33 @@ export function instagramBubbleSide(
 ): 'inbound' | 'outbound' | 'unknown' | 'outside' {
   if (!(pane.width > 0) || !(bubble.width > 0)) return 'unknown';
   if (bubble.left + bubble.width <= pane.left) return 'outside';
+  if (bubble.left >= pane.left + pane.width) return 'outside';
   if (bubble.width >= pane.width * 0.9) return 'unknown';
   const mid = pane.left + pane.width / 2;
   return bubble.left + bubble.width / 2 > mid ? 'outbound' : 'inbound';
+}
+
+/**
+ * True when `value` is the label Instagram renders above a quoted reply
+ * ("Gabby replied to you", "Replied to you", "You replied to Gabby").
+ * The quoted message renders right after this label on the REPLIER's side,
+ * so a customer quoting the rep's message would otherwise put the rep's own
+ * words on the inbound side. Callers drop the label AND the first message
+ * candidate after it (the quoted preview).
+ *
+ * FRAGILE: recognized by visible English text only (not verified against
+ * live markup for every locale/build). Kept deliberately narrow so a real
+ * message ("I replied to your ad") is never mistaken for the label.
+ */
+export function isInstagramReplyContextText(value: unknown): boolean {
+  const text = normalizeInstagramText(value);
+  if (!text || text.length > 80) return false;
+  if (/^replied\s+to\s+(?:you|yourself|themselves)$/i.test(text)) return true;
+  // "You replied to Gabby" — but not speech like "you replied to my email".
+  if (/^you\s+replied\s+to\s+(?!(?:my|your|our|their|his|her|the|a|an|this|that|me|it|him|them|us)\b).{1,60}$/i.test(text)) return true;
+  // "Gabby replied to you" — but not speech like "I already replied to you".
+  if (/^(?!(?:i|we|they|he|she|you)\b).{1,60}\s+replied\s+to\s+(?:you|yourself|themselves|himself|herself)$/i.test(text)) return true;
+  return false;
 }
 
 export function normalizeInstagramText(value: unknown): string {

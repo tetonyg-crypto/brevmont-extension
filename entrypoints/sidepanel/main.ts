@@ -32,6 +32,7 @@ import { sanitizeCustomerFacingOutput } from '../lib/outputContract';
 import { resolveGenerateInput } from '../lib/repInstruction';
 import { cleanCustomerNameCandidate } from '../lib/leadContextScan';
 import { isMessengerSystemCardText } from '../lib/messengerSystemText';
+import { shouldDropCarriedOverPin } from '../lib/pinnedThreadCarryover';
 import { resolveRepIndustryContext, type RepIndustryContext } from '../lib/repIndustryContext';
 import {
   formatAskPaymentAnswer,
@@ -89,6 +90,8 @@ interface PinnedCustomer {
   contextFingerprint?: string | null;
   threadFingerprint?: string | null;
   platform?: Platform | string | null;
+  /** Conversation the pin was made on (see liveThreadKey). */
+  threadKey?: string | null;
   pinnedAt: number;
 }
 
@@ -1698,6 +1701,21 @@ function stableThreadIdentity(url = currentPlatform.url): string {
   }
 }
 
+/** Identity of the conversation open right now, in the same terms the 3s
+ *  poll uses to detect a switch: the adapter's conversation_key on WhatsApp
+ *  (its URL never changes), the stable path+hash everywhere else. */
+function liveThreadKey(scan?: AutoThreadScan | null): string {
+  if (String(currentPlatform.platform || '').toLowerCase() === 'whatsapp') {
+    return String(
+      scan?.threadContext?.conversation_key
+      || customerDetectionConversationKey
+      || autoThreadScan?.threadContext?.conversation_key
+      || '',
+    );
+  }
+  return currentPlatform.url ? stableThreadIdentity(currentPlatform.url) : '';
+}
+
 function usesUrlPinnedCustomer(platform: string): boolean {
   return platform === 'gmail' || platform === 'linkedin' || platform === 'outlook';
 }
@@ -1813,6 +1831,7 @@ function pinCustomer(root: HTMLElement, customer: PinnedCustomer | null): void {
     platform: customer.platform || currentPlatform.platform,
     contextFingerprint: customer.contextFingerprint || customer.threadFingerprint || null,
     threadFingerprint: customer.threadFingerprint || customer.contextFingerprint || null,
+    threadKey: customer.threadKey || liveThreadKey() || null,
     pinnedAt: Date.now(),
   };
   pendingCustomerSuggestion = null;
@@ -2320,6 +2339,31 @@ async function refreshCustomerDetection(root: HTMLElement): Promise<void> {
     pendingCustomerSuggestion = ctx;
     renderCustomerStamp(root);
   }
+}
+
+function reconcileThreadSwitchAtGenerate(root: HTMLElement, scan: AutoThreadScan | null, leadContext: any): void {
+  const liveKey = liveThreadKey(scan);
+  if (!liveKey) return;
+  if (pinnedCustomer && shouldDropCarriedOverPin({
+    pinThreadKey: pinnedCustomer.threadKey,
+    currentThreadKey: liveKey,
+    pinName: pinnedCustomer.name,
+    currentName: getCustomerNameFromContext(leadContext),
+  })) {
+    clearStalePinnedCustomer(root, 'thread_changed');
+  }
+  // Advance the poll's baseline so its next tick doesn't treat this switch
+  // as new and wipe the drafts this Generate is about to produce.
+  const onWhatsApp = String(currentPlatform.platform || '').toLowerCase() === 'whatsapp';
+  const baselineKey = onWhatsApp ? customerDetectionConversationKey : stableThreadIdentity(customerDetectionUrl);
+  if (baselineKey && baselineKey !== liveKey) {
+    customerDetectionFingerprint = '';
+    lastGmailSubject = '';
+    pendingCustomerSuggestion = null;
+    renderCustomerStamp(root);
+  }
+  if (onWhatsApp) customerDetectionConversationKey = liveKey;
+  customerDetectionUrl = currentPlatform.url || customerDetectionUrl;
 }
 
 function startCustomerDetection(root: HTMLElement): void {
@@ -4193,6 +4237,10 @@ async function doGenerate(root: HTMLElement): Promise<void> {
     if (pageLeadContext && typeof pageLeadContext === 'object') {
       leadContext = { ...pageLeadContext, ...leadContext };
     }
+    // Thread switches are otherwise noticed only by the 3s poll, so Generate
+    // right after switching could send the previous thread's pinned customer
+    // (its name check passes whenever the new name can't be read yet).
+    reconcileThreadSwitchAtGenerate(root, scan, leadContext);
     const generationMismatch = pinMismatchReason(pinnedCustomer, leadContext);
     if (generationMismatch) {
       clearStalePinnedCustomer(root, generationMismatch);

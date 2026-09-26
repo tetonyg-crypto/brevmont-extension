@@ -12,7 +12,7 @@ import type {
   ThreadContext,
 } from './types';
 import { extractVehicleHint, stableKeyFromPath } from './shared';
-import { findGmailThreadSender } from '../customerDetection';
+import { collectGmailSelfIdentity, findGmailThreadSender } from '../customerDetection';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: false,
@@ -143,10 +143,17 @@ function senderForMessage(root: Element): { email: string; name: string; isMeMar
 function directionForMessage(
   root: Element,
   loggedInEmails: Set<string>,
+  selfNames: Set<string> = new Set(),
 ): { direction: GmailDirection; reason: string } {
   const sender = senderForMessage(root);
   if (sender.isMeMarker) {
     return { direction: 'outbound', reason: 'gmail_me_sender_marker' };
+  }
+  // Send-as alias / delegated inbox: the address differs but the display
+  // name is the signed-in account's own.
+  const senderName = sender.name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  if (senderName && selfNames.has(senderName)) {
+    return { direction: 'outbound', reason: 'sender_name_matches_logged_in_account' };
   }
   if (loggedInEmails.size === 0) {
     return { direction: 'unknown', reason: 'missing_logged_in_account_identity' };
@@ -168,9 +175,11 @@ function scrapeThread(): ThreadContext {
     // Subject line — the topmost h2 in the thread view.
     const subject = document.querySelector('h2') as HTMLElement | null;
     if (subject) header_text = (subject.innerText || '').trim().slice(0, 200);
-    const loggedInEmails = collectLoggedInEmails();
+    // Signed-in address + send-as aliases the rep used in this thread.
+    const self = collectGmailSelfIdentity();
+    const loggedInEmails = new Set([...collectLoggedInEmails(), ...self.emails]);
     for (const el of messageRoots().slice(-30)) {
-      const { direction } = directionForMessage(el, loggedInEmails);
+      const { direction } = directionForMessage(el, loggedInEmails, self.names);
       if (direction === 'unknown') continue;
       const body = el.querySelector('.a3s') || el;
       const text = cleanMessageText(body);

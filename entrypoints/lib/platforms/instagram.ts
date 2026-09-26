@@ -57,7 +57,12 @@ import type {
   ThreadContext,
 } from './types';
 import { extractVehicleHint, stableKeyFromPath } from './shared';
-import { classifyInstagramBubble, instagramBubbleSide, isInstagramNoiseText } from '../instagramMessageText';
+import {
+  classifyInstagramBubble,
+  instagramBubbleSide,
+  isInstagramNoiseText,
+  isInstagramReplyContextText,
+} from '../instagramMessageText';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
@@ -250,7 +255,43 @@ function scrapeThread(): ThreadContext {
         if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
         return 0;
       });
-      const bubbles = merged.slice(-40);
+      // Quoted replies: Instagram renders "<Name> replied to you" and then a
+      // preview of the QUOTED message on the replier's side. Without this, a
+      // customer quoting the rep's message puts the rep's words on the inbound
+      // side (and they become last inbound when the actual reply is a photo,
+      // sticker or voice note). Drop the label and the first candidate after
+      // it. The label is found as a text node, so this works whether or not
+      // it sits in its own dir="auto" leaf.
+      const replyLabels: Node[] = [];
+      try {
+        const stack: Node[] = [main];
+        while (stack.length) {
+          const n = stack.pop() as Node;
+          if (n.nodeType === Node.TEXT_NODE) {
+            if (isInstagramReplyContextText(n.nodeValue)) replyLabels.push(n);
+            continue;
+          }
+          for (let i = n.childNodes.length - 1; i >= 0; i--) stack.push(n.childNodes[i]);
+        }
+      } catch {
+        /* noop */
+      }
+      const quoted = new Set<Element>();
+      for (const label of replyLabels) {
+        for (const el of merged) {
+          if (el.contains(label)) {
+            // A candidate that is only the label itself is dropped; one that
+            // wraps label + quote + reply (a whole row) can't be split safely.
+            quoted.add(el);
+            continue;
+          }
+          if (label.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) {
+            quoted.add(el);
+            break;
+          }
+        }
+      }
+      const bubbles = merged.filter((el) => !quoted.has(el)).slice(-40);
       // Thread column = the composer's box, widened to the first ancestor at
       // least 300px wide (the textbox itself can sit between icon buttons).
       // [role="main"] also contains the inbox list, so it cannot be used.
