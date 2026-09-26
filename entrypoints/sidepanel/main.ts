@@ -32,7 +32,7 @@ import { sanitizeCustomerFacingOutput } from '../lib/outputContract';
 import { resolveGenerateInput } from '../lib/repInstruction';
 import { cleanCustomerNameCandidate } from '../lib/leadContextScan';
 import { isMessengerSystemCardText } from '../lib/messengerSystemText';
-import { shouldDropCarriedOverPin } from '../lib/pinnedThreadCarryover';
+import { didPlatformChange, shouldDropCarriedOverPin } from '../lib/pinnedThreadCarryover';
 import { resolveRepIndustryContext, type RepIndustryContext } from '../lib/repIndustryContext';
 import {
   formatAskPaymentAnswer,
@@ -151,6 +151,17 @@ let customerDetectionFingerprint = '';
 // startCustomerDetection's poller below can never detect a chat switch
 // on its own — see the comment at that check for the full story.
 let customerDetectionConversationKey = '';
+// Tracks which platform the poll below last ran on. A platform change (e.g.
+// Instagram -> WhatsApp) is a hard conversation switch that must clear a
+// name-based pin unconditionally -- it must never wait for the new
+// platform's own name detection to confirm a mismatch first, because a
+// stale pin's name check silently PASSES whenever the new page's name is
+// not yet (or never) readable. Confirmed live 2026-09-26: an Instagram lead
+// (cardogvlogs) survived a switch to WhatsApp because the per-platform
+// checks below only compare same-platform signals (URL path/hash, or
+// WhatsApp's own conversation_key) and never independently ask "is this
+// even the same platform as the pin."
+let customerDetectionPlatform = '';
 let lastGmailSubject = '';
 let autoThreadScan: AutoThreadScan | null = null;
 let autoThreadScanStatus: AutoThreadScanStatus = 'idle';
@@ -2371,11 +2382,28 @@ function startCustomerDetection(root: HTMLElement): void {
   customerDetectionUrl = currentPlatform.url || '';
   customerDetectionFingerprint = '';
   customerDetectionConversationKey = '';
+  customerDetectionPlatform = String(currentPlatform.platform || '');
   renderCustomerStamp(root);
   refreshCustomerDetection(root).catch(() => {});
   customerDetectionTimer = window.setInterval(async () => {
     await refreshPlatform();
     const activeUrl = currentPlatform.url || '';
+    const nowPlatform = String(currentPlatform.platform || '');
+    // A platform change (Instagram -> WhatsApp, etc.) is checked FIRST and
+    // unconditionally, independent of the per-platform signal comparisons
+    // below. Those compare same-platform signals only (a WhatsApp
+    // conversation_key against a previous WhatsApp conversation_key, or a
+    // URL path/hash against a previous URL on the SAME platform) and can
+    // both go quiet across a platform boundary: the WhatsApp branch requires
+    // a previously-seen WhatsApp key, which is empty on first arrival from
+    // another platform, so it never fires; the URL branch is skipped
+    // entirely once nowPlatform is 'whatsapp'. Either way the stale pin's
+    // own name check then silently passes because the new platform hasn't
+    // read a name yet. See customerDetectionPlatform's declaration for the
+    // confirmed live repro (an Instagram lead surviving into WhatsApp).
+    let threadChanged = didPlatformChange(customerDetectionPlatform, nowPlatform);
+    if (threadChanged) customerDetectionConversationKey = '';
+    customerDetectionPlatform = nowPlatform;
     // WhatsApp Web (2026-09-24): its URL is always https://web.whatsapp.com/
     // regardless of which chat is open, so the URL-diff check below can
     // never detect a chat switch here — confirmed live: switching from one
@@ -2387,7 +2415,6 @@ function startCustomerDetection(root: HTMLElement): void {
     // panel (re)open just seeds the baseline rather than treating "unset →
     // some key" as a change, matching customerDetectionUrl's own seeding at
     // the top of startCustomerDetection above.
-    let threadChanged = false;
     if (currentPlatform.platform === 'whatsapp') {
       let liveKey = '';
       try {
@@ -2405,7 +2432,7 @@ function startCustomerDetection(root: HTMLElement): void {
       // and Messenger mutate query params on the same conversation constantly,
       // which used to clear + re-pin every few seconds (the "trampoline"
       // flicker). Only a real conversation switch changes path/hash.
-      threadChanged = stableThreadIdentity(activeUrl) !== stableThreadIdentity(prevUrl);
+      threadChanged = threadChanged || stableThreadIdentity(activeUrl) !== stableThreadIdentity(prevUrl);
       customerDetectionUrl = activeUrl;
     }
     if (threadChanged) {
@@ -5076,6 +5103,25 @@ function renderMyLeadsFilterControls(filter: 'active' | 'lost'): string {
     <div class="my-leads-filter-row" role="tablist" aria-label="Lead filter">
       <button class="my-leads-filter-btn ${filter === 'active' ? 'active' : ''}" data-stage-filter="active" type="button">Active</button>
       <button class="my-leads-filter-btn ${filter === 'lost' ? 'active' : ''}" data-stage-filter="lost" type="button">Lost</button>
+      <button class="my-leads-filter-btn" id="o8-my-leads-select-toggle" type="button" style="margin-left:auto;">Select</button>
+    </div>
+  `;
+}
+
+/**
+ * Bulk-select toolbar shown once "Select" is clicked. "Select all" only
+ * covers the leads currently rendered (visible/loaded — respecting the
+ * 7-at-a-time "Show more" paging and the active/lost filter tab), never a
+ * full dataset the rep hasn't loaded, per spec: deleting 40+ stale leads
+ * one-by-one is the pain point, not an unbounded "wipe everything" action.
+ */
+function renderMyLeadsSelectBar(selectedCount: number, visibleCount: number): string {
+  return `
+    <div class="my-leads-select-bar" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px;background:#F1F5F9;border-radius:8px;">
+      <span style="font-size:12px;color:#475569;font-weight:600;flex:1;">${selectedCount} selected</span>
+      <button class="lead-secondary-action" id="o8-my-leads-select-all" type="button">Select all (${visibleCount})</button>
+      <button class="lead-secondary-action lead-delete-action" id="o8-my-leads-delete-selected" type="button" ${selectedCount ? '' : 'disabled'}>Delete selected</button>
+      <button class="lead-secondary-action" id="o8-my-leads-select-cancel" type="button">Cancel</button>
     </div>
   `;
 }
@@ -5315,7 +5361,7 @@ function startChallengePolling(root: HTMLElement): void {
   }, 2000);
 }
 
-function renderLeadCard(lead: any, index: number): string {
+function renderLeadCard(lead: any, index: number, selectMode = false, selected = false): string {
   const customer = displayText(lead.customer_name, 'Unknown customer');
   const vehicle = optionalDisplayText(lead.vehicle_interest);
   const heat = Number(lead.heat_score ?? 0);
@@ -5336,11 +5382,14 @@ function renderLeadCard(lead: any, index: number): string {
         ${lostAt ? `<div class="lost-lead-time">Lost ${esc(lostAt)}</div>` : ''}
       </div>` : '';
   return `
-    <div class="my-lead-card ${isLost ? 'lost' : ''}" data-lead-id="${esc(lead.id)}" data-lead-index="${index}">
+    <div class="my-lead-card ${isLost ? 'lost' : ''} ${selectMode ? 'select-mode' : ''}" data-lead-id="${esc(lead.id)}" data-lead-index="${index}">
       <div style="display:flex;align-items:start;justify-content:space-between;gap:8px;">
-        <div>
-          <div class="lead-card-title">${esc(customer)}</div>
-          ${vehicle ? `<div style="font-size:12px;color:#475569;margin-top:2px;">${esc(vehicle)}</div>` : ''}
+        <div style="display:flex;align-items:start;gap:8px;">
+          ${selectMode ? `<input type="checkbox" class="my-lead-select-checkbox" ${selected ? 'checked' : ''} style="margin-top:3px;width:16px;height:16px;flex-shrink:0;" aria-label="Select ${esc(customer)}" />` : ''}
+          <div>
+            <div class="lead-card-title">${esc(customer)}</div>
+            ${vehicle ? `<div style="font-size:12px;color:#475569;margin-top:2px;">${esc(vehicle)}</div>` : ''}
+          </div>
         </div>
         <span class="${isLost ? 'lost-lead-badge' : 'your-lead-badge'}">${isLost ? 'LOST' : 'YOUR LEAD'}</span>
       </div>
@@ -5353,13 +5402,14 @@ function renderLeadCard(lead: any, index: number): string {
       ${appointment}
       ${reminder}
       ${lostBlock}
+      ${selectMode ? '' : `
       <button class="lead-primary-action" data-action="generate">Generate Follow-up</button>
       <div class="lead-secondary-row">
-        <button class="lead-secondary-action" data-action="contacted">→ Contacted</button>
+        <button class="lead-secondary-action" data-action="log-crm">Log to CRM</button>
         <button class="lead-secondary-action" data-action="appt">Set Appt</button>
         <button class="lead-secondary-action" data-action="lost">Mark Lost</button>
         <button class="lead-secondary-action lead-delete-action" data-action="delete" title="Permanently remove this lead">Delete</button>
-      </div>
+      </div>`}
       <div class="appt-inline" style="display:none;margin-top:8px;">
         <input type="datetime-local" class="appt-input" style="width:100%;padding:8px;border:1px solid #E5E7EB;border-radius:7px;font-size:12px;font-family:inherit;" />
         <button class="lead-primary-action" data-action="save-appt" style="margin-top:6px;">Save Appointment</button>
@@ -5424,13 +5474,21 @@ async function renderMyLeads(root: HTMLElement): Promise<void> {
 
     const showAll = Boolean((root as any).__myLeadsShowAll);
     const visible = showAll ? leads : leads.slice(0, 7);
+    const selectMode = Boolean((root as any).__myLeadsSelectMode);
+    const selectedIds: Set<string> = (root as any).__myLeadsSelected || new Set();
+    (root as any).__myLeadsSelected = selectedIds;
+    // Selection only ever tracks ids still in view — a stale id from a
+    // previous filter/page can't linger and get deleted by surprise.
+    const visibleIds = new Set(visible.map((lead: any) => String(lead.id)));
+    for (const id of Array.from(selectedIds)) if (!visibleIds.has(id)) selectedIds.delete(id);
     content.innerHTML = `
       ${renderMyLeadsFilterControls(leadFilter)}
+      ${selectMode ? renderMyLeadsSelectBar(selectedIds.size, visible.length) : ''}
       <div style="font-size:11px;color:#64748B;margin-bottom:8px;">
         ${leadFilter === 'lost' ? 'Lost leads stay tucked away with the reason preserved.' : 'Your active leads, sorted by heat and who needs attention first.'}
       </div>
-      ${visible.map(renderLeadCard).join('')}
-      ${leads.length > 7 ? `<button id="o8-my-leads-show-more" class="lead-secondary-action" style="width:100%;margin-top:10px;">${showAll ? 'Show top 7' : `Show more (${leads.length - 7})`}</button>` : ''}
+      ${visible.map((lead: any, index: number) => renderLeadCard(lead, index, selectMode, selectedIds.has(String(lead.id)))).join('')}
+      ${leads.length > 7 && !selectMode ? `<button id="o8-my-leads-show-more" class="lead-secondary-action" style="width:100%;margin-top:10px;">${showAll ? 'Show top 7' : `Show more (${leads.length - 7})`}</button>` : ''}
     `;
     wireMyLeadCardActions(root);
   } catch (err: any) {
@@ -5457,10 +5515,73 @@ function wireMyLeadCardActions(root: HTMLElement): void {
     };
   }
 
+  const selectToggle = content.querySelector('#o8-my-leads-select-toggle') as HTMLButtonElement | null;
+  if (selectToggle) {
+    selectToggle.onclick = () => {
+      (root as any).__myLeadsSelectMode = true;
+      (root as any).__myLeadsSelected = new Set<string>();
+      void renderMyLeads(root);
+    };
+  }
+  const selectCancel = content.querySelector('#o8-my-leads-select-cancel') as HTMLButtonElement | null;
+  if (selectCancel) {
+    selectCancel.onclick = () => {
+      (root as any).__myLeadsSelectMode = false;
+      (root as any).__myLeadsSelected = new Set<string>();
+      void renderMyLeads(root);
+    };
+  }
+  const selectAll = content.querySelector('#o8-my-leads-select-all') as HTMLButtonElement | null;
+  if (selectAll) {
+    selectAll.onclick = () => {
+      const visibleIds = ((root as any).__myLeads || [])
+        .slice(0, Boolean((root as any).__myLeadsShowAll) ? undefined : 7)
+        .map((lead: any) => String(lead.id));
+      const selectedIds: Set<string> = (root as any).__myLeadsSelected || new Set();
+      // Toggle: if everything visible is already selected, clear instead of
+      // re-selecting, so the button also serves as "deselect all."
+      const allSelected = visibleIds.length > 0 && visibleIds.every((id: string) => selectedIds.has(id));
+      (root as any).__myLeadsSelected = allSelected ? new Set<string>() : new Set<string>(visibleIds);
+      void renderMyLeads(root);
+    };
+  }
+  const deleteSelected = content.querySelector('#o8-my-leads-delete-selected') as HTMLButtonElement | null;
+  if (deleteSelected) {
+    deleteSelected.onclick = async () => {
+      const selectedIds: Set<string> = (root as any).__myLeadsSelected || new Set();
+      const count = selectedIds.size;
+      if (!count) return;
+      if (!confirm(`Delete ${count} lead${count === 1 ? '' : 's'}?\nThis can't be undone.`)) return;
+      deleteSelected.disabled = true;
+      deleteSelected.textContent = 'Deleting...';
+      const ids = Array.from(selectedIds);
+      const results = await Promise.allSettled(ids.map((leadId) => safeSend({ type: 'DELETE_LEAD', payload: { leadId } })));
+      const failed = results.filter((r) => r.status === 'rejected' || (r.status === 'fulfilled' && r.value?.error)).length;
+      (root as any).__myLeadsSelectMode = false;
+      (root as any).__myLeadsSelected = new Set<string>();
+      showToast(root, failed ? `Deleted ${count - failed} of ${count} (${failed} failed)` : `Deleted ${count} lead${count === 1 ? '' : 's'}`);
+      await renderMyLeads(root);
+    };
+  }
+  content.querySelectorAll<HTMLInputElement>('.my-lead-select-checkbox').forEach((checkbox) => {
+    checkbox.onchange = () => {
+      const card = checkbox.closest('.my-lead-card') as HTMLElement | null;
+      const leadId = card?.dataset.leadId;
+      if (!leadId) return;
+      const selectedIds: Set<string> = (root as any).__myLeadsSelected || new Set();
+      if (checkbox.checked) selectedIds.add(leadId); else selectedIds.delete(leadId);
+      (root as any).__myLeadsSelected = selectedIds;
+      void renderMyLeads(root);
+    };
+  });
+
   content.querySelectorAll<HTMLElement>('.my-lead-card').forEach((card) => {
     const leadId = card.dataset.leadId;
-    const index = Number(card.dataset.leadIndex || 0);
-    const lead = ((root as any).__myLeads || [])[index];
+    // Look up by id, not by the rendered position: cards only render the
+    // visible slice (top 7 unless "Show more" is open) while __myLeads holds
+    // the FULL list, so a position-based lookup silently acted on the WRONG
+    // lead once more than 7 leads existed and "Show more" was collapsed.
+    const lead = ((root as any).__myLeads || []).find((l: any) => String(l.id) === leadId);
     card.querySelectorAll<HTMLButtonElement>('button[data-action]').forEach((button) => {
       button.onclick = async () => {
         const action = button.dataset.action;
@@ -5525,19 +5646,27 @@ function wireMyLeadCardActions(root: HTMLElement): void {
           await renderMyLeads(root);
           return;
         }
-        const stage = action === 'contacted' ? 'contacted' : null;
-        if (stage) {
-          await safeSend({ type: 'CHANGE_LEAD_STAGE', payload: { leadId, stage } });
-          showToast(root, stage === 'contacted' ? 'Marked contacted' : 'Marked lost');
-          await renderMyLeads(root);
+        if (action === 'log-crm') {
+          await logLeadToCrm(root, lead);
+          return;
         }
       };
     });
     // Click the card body (not a button/input) to open the lead's overview —
-    // the buyer profile card so the rep can see who this is at a glance.
+    // the buyer profile card so the rep can see who this is at a glance. In
+    // select mode, the card body toggles the checkbox instead — the overview
+    // panel isn't reachable there anyway since the action buttons are hidden.
     card.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
       if (target.closest('button') || target.closest('input')) return;
+      if (Boolean((root as any).__myLeadsSelectMode)) {
+        const checkbox = card.querySelector('.my-lead-select-checkbox') as HTMLInputElement | null;
+        if (checkbox) {
+          checkbox.checked = !checkbox.checked;
+          checkbox.dispatchEvent(new Event('change'));
+        }
+        return;
+      }
       if (!lead) return;
       showLeadOverview(root, lead);
     });
@@ -5588,6 +5717,94 @@ function leadSignalSummary(lead: any, intent: string, rawText: string): string {
   if (intent === 'fleet_inquiry') return 'Fleet request - multiple vehicle potential';
   if (intent && intent !== 'unknown') return getDisplayLabel(intent);
   return 'Buying context found';
+}
+
+/**
+ * The CRM-ready note for a lead: name, current context, latest relevant
+ * interaction, and a recommended next step/status. Shared by the lead
+ * overview panel's "Log to CRM" button and the My Leads card action so the
+ * copy stays identical everywhere it can be produced, per the founder spec
+ * (2026-09-26): "Log to CRM" means preparing a note to paste into the rep's
+ * real CRM, never a claim that Brevmont auto-synced anything.
+ */
+function buildCrmLogNote(lead: any): string {
+  const company = optionalDisplayText(lead.company);
+  const name = displayText([lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.name || lead.customer_name || company, 'Unknown lead');
+  const rawVehicle = optionalDisplayText(lead.vehicle_of_interest || lead.vehicle_interest || lead.vehicle);
+  const vehicle = currentPlatform.platform === 'linkedin' && /^\d{4}$/.test(rawVehicle || '') ? null : rawVehicle;
+  const rawText = stripMarkdownText(lead.source_raw_text || lead.notes || lead.context || '');
+  const heatScore = lead.heat_score ?? null;
+  const pipelineStage = lead.pipeline_stage || 'captured';
+  const sourceLabel = getDisplayLabel(lead.source_platform || currentPlatform.platform || 'Extension') || 'Extension';
+  const notesClean = sanitizeBuyerContext(optionalDisplayText(lead.notes) || '');
+  const rawClean = sanitizeBuyerContext(rawText || '');
+  const contextCopy = notesClean
+    || (rawClean ? rawClean.substring(0, 160) : '')
+    || `${name} was captured from ${sourceLabel}${vehicle ? ` with interest in ${vehicle}` : ''}.`;
+  const cleanedContext = stripMarkdownText(contextCopy || '')
+    .replace(/\[(?:inbound|outbound|customer|rep)\]\s*/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 280);
+  const nextStage = getNextStage(pipelineStage);
+  const nextStepLine = pipelineStage === 'lost'
+    ? `Recommended next step: closed lost${lead.lost_reason ? ` (${lead.lost_reason})` : ''}`
+    : nextStage
+      ? `Recommended next step: move to ${stageLabelMap(nextStage)}`
+      : 'Recommended next step: continue current stage';
+  const captureDetails = [
+    sourceLabel ? `Source: ${sourceLabel}` : '',
+    heatScore !== null ? `Heat: ${heatScore}` : '',
+    lead.lead_stage_at_capture ? `Captured as: ${stageLabelMap(String(lead.lead_stage_at_capture))}` : '',
+    lead.sync_status ? `Sync: ${getDisplayLabel(String(lead.sync_status))}` : '',
+    lead.captured_at ? `Captured: ${timeAgo(lead.captured_at)}` : '',
+  ].filter(Boolean).join(' · ');
+  return [
+    `Brevmont lead capture`,
+    `Source: ${sourceLabel}`,
+    `Customer: ${name}`,
+    lead.phone ? `Phone: ${lead.phone}` : null,
+    lead.email ? `Email: ${lead.email}` : null,
+    vehicle ? `Vehicle: ${vehicle}` : null,
+    heatScore !== null ? `Heat: ${heatScore}` : null,
+    `Current status: ${stageLabelMap(String(pipelineStage))}`,
+    cleanedContext ? `Latest interaction: ${cleanedContext}` : null,
+    nextStepLine,
+    captureDetails ? `Details: ${captureDetails}` : null,
+  ].filter(Boolean).join('\n');
+}
+
+/** Copy a lead's CRM note to the clipboard and mark it logged. Shared by the
+ * lead overview panel and the My Leads card so "Log to CRM" behaves
+ * identically everywhere. Never claims a real CRM sync — clipboard only,
+ * except the one real injection path (VinSolutions) already wired below. */
+async function logLeadToCrm(root: HTMLElement, lead: any): Promise<boolean> {
+  const leadId = lead?.id || null;
+  const noteText = buildCrmLogNote(lead);
+  let injected = false;
+  if (currentPlatform.platform === 'vinsolutions') {
+    try {
+      const resp = await sendToContent({ type: 'INJECT_CONTENT', payload: { content: noteText, outputType: 'crm' } });
+      injected = !!resp?.ok;
+    } catch { /* content script unavailable */ }
+  }
+  if (!injected) {
+    try {
+      await navigator.clipboard.writeText(noteText);
+      showToast(root, 'CRM note copied — paste into your CRM');
+    } catch {
+      showToast(root, 'Could not copy. Try manually.');
+      return false;
+    }
+  } else {
+    showToast(root, 'Lead logged to CRM');
+  }
+  if (leadId) {
+    try {
+      await safeSend({ type: 'UPDATE_LEAD_STATUS', payload: { leadId, status: 'logged_to_crm' } });
+    } catch { /* non-fatal */ }
+  }
+  return true;
 }
 
 // ─── Show parsed lead result ─────────────────────────────────────────────────
@@ -5782,54 +5999,8 @@ function showLeadResult(root: HTMLElement, lead: any): void {
   const logCrmBtn = result.querySelector('#o8-lead-log-crm') as HTMLButtonElement;
   if (logCrmBtn) {
     logCrmBtn.addEventListener('click', async () => {
-      const cleanedContext = stripMarkdownText(contextCopy || '')
-        .replace(/\[(?:inbound|outbound|customer|rep)\]\s*/gi, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 280);
-      const noteText = [
-        `Brevmont lead capture`,
-        `Source: ${getDisplayLabel(lead.source_platform) || 'Extension'}`,
-        `Customer: ${name}`,
-        lead.phone ? `Phone: ${lead.phone}` : null,
-        lead.email ? `Email: ${lead.email}` : null,
-        vehicle ? `Vehicle: ${vehicle}` : null,
-        heatScore !== null ? `Heat: ${heatScore}` : null,
-        lead.lead_stage_at_capture ? `Lead stage: ${stageLabelMap(String(lead.lead_stage_at_capture))}` : null,
-        cleanedContext ? `Context: ${cleanedContext}` : null,
-        captureDetails ? `Details: ${captureDetails}` : null,
-      ].filter(Boolean).join('\n');
-
-      // Try injecting only into a real CRM field. Chat surfaces copy only.
-      let injected = false;
-      if (currentPlatform.platform === 'vinsolutions') {
-        try {
-          const resp = await sendToContent({ type: 'INJECT_CONTENT', payload: { content: noteText, outputType: 'crm' } });
-          injected = !!resp?.ok;
-        } catch { /* content script unavailable */ }
-      }
-
-      if (!injected) {
-        // Clipboard fallback
-        try {
-          await navigator.clipboard.writeText(noteText);
-          showToast(root, 'Copied to clipboard — paste into CRM notes');
-        } catch {
-          showToast(root, 'Could not copy. Try manually.');
-          return;
-        }
-      } else {
-        showToast(root, 'Lead logged to CRM');
-      }
-
-      // Update status to logged_to_crm
-      if (leadId) {
-        try {
-          await safeSend({ type: 'UPDATE_LEAD_STATUS', payload: { leadId, status: 'logged_to_crm' } });
-        } catch { /* non-fatal */ }
-      }
-
-      // Update button state
+      const ok = await logLeadToCrm(root, lead);
+      if (!ok) return;
       logCrmBtn.textContent = 'Logged';
       logCrmBtn.disabled = true;
       logCrmBtn.style.background = '#065F46';
