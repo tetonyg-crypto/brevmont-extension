@@ -287,6 +287,30 @@ function instagramProfileDisplayName(username: string): { name: string | null; r
     if (headingText && headingText.toLowerCase() !== username.toLowerCase() && headingText.length < 60) {
       return { name: headingText, raw_source: 'ig_profile_heading', confidence: 0.7 };
     }
+    // Confirmed live 2026-09-26: Instagram's profile h1 is the HANDLE
+    // ("cardogvlogs"), while the real display name is the next visible line
+    // in the same profile header ("Yancy Garcia"), followed by a pronoun line
+    // and then post/follower stats. Preserve line boundaries and take the
+    // first human/brand label after the handle instead of falling back to the
+    // handle itself. This intentionally uses the already-confirmed header
+    // container rather than another generated Instagram class selector.
+    const lines = String(header?.innerText || '')
+      .split(/\n+/)
+      .map((line) => line.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    const usernameIndex = lines.findIndex((line) => line.toLowerCase() === username.toLowerCase());
+    const afterUsername = usernameIndex >= 0 ? lines.slice(usernameIndex + 1) : lines;
+    for (const rawLine of afterUsername) {
+      const line = rawLine
+        .replace(/\s+(?:he\s*\/\s*him|she\s*\/\s*her|they\s*\/\s*them|him|her)$/i, '')
+        .trim();
+      if (!line || line.toLowerCase() === username.toLowerCase()) continue;
+      if (line.length > 60 || /^@/.test(line)) continue;
+      if (/^(?:he\s*\/\s*him|she\s*\/\s*her|they\s*\/\s*them|him|her|they)$/i.test(line)) continue;
+      if (/\b(?:posts?|followers?|following)\b/i.test(line) || /^\d[\d,.]*$/.test(line)) continue;
+      if (/^(?:follow|follow back|message|contact)$/i.test(line)) continue;
+      return { name: line, raw_source: 'ig_profile_display_name', confidence: 0.9 };
+    }
   } catch {
     /* noop */
   }

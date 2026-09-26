@@ -1796,7 +1796,15 @@ export default defineBackground(() => {
           // display value for free.
           const phoneFallback = leadForSave.phone || msg.payload?.phone || null;
           const emailFallback = leadForSave.email || msg.payload?.email || null;
-          const customerName = parsedName || fallbackName || phoneFallback || emailFallback;
+          // Static profile captures have a DOM-grounded display name from the
+          // platform adapter. The generic parse service sees the full profile
+          // text and can mistake the first handle ("cardogvlogs") for the
+          // person's name ("Yancy Garcia"). On this path the explicit adapter
+          // identity is authoritative; conversations keep the existing parsed
+          // name priority.
+          const customerName = msg.payload?.capture_mode === 'profile'
+            ? (fallbackName || parsedName || phoneFallback || emailFallback)
+            : (parsedName || fallbackName || phoneFallback || emailFallback);
 
           if (customerName) {
             const leadId = crypto.randomUUID();
@@ -1840,6 +1848,8 @@ export default defineBackground(() => {
                 context_fingerprint: msg.payload?.context_fingerprint || null,
                 thread_fingerprint: msg.payload?.thread_fingerprint || msg.payload?.context_fingerprint || null,
                 capture_mode: msg.payload?.capture_mode || null,
+                username: msg.payload?.username || null,
+                profile_url: msg.payload?.profile_url || null,
               },
             };
             await leadDb.captured_leads.put(localLead);
@@ -1849,6 +1859,7 @@ export default defineBackground(() => {
               ...data,
               lead: {
                 ...leadForSave,
+                ...(msg.payload?.capture_mode === 'profile' ? { first_name: null, last_name: null, name: customerName } : {}),
                 id: leadId,
                 customer_id: customerRecord?.id || null,
                 customer_name: customerName,
@@ -1870,6 +1881,8 @@ export default defineBackground(() => {
                 is_lead: leadForSave.is_lead !== false,
                 lead_stage_at_capture: localLead.lead_stage_at_capture || null,
                 capture_mode: msg.payload?.capture_mode || null,
+                username: msg.payload?.username || null,
+                profile_url: msg.payload?.profile_url || null,
               },
             };
             if (customerRecord?.id) {

@@ -5,12 +5,13 @@
  * sidepanel uses to decide this from each adapter's raw_source tag.
  */
 import { describe, expect, it } from 'vitest';
-import { isProfilePageRawSource } from '../../entrypoints/lib/platforms/shared';
+import { isProfilePageRawSource, safeSocialProfileUrl } from '../../entrypoints/lib/platforms/shared';
 
 describe('isProfilePageRawSource', () => {
   it('matches every platform profile-capture raw_source tag', () => {
     expect(isProfilePageRawSource('ig_profile_heading')).toBe(true);
     expect(isProfilePageRawSource('ig_profile_username')).toBe(true);
+    expect(isProfilePageRawSource('ig_profile_display_name')).toBe(true);
     expect(isProfilePageRawSource('x_profile_username_block')).toBe(true);
     expect(isProfilePageRawSource('x_profile_handle')).toBe(true);
     expect(isProfilePageRawSource('fb_profile_heading')).toBe(true);
@@ -33,5 +34,17 @@ describe('isProfilePageRawSource', () => {
     expect(isProfilePageRawSource(null)).toBe(false);
     expect(isProfilePageRawSource(undefined)).toBe(false);
     expect(isProfilePageRawSource('')).toBe(false);
+  });
+});
+
+describe('safeSocialProfileUrl', () => {
+  it('keeps supported canonical profile links', () => {
+    expect(safeSocialProfileUrl('https://www.instagram.com/cardogvlogs/')).toBe('https://www.instagram.com/cardogvlogs/');
+    expect(safeSocialProfileUrl('https://www.linkedin.com/in/yancy-garcia/')).toBe('https://www.linkedin.com/in/yancy-garcia/');
+  });
+
+  it('rejects unsafe protocols and unrelated hosts', () => {
+    expect(safeSocialProfileUrl('javascript:alert(1)')).toBeNull();
+    expect(safeSocialProfileUrl('https://instagram.com.example.com/cardogvlogs')).toBeNull();
   });
 });

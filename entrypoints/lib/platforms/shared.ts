@@ -181,3 +181,19 @@ export function stableKeyFromPath(prefix: string): string {
 export function isProfilePageRawSource(rawSource: unknown): boolean {
   return /^(?:ig_profile_|x_profile_|fb_profile_|linkedin_profile_)/.test(String(rawSource || ''));
 }
+
+/** Only render links back to the four supported social profile hosts. */
+export function safeSocialProfileUrl(value: unknown): string | null {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:') return null;
+    const host = url.hostname.toLowerCase();
+    const allowed = ['instagram.com', 'linkedin.com', 'facebook.com', 'x.com'];
+    if (!allowed.some((domain) => host === domain || host.endsWith(`.${domain}`))) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}

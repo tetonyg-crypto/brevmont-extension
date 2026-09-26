@@ -11,7 +11,7 @@
 
 import { getPanelHTML } from '../lib/panelUI';
 import { getPanelCSS } from '../lib/panelCSS';
-import { isProfilePageRawSource } from '../lib/platforms/shared';
+import { isProfilePageRawSource, safeSocialProfileUrl } from '../lib/platforms/shared';
 import { lockDocumentZoom } from '../lib/hostZoom';
 import {
   LOCAL_GENERATION_COUNT_KEY,
@@ -5384,6 +5384,10 @@ function startChallengePolling(root: HTMLElement): void {
 
 function renderLeadCard(lead: any, index: number, selectMode = false, selected = false): string {
   const customer = displayText(lead.customer_name, 'Unknown customer');
+  const captureMode = String(lead.capture_mode || lead.metadata?.capture_mode || '');
+  const isProspect = captureMode === 'profile';
+  const profileUrl = safeSocialProfileUrl(lead.profile_url || lead.metadata?.profile_url);
+  const profileUsername = optionalDisplayText(lead.username || lead.metadata?.username);
   const vehicle = optionalDisplayText(lead.vehicle_interest);
   const heat = Number(lead.heat_score ?? 0);
   const stage = String(lead.pipeline_stage || lead.status || 'captured');
@@ -5409,6 +5413,7 @@ function renderLeadCard(lead: any, index: number, selectMode = false, selected =
           ${selectMode ? `<input type="checkbox" class="my-lead-select-checkbox" ${selected ? 'checked' : ''} style="margin-top:3px;width:16px;height:16px;flex-shrink:0;" aria-label="Select ${esc(customer)}" />` : ''}
           <div>
             <div class="lead-card-title">${esc(customer)}</div>
+            ${profileUrl ? `<a href="${esc(profileUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;font-size:11px;color:#0D6E6E;font-weight:800;margin-top:2px;text-decoration:none;">${esc(profileUsername ? `@${profileUsername.replace(/^@/, '')}` : 'Open profile')} &#8599;</a>` : ''}
             ${vehicle ? `<div style="font-size:12px;color:#475569;margin-top:2px;">${esc(vehicle)}</div>` : ''}
           </div>
         </div>
@@ -5418,6 +5423,7 @@ function renderLeadCard(lead: any, index: number, selectMode = false, selected =
         <span class="lead-pill">&#128293; ${heat}</span>
         <span class="lead-pill">${esc(timeAgo(lastContact))}</span>
         <span class="lead-pill">${esc(leadSourceLabel(lead.source_platform))}</span>
+        ${isProspect ? '<span class="lead-pill">Prospect</span>' : ''}
         <span class="lead-pill" style="${stageBadgeStyle(stage)}">${esc(stageLabelMap(stage))}</span>
       </div>
       ${appointment}
@@ -5733,7 +5739,7 @@ function wireMyLeadCardActions(root: HTMLElement): void {
     // panel isn't reachable there anyway since the action buttons are hidden.
     card.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
-      if (target.closest('button') || target.closest('input')) return;
+      if (target.closest('button') || target.closest('input') || target.closest('a')) return;
       if (Boolean((root as any).__myLeadsSelectMode)) {
         const checkbox = card.querySelector('.my-lead-select-checkbox') as HTMLInputElement | null;
         if (checkbox) {
@@ -5784,7 +5790,8 @@ function leadCaptureIcon(kind: 'buyer' | 'phone' | 'email' | 'vehicle' | 'signal
   return `<span class="lead-capture-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${pathMap[kind]}</svg></span>`;
 }
 
-function leadSignalSummary(lead: any, intent: string, rawText: string): string {
+function leadSignalSummary(lead: any, intent: string, rawText: string, isProspectCapture = false): string {
+  if (isProspectCapture) return 'Prospect';
   const sourceText = `${rawText} ${lead.notes || ''} ${lead.context || ''}`.toLowerCase();
   if (sourceText.includes('engine') || sourceText.includes('motor')) return 'Engine inquiry - actively shopping';
   if (lead.finance_intent || sourceText.includes('finance') || sourceText.includes('payment')) return 'Finance signal - payment conversation';
@@ -5911,7 +5918,9 @@ function showLeadResult(root: HTMLElement, lead: any): void {
   const hasFinance = lead.finance_intent || false;
   const nextStage = getNextStage(pipelineStage);
   const sourceLabel = getDisplayLabel(lead.source_platform || currentPlatform.platform || 'Extension') || 'Extension';
-  const signalSummary = leadSignalSummary(lead, intent, rawText);
+  const signalSummary = leadSignalSummary(lead, intent, rawText, isProspectCapture);
+  const profileUrl = safeSocialProfileUrl(lead.profile_url || lead.metadata?.profile_url);
+  const profileUsername = optionalDisplayText(lead.username || lead.metadata?.username);
   const notesClean = sanitizeBuyerContext(optionalDisplayText(lead.notes) || '');
   const rawClean = sanitizeBuyerContext(rawText || '');
   const contextCopy = notesClean
@@ -5974,6 +5983,7 @@ function showLeadResult(root: HTMLElement, lead: any): void {
       </div>
       ${lead.phone ? `<div class="lead-capture-row">${leadCaptureIcon('phone')}<div class="lead-capture-copy"><div class="lead-capture-label">Phone</div><div class="lead-capture-value">${esc(lead.phone)}</div></div></div>` : ''}
       ${lead.email ? `<div class="lead-capture-row">${leadCaptureIcon('email')}<div class="lead-capture-copy"><div class="lead-capture-label">Email</div><div class="lead-capture-value">${esc(lead.email)}</div></div></div>` : ''}
+      ${profileUrl ? `<div class="lead-capture-row">${leadCaptureIcon('signal')}<div class="lead-capture-copy"><div class="lead-capture-label">Profile</div><div class="lead-capture-value"><a href="${esc(profileUrl)}" target="_blank" rel="noopener noreferrer">${esc(profileUsername ? `@${profileUsername.replace(/^@/, '')}` : 'Open profile')}</a></div></div></div>` : ''}
       ${vehicle ? `<div class="lead-capture-row">${leadCaptureIcon('vehicle')}<div class="lead-capture-copy"><div class="lead-capture-label">Vehicle</div><div class="lead-capture-value">${esc(vehicle)}</div></div></div>` : ''}
       <div class="lead-capture-row">
         ${leadCaptureIcon('signal')}
@@ -6003,7 +6013,7 @@ function showLeadResult(root: HTMLElement, lead: any): void {
       ${hasFinance ? '<span class="lead-capture-tag cool">Finance</span>' : ''}
     </div>
     <div class="lead-capture-context">
-      <div class="lead-capture-context-label">Buyer context</div>
+      <div class="lead-capture-context-label">${isProspectCapture ? 'Prospect context' : 'Buyer context'}</div>
       <div class="lead-capture-context-copy">${esc(contextCopy)}</div>
     </div>
     ${captureDetails ? `<div class="lead-capture-context capture-detail">
@@ -6233,7 +6243,7 @@ function wireLeadCapture(root: HTMLElement): void {
           // 2026-09-26: a capture off a static profile page (Instagram/X/
           // Facebook/LinkedIn "About") is a cold-outreach prospect, not a
           // "Buyer" mid-conversation — see isProfilePageRawSource.
-          const captureMode = isProfilePageRawSource(ctx.detectionMethod) ? 'profile' : null;
+          const captureMode = ctx.capture_mode === 'profile' || isProfilePageRawSource(ctx.detectionMethod) ? 'profile' : null;
           const resp = await safeSend({
             type: 'PARSE_LEAD',
             payload: {
@@ -6247,6 +6257,8 @@ function wireLeadCapture(root: HTMLElement): void {
               context_fingerprint: ctx.context_fingerprint || null,
               thread_fingerprint: ctx.thread_fingerprint || ctx.context_fingerprint || null,
               capture_mode: captureMode,
+              username: ctx.username || ctx.customer?.username || null,
+              profile_url: ctx.profile_url || ctx.customer?.profile_url || null,
             },
           });
           showLeadResult(root, { ...(resp?.lead || resp || ctx), capture_mode: (resp?.lead || resp)?.capture_mode || captureMode });

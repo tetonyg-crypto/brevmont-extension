@@ -36,9 +36,10 @@ describe('Instagram profile live DOM routing', () => {
     const thread = instagramAdapter.scrapeThread();
 
     expect(customer).toMatchObject({
-      name: 'cardogvlogs',
+      name: 'Yancy Garcia',
       username: 'cardogvlogs',
-      raw_source: 'ig_profile_username',
+      profile_url: 'https://www.instagram.com/cardogvlogs/',
+      raw_source: 'ig_profile_display_name',
     });
     expect(thread.header_text).toContain('cardogvlogs');
     expect(thread.raw_text).toContain('Sold $26.8M in cars');

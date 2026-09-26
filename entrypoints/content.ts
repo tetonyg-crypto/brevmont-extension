@@ -21,6 +21,7 @@ import { detectCustomerFromPage, findGmailThreadSender, gmailSubjectText, nameMa
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 import { withInjectInFlight as overdriveWithInjectInFlight } from './lib/overdrive/safetyEnvelope';
 import { platformIdFromUrl } from './lib/platforms/registry';
+import { isProfilePageRawSource } from './lib/platforms/shared';
 
 type Platform = 'vinsolutions' | 'gmail' | 'outlook' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'google-messages' | 'cargurus' | 'carsdotcom' | 'autotrader' | 'dealersocket' | 'elead' | 'x' | 'unknown';
 
@@ -2155,6 +2156,8 @@ export default defineContentScript({
             let adapterCustomerConfidence: number | null = null;
             let adapterPhone: string | null = null;
             let adapterEmail: string | null = null;
+            let adapterUsername: string | null = null;
+            let adapterProfileUrl: string | null = null;
             let adapterHeaderText: string | null = null;
             let adapterVehicle: string | null = null;
             if (!isGmail) {
@@ -2170,6 +2173,8 @@ export default defineContentScript({
                   }
                   adapterPhone = adapterCustomer?.phone || null;
                   adapterEmail = adapterCustomer?.email || null;
+                  adapterUsername = adapterCustomer?.username || null;
+                  adapterProfileUrl = adapterCustomer?.profile_url || null;
                   const thread = adapter.scrapeThread();
                   adapterHeaderText = thread?.header_text || null;
                   const context = adapter.extractContext();
@@ -2207,6 +2212,8 @@ export default defineContentScript({
               vehicle,
               phone: leadData?.phone || adapterPhone || detected?.phone || null,
               email: leadData?.email || adapterEmail || detected?.email || gmailSignal.email || null,
+              username: adapterUsername,
+              profile_url: adapterProfileUrl,
               source: leadData?.source || detected?.source || null,
               vehicleMake: leadData?.vehicleMake || null,
               vehicleModel: leadData?.vehicleModel || null,
@@ -2264,6 +2271,7 @@ export default defineContentScript({
               extractFacebookConversationName ? { name: extractFacebookConversationName(), confidence: 0.55, raw_source: 'legacy_fb_conversation' } : null,
               safeExtractContactName && !nameMatchesGmailSubject(safeExtractContactName()) ? { name: safeExtractContactName(), confidence: 0.5, raw_source: 'legacy_platform_scan' } : null,
             ]);
+            const captureMode = isProfilePageRawSource(adapterCustomer?.raw_source) ? 'profile' : null;
 
             sendResponse({
               ok: true,
@@ -2280,6 +2288,9 @@ export default defineContentScript({
               customer_name: clean?.name || null,
               phone: clean?.phone || adapterCustomer?.phone || detected?.phone || null,
               email: clean?.email || adapterCustomer?.email || detected?.email || null,
+              username: clean?.username || adapterCustomer?.username || null,
+              profile_url: clean?.profile_url || adapterCustomer?.profile_url || (captureMode ? window.location.href : null),
+              capture_mode: captureMode,
               vehicle: context.vehicle || detected?.vehicle || null,
               vehicle_interest: context.vehicle || null,
               scanned_at: thread.scanned_at || Date.now(),
@@ -2290,6 +2301,8 @@ export default defineContentScript({
               source_raw_text: thread.raw_text,
               detectionConfidence: clean?.confidence ?? 0,
               detectionMethod: clean?.raw_source || 'adapter',
+              context_fingerprint: thread.conversation_key || null,
+              thread_fingerprint: thread.conversation_key || null,
               gmail_subject: isGmail ? gmailSubjectText() : (context.subject_line || null),
               header_text: thread.header_text || (isGmail ? gmailSubjectText() : null),
             });
