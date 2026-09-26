@@ -38,4 +38,15 @@ describe('isChannelOrUiName', () => {
     expect(isChannelOrUiName('Oleg Melnikov')).toBe(false);
     expect(isChannelOrUiName('Kamran Khan')).toBe(false);
   });
+
+  // 2026-09-26 regression: a Facebook profile's own nav tab bar (All /
+  // About / Friends / Photos / Reels / More) sits directly below the name
+  // heading. When the profile header reader missed the real name element,
+  // it fell through to a tab label instead -- confirmed live: "This for
+  // Reels?" reached the chip on a real Facebook profile page.
+  it('rejects Facebook profile nav tab labels as customer names', () => {
+    for (const label of ['All', 'Friends', 'Photos', 'Videos', 'Reels', 'Reviews', 'Check-ins', 'Likes', 'Events', 'Groups', 'More']) {
+      expect(isChannelOrUiName(label)).toBe(true);
+    }
+  });
 });

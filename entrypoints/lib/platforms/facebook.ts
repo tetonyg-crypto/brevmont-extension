@@ -121,12 +121,22 @@ export function hasOpenFacebookThread(): boolean {
 
 function readHeaderText(): string {
   try {
-    const anchor =
-      document.querySelector('[role="main"] h1') ||
-      document.querySelector('[role="main"] h2') ||
-      document.querySelector('[role="main"] header') ||
-      document.querySelector('[role="main"] strong');
-    return (anchor as HTMLElement | null)?.innerText?.replace(/\s+/g, ' ').trim().slice(0, 200) || '';
+    // 2026-09-26 regression: on a Facebook PROFILE page, the nav tab bar
+    // (All / About / Friends / Photos / Reels / More) sits directly below
+    // the name heading -- when the primary selector missed the actual
+    // name element, the fallback chain picked up a tab label instead
+    // ("This for Reels?", confirmed live). Skip anything inside the tab
+    // bar itself so a missed name selector fails closed (empty), not with
+    // a plausible-looking piece of nav chrome.
+    const isNavChrome = (el: Element | null): boolean => !!el?.closest('[role="tablist"], [role="tab"]');
+    const candidates = [
+      ...Array.from(document.querySelectorAll('[role="main"] h1')),
+      ...Array.from(document.querySelectorAll('[role="main"] h2')),
+      ...Array.from(document.querySelectorAll('[role="main"] header')),
+      ...Array.from(document.querySelectorAll('[role="main"] strong')),
+    ] as HTMLElement[];
+    const anchor = candidates.find((el) => !isNavChrome(el));
+    return anchor?.innerText?.replace(/\s+/g, ' ').trim().slice(0, 200) || '';
   } catch {
     return '';
   }

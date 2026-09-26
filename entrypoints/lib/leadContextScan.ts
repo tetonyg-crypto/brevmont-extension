@@ -86,6 +86,14 @@ const CHANNEL_OR_UI_NAMES = new Set([
   'personal details', 'overview', 'work', 'education', 'places lived',
   'contact info', 'basic info', 'life events', 'family and relationships',
   'details about', 'about',
+  // 2026-09-26 regression: a Facebook profile's own nav tab bar (All /
+  // About / Friends / Photos / Reels / More) sits directly below the
+  // name heading. When the profile-page header reader missed the real
+  // name element, it fell through to one of these tab labels instead --
+  // confirmed live: "This for Reels?" reached the chip on a real profile.
+  // These are Facebook's fixed nav labels, never a person's name.
+  'all', 'friends', 'photos', 'videos', 'reels', 'reviews', 'check-ins',
+  'likes', 'events', 'groups', 'more',
 ]);
 
 // STRUCTURAL FIX (2026-09-23, defect: LinkedIn "Add section" false prospect):
@@ -263,8 +271,37 @@ export function isLinkedInFeedOrChromeSurface(href = window.location.href): bool
 }
 
 export function isLinkedInMessagingSurface(href = window.location.href): boolean {
-  return /linkedin\.com\/messaging/i.test(href)
-    || Boolean(document.querySelector('.msg-entity-lockup__entity-title, .msg-thread__link-to-profile, .msg-form__contenteditable'));
+  if (/linkedin\.com\/messaging/i.test(href)) return true;
+  // 2026-09-26 regression: LinkedIn's persistent bottom-right messaging
+  // overlay (chat bubbles like "Darrin Guttman" / "Messaging") sits in the
+  // DOM on EVERY LinkedIn page, profile pages included -- a bare
+  // querySelector for its markup misclassified every profile page as an
+  // open thread, so extractLinkedInPersonName() never even tried the
+  // profile branch. Confirmed live: the chip showed nothing at all on a
+  // real profile page with the overlay present. Only count it when the
+  // matched element is actually visible (an open/expanded conversation),
+  // not merely present as a collapsed chat-head bubble.
+  const candidates = document.querySelectorAll('.msg-entity-lockup__entity-title, .msg-thread__link-to-profile, .msg-form__contenteditable, .msg-s-message-list-content, .msg-overlay-conversation-bubble');
+  for (const el of Array.from(candidates)) {
+    if (isElementHiddenChain(el as HTMLElement)) continue;
+    return true;
+  }
+  return false;
+}
+
+/** display:none/visibility:hidden anywhere up the ancestor chain (the
+ * pattern LinkedIn's collapsed/minimized overlay widgets use), stopping at
+ * document.body. Avoids getBoundingClientRect/offsetParent, which report
+ * zero-size for everything in a real layout-less test DOM regardless of
+ * actual visibility. */
+function isElementHiddenChain(el: HTMLElement | null): boolean {
+  let node: HTMLElement | null = el;
+  while (node && node !== document.body) {
+    const style = getComputedStyle(node);
+    if (style.display === 'none' || style.visibility === 'hidden') return true;
+    node = node.parentElement;
+  }
+  return false;
 }
 
 export function isLinkedInSponsoredThread(text: string): boolean {

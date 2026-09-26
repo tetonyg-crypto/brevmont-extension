@@ -12,7 +12,7 @@ import type {
   ThreadContext,
 } from './types';
 import { extractVehicleHint, stableKeyFromPath } from './shared';
-import { deepVisibleText, extractLinkedInPersonName, extractLinkedInPersonNameFromText, isChannelOrUiName, isLinkedInSelfOrCompanyLabel, isLinkedInUiChromeText, linkedInBubbleDirection, linkedInMessageLooksOutbound, linkedInThreadRoot } from '../leadContextScan';
+import { deepVisibleText, extractLinkedInPersonName, extractLinkedInPersonNameFromText, isChannelOrUiName, isLinkedInMessagingSurface, isLinkedInSelfOrCompanyLabel, isLinkedInUiChromeText, linkedInBubbleDirection, linkedInMessageLooksOutbound, linkedInThreadRoot } from '../leadContextScan';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
@@ -84,9 +84,7 @@ function scrapeThread(): ThreadContext {
   let header_text = '';
   const messages: ThreadContext['messages'] = [];
   const href = String(window.location.href || '');
-  const isMessaging =
-    /linkedin\.com\/messaging/i.test(href)
-    || !!document.querySelector('.msg-s-message-list-content, .msg-form__contenteditable, .msg-overlay-conversation-bubble');
+  const isMessaging = isLinkedInMessagingSurface(href);
   try {
     if (!isMessaging) {
       const name = extractLinkedInPersonName() || '';
@@ -196,8 +194,7 @@ function scrapeThread(): ThreadContext {
 
 function extractCustomer(): CustomerCandidate {
   const threadRoot = linkedInThreadRoot();
-  const isMessaging = /linkedin\.com\/messaging/i.test(String(window.location.href || ''))
-    || !!document.querySelector('.msg-s-message-list-content, .msg-form__contenteditable, .msg-overlay-conversation-bubble');
+  const isMessaging = isLinkedInMessagingSurface(String(window.location.href || ''));
   const name = extractLinkedInPersonName()
     || extractLinkedInPersonNameFromText(deepVisibleText(threadRoot || (isMessaging ? null : document.querySelector('[role="main"]')), 2500));
   if (!name) return { name: null };
