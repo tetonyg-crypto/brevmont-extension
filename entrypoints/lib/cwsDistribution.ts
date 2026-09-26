@@ -55,11 +55,12 @@ export function cwsLinkFor(channel: string, campaign: string, medium = 'extensio
 export interface WelcomeTabQueryResult {
   id?: number;
   windowId?: number;
+  status?: string;
 }
 export interface WelcomeTabTabsApi {
   query: (queryInfo: { url?: string | string[] }) => Promise<WelcomeTabQueryResult[]>;
   create: (props: { url: string; active?: boolean }) => Promise<unknown>;
-  update: (tabId: number, props: { active: boolean }) => Promise<unknown>;
+  update: (tabId: number, props: { active: boolean; url?: string }) => Promise<unknown>;
 }
 export interface WelcomeTabWindowsApi {
   update: (windowId: number, props: { focused: boolean }) => Promise<unknown>;
@@ -74,7 +75,13 @@ export async function openOrFocusWelcomeTab(
     const existing = await tabsApi.query({ url: `${origin}*` });
     const match = existing.find((tab) => tab.id != null);
     if (match?.id != null) {
-      await tabsApi.update(match.id, { active: true });
+      // A welcome tab that never finished loading used to be focused as-is,
+      // so "Get started" looked dead (2026-09-26). Re-navigate it instead.
+      if (match.status && match.status !== 'complete') {
+        await tabsApi.update(match.id, { active: true, url: BREVMONT_WELCOME_URL });
+      } else {
+        await tabsApi.update(match.id, { active: true });
+      }
       if (windowsApi && match.windowId != null) {
         try { await windowsApi.update(match.windowId, { focused: true }); } catch { /* best effort */ }
       }

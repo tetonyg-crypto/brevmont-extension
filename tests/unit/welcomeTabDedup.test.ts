@@ -54,4 +54,13 @@ describe('openOrFocusWelcomeTab (2026-09-25)', () => {
     expect(create).not.toHaveBeenCalled();
     expect(update).toHaveBeenCalledWith(42, { active: true });
   });
+
+  it('re-navigates a welcome tab that never finished loading instead of focusing a dead tab', async () => {
+    const query = vi.fn().mockResolvedValue([{ id: 9, windowId: 3, status: 'loading' }]);
+    const create = vi.fn();
+    const update = vi.fn().mockResolvedValue(undefined);
+    await openOrFocusWelcomeTab({ query, create, update });
+    expect(create).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith(9, { active: true, url: BREVMONT_WELCOME_URL });
+  });
 });
