@@ -292,8 +292,46 @@ function collectLoggedInGmailEmails(): Set<string> {
   return emails;
 }
 
+function normalizeSelfName(value: unknown): string {
+  return String(value || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+/**
+ * Who "the rep" is on this Gmail page. The signed-in address alone misses
+ * send-as aliases (sales@dealer.com) and delegated inboxes, which made the
+ * rep's own messages read as the customer's. Signals, all read from the DOM:
+ *  - signed-in address(es) from the Google Account button;
+ *  - the account's DISPLAY NAME from that same button
+ *    ("Google Account: Jane Rep (jane@gmail.com)") — a sender with that
+ *    name is the rep, whatever address they sent from;
+ *  - every address the rep sent from in this thread (sender whose name is
+ *    the account name, or whose name is Gmail's "me" marker), so the alias
+ *    counts as self on every message in the thread.
+ * A customer who shares the rep's exact display name reads as self — that
+ * errs toward no customer text rather than the rep's own words.
+ */
+export function collectGmailSelfIdentity(): { emails: Set<string>; names: Set<string> } {
+  const emails = collectLoggedInGmailEmails();
+  const names = new Set<string>();
+  for (const el of queryDeep('a[aria-label*="Google Account" i], img[alt*="Google Account" i]')) {
+    for (const value of [el.getAttribute('aria-label'), el.getAttribute('alt')]) {
+      const m = String(value || '').match(/Google Account:\s*([^()\n]+?)\s*(?:\(|\n|$)/i);
+      const name = normalizeSelfName(m?.[1]);
+      if (name && !name.includes('@')) names.add(name);
+    }
+  }
+  for (const el of queryDeep('.gD[email], .go[email], [email][name]')) {
+    const email = normalizeEmailAttr(el.getAttribute('email'));
+    if (!email) continue;
+    const name = normalizeSelfName(el.getAttribute('name') || el.textContent);
+    if (name === 'me' || (name && names.has(name))) emails.add(email);
+  }
+  return { emails, names };
+}
+
 export function findGmailThreadSender(): { name: string; email?: string } | null {
-  const selfEmails = collectLoggedInGmailEmails();
+  const self = collectGmailSelfIdentity();
+  const selfEmails = self.emails;
   const main = document.querySelector('[role="main"]') as HTMLElement | null;
   const scoped = main ? queryDeep('.gD[email], .gD[name], span.gD, .go[email], [email][name]', main.ownerDocument) : [];
   const global = queryDeep('.gD[email], .gD[name], span.gD, .go[email], [email][name]');
@@ -307,6 +345,7 @@ export function findGmailThreadSender(): { name: string; email?: string } | null
     );
     if (email && selfEmails.has(email)) continue;
     const rawName = el.getAttribute('name') || el.getAttribute('data-name') || el.textContent;
+    if (self.names.has(normalizeSelfName(rawName))) continue;
     let name = cleanName(rawName, false) || cleanName(rawName, true);
     if (name && nameMatchesGmailSubject(name)) continue;
     if (!name && email && !selfEmails.has(email)) {
