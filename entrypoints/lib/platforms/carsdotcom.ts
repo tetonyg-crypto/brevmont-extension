@@ -30,18 +30,31 @@ function hostMatches(url: string): boolean {
 }
 function detect(): boolean { return hostMatches(window.location.href); }
 
+/**
+ * The adapter's host match also covers public listing pages, where the
+ * page tail is not a customer message and the H1 is the listing title,
+ * not a customer. Customer + last inbound are only read on dealer
+ * inbox/lead hosts. (Host list from docs; dealer markup is unverified.)
+ */
+function isDealerSurface(): boolean {
+  let host = '';
+  try { host = new URL(window.location.href).hostname.toLowerCase(); } catch { return false; }
+  return /^(?:dealers?|partners?)\.cars\.com$/.test(host) || /(?:^|\.)dealerinspire\.com$/.test(host) || /(?:^|\.)carscommerce\.inc$/.test(host);
+}
+
 function scrapeThread(): ThreadContext {
   const list = document.querySelector('[class*="ConversationList"], [class*="messages"], [data-testid*="conversation"]') as HTMLElement | null;
   const raw_text = (list?.innerText || document.body?.innerText || '').slice(0, 5000);
   return {
     conversation_key: stableKeyFromPath('cars'),
-    raw_text, messages: [], last_inbound_text: raw_text.slice(-2000),
+    raw_text, messages: [], last_inbound_text: isDealerSurface() ? raw_text.slice(-2000) : '',
     header_text: (document.querySelector('h1, h2') as HTMLElement | null)?.innerText?.trim() || '',
     url: window.location.href,
   };
 }
 
 function extractCustomer(): CustomerCandidate {
+  if (!isDealerSurface()) return { name: null };
   const header = document.querySelector('[class*="ConversationHeader"] [class*="name"], [data-testid*="customer-name"]') as HTMLElement | null;
   const raw = (header?.innerText || (document.querySelector('h1') as HTMLElement | null)?.innerText || '').trim();
   return raw.length > 1 && raw.length < 60

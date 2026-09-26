@@ -28,17 +28,30 @@ function hostMatches(url: string): boolean {
 }
 function detect(): boolean { return hostMatches(window.location.href); }
 
+/**
+ * The adapter's host match also covers public listing pages, where the
+ * page tail is not a customer message and the H1 is the listing title,
+ * not a customer. Customer + last inbound are only read on dealer
+ * inbox/lead hosts. (Host list from docs; dealer markup is unverified.)
+ */
+function isDealerSurface(): boolean {
+  let host = '';
+  try { host = new URL(window.location.href).hostname.toLowerCase(); } catch { return false; }
+  return /^(?:dealers?|partners?)\.autotrader\.com$/.test(host);
+}
+
 function scrapeThread(): ThreadContext {
   const raw_text = (document.body?.innerText || '').slice(0, 5000);
   return {
     conversation_key: stableKeyFromPath('at'),
-    raw_text, messages: [], last_inbound_text: raw_text.slice(-2000),
+    raw_text, messages: [], last_inbound_text: isDealerSurface() ? raw_text.slice(-2000) : '',
     header_text: (document.querySelector('h1, h2, .headerText') as HTMLElement | null)?.innerText?.trim() || '',
     url: window.location.href,
   };
 }
 
 function extractCustomer(): CustomerCandidate {
+  if (!isDealerSurface()) return { name: null };
   // JSF/WebForms server-emitted IDs typically follow `form:name:index` conventions.
   const jsfLabel = document.querySelector('[id*="customer"] , [id*="lead"], .customerName') as HTMLElement | null;
   const raw = (jsfLabel?.innerText || (document.querySelector('h1') as HTMLElement | null)?.innerText || '').trim();
