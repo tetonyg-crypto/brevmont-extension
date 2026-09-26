@@ -328,17 +328,37 @@ export default defineContentScript({
         const text = (el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
         return text || null;
       };
-      const nameSelectors = [
-        'main h1.text-heading-xlarge',
-        '.pv-text-details__left-panel h1',
-        '.ph5 h1',
-        'h1.text-heading-xlarge',
+      // Founder-reported defect 2026-09-26: on a /messaging/thread/ page, the
+      // profile-page selectors below (h1.text-heading-xlarge etc) were tried
+      // FIRST -- but LinkedIn's own persistent left-rail/global identity
+      // markup can carry the SAME h1.text-heading-xlarge class for the
+      // logged-in rep's own name, and since it's a real name (not generic
+      // chrome text), isLikelyUiName() never filters it out. Confirmed live:
+      // "Scan This Page" on Darrin Guttman's and Alec Langton's threads both
+      // captured "Yancy Garcia" (the rep) as the buyer, even though the
+      // separate lead-radar detector (which reads the messaging-specific
+      // selectors directly) correctly showed "This for Alec Langton?" first.
+      // On a messaging thread, the thread-participant selectors are always
+      // the correct signal and must be tried before the generic profile h1s,
+      // never after.
+      const isMessagingThread = /\/messaging\//i.test(String(location.href || ''))
+        || !!document.querySelector('.msg-s-message-list-content, .msg-form__contenteditable, .msg-overlay-conversation-bubble');
+      const messagingSelectors = [
         '.msg-overlay-bubble-header__title',
         '.msg-s-message-group__name',
         '.msg-thread__link-to-profile',
         '.msg-entity-lockup__entity-title',
+      ];
+      const profileSelectors = [
+        'main h1.text-heading-xlarge',
+        '.pv-text-details__left-panel h1',
+        '.ph5 h1',
+        'h1.text-heading-xlarge',
         '[data-anonymize="person-name"]',
       ];
+      const nameSelectors = isMessagingThread
+        ? [...messagingSelectors, '[data-anonymize="person-name"]', ...profileSelectors]
+        : [...profileSelectors, ...messagingSelectors];
       const rawName = nameSelectors.map(pickText).find((candidate) => candidate && !isLikelyUiName(candidate)) || null;
       const headline = pickText('.text-body-medium.break-words')
         || pickText('.pv-text-details__left-panel .text-body-medium')
