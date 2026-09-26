@@ -321,7 +321,7 @@ export default defineContentScript({
         || /\b(?:ad|options|grade|sponsored|promoted|follow|connect)\b/i.test(cleaned);
     }
 
-    function extractLinkedInProfileSignal(): { customerName?: string | null; headline?: string | null; company?: string | null; rawPrefix?: string; confidence?: number } {
+    function extractLinkedInProfileSignal(chipName?: string | null): { customerName?: string | null; headline?: string | null; company?: string | null; rawPrefix?: string; confidence?: number } {
       if (!isLinkedIn) return {};
       const pickText = (selector: string): string | null => {
         const el = document.querySelector(selector) as HTMLElement | null;
@@ -361,7 +361,13 @@ export default defineContentScript({
         '.msg-entity-lockup__entity-title',
         '[data-anonymize="person-name"]',
       ];
-      const rawName = (titleName && !isLinkedInSelfOrCompanyLabel(titleName) ? titleName : null)
+      // chipName = detectCustomerFromPage().name, the exact source of the
+      // "This for <name>?" chip, which has been correct in every repro while
+      // every scan-only heuristic below it has not. Scan must never disagree
+      // with the chip the rep just confirmed.
+      const chip = cleanCustomerNameCandidate(chipName || '');
+      const rawName = (chip && !isLikelyUiName(chip) && !isLinkedInSelfOrCompanyLabel(chip) ? chip : null)
+        || (titleName && !isLinkedInSelfOrCompanyLabel(titleName) ? titleName : null)
         || extractLinkedInPersonName()
         || fallbackNameSelectors.map(pickText).find((candidate) => candidate && !isLikelyUiName(candidate) && !isLinkedInSelfOrCompanyLabel(candidate))
         || null;
@@ -2374,7 +2380,7 @@ export default defineContentScript({
           }
           const partialSignal = extractPartialLeadSignals(rawText);
           const scanned = isVinSolutions ? scanText(rawText) : {};
-          const linkedinSignal = extractLinkedInProfileSignal();
+          const linkedinSignal = extractLinkedInProfileSignal(detected?.name);
           if (linkedinSignal.rawPrefix) {
             rawText = `${linkedinSignal.rawPrefix}\n\n${rawText}`.slice(0, 5000);
           }

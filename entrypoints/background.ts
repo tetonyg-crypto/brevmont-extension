@@ -1740,6 +1740,10 @@ export default defineBackground(() => {
               dealer_token: dealerToken,
               raw_text: msg.payload.raw_text,
               platform: msg.payload.platform || 'unknown',
+              // The page-detected customer; the server uses it on LinkedIn to
+              // tell the extractor which speaker is the customer vs the rep.
+              name: msg.payload.name || msg.payload.customer_name || null,
+              customer_name: msg.payload.customer_name || msg.payload.name || null,
             });
             data = await resp.json().catch(() => ({}));
             if (!resp.ok && !msg.payload?.customer_name && !msg.payload?.name) {

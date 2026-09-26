@@ -42,13 +42,25 @@ describe("extractLinkedInProfileSignal prefers the tab-title signal", () => {
     expect(fnBody).toContain("const titleName = parsePageTitle(document.title || '')?.name || null;");
   });
 
-  it("title candidate is tried before extractLinkedInPersonName() and the raw-selector fallback", () => {
-    const titleIdx = fnBody.indexOf("const rawName = (titleName");
+  it("order: chip name, then tab title, then extractLinkedInPersonName(), then raw selectors", () => {
+    const chipIdx = fnBody.indexOf("const rawName = (chip &&");
+    const titleIdx = fnBody.indexOf("|| (titleName &&");
     const personNameIdx = fnBody.indexOf("|| extractLinkedInPersonName()");
     const fallbackIdx = fnBody.indexOf("fallbackNameSelectors.map(pickText)");
-    expect(titleIdx).toBeGreaterThan(-1);
+    expect(chipIdx).toBeGreaterThan(-1);
+    expect(titleIdx).toBeGreaterThan(chipIdx);
     expect(personNameIdx).toBeGreaterThan(titleIdx);
     expect(fallbackIdx).toBeGreaterThan(personNameIdx);
+  });
+
+  it("SCAN_LEAD passes the chip's own source (detectCustomerFromPage) into the signal", () => {
+    expect(source).toContain("const linkedinSignal = extractLinkedInProfileSignal(detected?.name);");
+  });
+
+  it("background forwards the detected name to /api/parse-lead", () => {
+    const bg = readFileSync(resolve(process.cwd(), "entrypoints/background.ts"), "utf8");
+    const call = bg.slice(bg.indexOf("`${PROXY_URL}/api/parse-lead`"), bg.indexOf("`${PROXY_URL}/api/parse-lead`") + 600);
+    expect(call).toContain("name: msg.payload.name || msg.payload.customer_name || null");
   });
 
   it("still guards the title candidate against a self/company label", () => {
