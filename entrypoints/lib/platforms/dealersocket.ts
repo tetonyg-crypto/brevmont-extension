@@ -13,6 +13,7 @@ import type {
   InjectKind, InjectResult, PlatformAdapter, ThreadContext,
 } from './types';
 import { extractVehicleHint, findGenericComposer, stableKeyFromPath } from './shared';
+import { crmRowDirection, lastInboundFromRows } from './crmRows';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true, supports_inject_email: false, supports_inject_crm_note: true,
@@ -33,13 +34,13 @@ function scrapeThread(): ThreadContext {
     const rows = Array.from(document.querySelectorAll('.messageRow, [ng-repeat*="message"] > *')).slice(-30);
     for (const r of rows) {
       const t = (r as HTMLElement).innerText?.replace(/\s+/g, ' ').trim();
-      if (t && t.length > 2) messages.push({ text: t.slice(0, 500), direction: 'unknown' });
+      if (t && t.length > 2) messages.push({ text: t.slice(0, 500), direction: crmRowDirection(r as HTMLElement) });
     }
   } catch { /* noop */ }
   return {
     conversation_key: stableKeyFromPath('ds'),
     raw_text, messages,
-    last_inbound_text: messages.length ? messages[messages.length - 1].text : raw_text.slice(-2000),
+    last_inbound_text: lastInboundFromRows(messages),
     header_text: (document.querySelector('.lead-header .name, .customerName, h1') as HTMLElement | null)?.innerText?.trim() || '',
     url: window.location.href,
   };
