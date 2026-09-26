@@ -19,6 +19,8 @@
 import type { OrchestratorSettings, OrchestratorDeps, OrchestratorResult, ThreadScrape } from './orchestrator';
 import { orchestrateReply, isHeroStage, replayPendingConfirms } from './orchestrator';
 import { reportOverdriveBlocked, reportOverdriveDetection, reportOverdriveDraftPrefilled } from './apiClient';
+import type { OverdriveBlockedPayload } from './apiClient';
+import { createBlockedVerdictDeduper, isOverdriveThreadKey } from './signalGate';
 import { radarCapture, radarSweepDone } from './radarClient';
 import { getOverdriveSettings } from './apiClient';
 import { extractVehicleHint } from '../platforms/shared';
@@ -52,6 +54,15 @@ interface State {
   perThreadDebounce: Map<string, number>;
   lastLogAt: number;
   lastRadarSweepAt: number;
+}
+
+// One blocked receipt per conversation + inbound hash + reason. Detection
+// signals re-evaluate the same stuck verdict on every DOM mutation; reporting
+// each one produced thousands of identical overdrive.send_blocked rows.
+const shouldReportBlocked = createBlockedVerdictDeduper();
+function reportBlockedOnce(payload: OverdriveBlockedPayload): Promise<{ ok: boolean }> {
+  if (!shouldReportBlocked(payload)) return Promise.resolve({ ok: true });
+  return reportOverdriveBlocked(payload);
 }
 
 const state: State = {
@@ -383,6 +394,17 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
     return;
   }
 
+  // Not a message thread (feed, /photo/, profile): nothing to reply to and
+  // nothing to capture. Stop before any receipt is written.
+  if (!isOverdriveThreadKey(scrape.scrape.conversation_key)) {
+    await overdriveLog({
+      event: 'skip_not_thread',
+      tab_id: tabId,
+      conversation_key: scrape.scrape.conversation_key,
+    });
+    return;
+  }
+
   // Debounce by actual conversation + inbound hash, not tab. Messenger
   // can fire a system-card mutation and the real customer bubble in the
   // same tab within a few seconds; a tab-level debounce drops the second
@@ -461,7 +483,7 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
 
   // If Overdrive isn't green, we stop here — radar has already logged.
   if (!overdriveEligible) {
-    reportOverdriveBlocked({
+    reportBlockedOnce({
       conversation_key: scrape.scrape.conversation_key,
       inbound_hash: scrape.scrape.last_inbound_hash || null,
       source: 'eligibility_gate',
@@ -517,7 +539,7 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
       void overdriveLog({ event: 'orchestrator_emit', ...event });
       if (event.type === 'overdrive.skipped') {
         const payload = (event.payload || {}) as any;
-        reportOverdriveBlocked({
+        reportBlockedOnce({
           conversation_key: event.conversation_key,
           inbound_hash: scrape.scrape.last_inbound_hash || null,
           source: 'orchestrator_skip',
@@ -575,7 +597,7 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
     // dashboard, consistent with every other skip reason. Sent as a free-text
     // `reason` (stored in action_metadata) — NOT a new event_type, which the
     // event_log_v2 enum would reject.
-    reportOverdriveBlocked({
+    reportBlockedOnce({
       conversation_key: conversationKey,
       inbound_hash: scrape.scrape.last_inbound_hash || null,
       source: 'conversation_lock',
@@ -600,7 +622,7 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
       error: err?.message || 'unknown',
       stack: err?.stack || null,
     });
-    reportOverdriveBlocked({
+    reportBlockedOnce({
       conversation_key: scrape.scrape.conversation_key,
       inbound_hash: scrape.scrape.last_inbound_hash || null,
       source: 'orchestrator_exception',

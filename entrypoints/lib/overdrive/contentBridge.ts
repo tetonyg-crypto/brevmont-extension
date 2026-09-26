@@ -12,7 +12,7 @@
  *                                    existing content-script surface
  */
 
-import { install as installDetector, isInstalled } from './overdriveDetector';
+import { install as installDetector, isInstalled, setInboundSignatureReader } from './overdriveDetector';
 import type { DetectionSignal } from './types';
 import { installRepInputWatcher, markRepInput } from './safetyEnvelope';
 import type { ThreadScrape } from './orchestrator';
@@ -174,6 +174,12 @@ export async function scrapeActiveThread(): Promise<ThreadScrape> {
 export function armDetectorForwarding(): { ok: boolean; already?: boolean } {
   if (isInstalled() && detectorForwardingSet) return { ok: true, already: true };
   installRepInputWatcher();
+  // Lets the tab-title watcher check that the OPEN thread got the new
+  // message before claiming a new inbound (the title count covers all chats).
+  setInboundSignatureReader(() => {
+    const { lastInbound, lastInboundHash } = readRecentMessages();
+    return lastInbound ? lastInboundHash : '';
+  });
   installDetector((signal: DetectionSignal) => {
     try {
       chrome.runtime.sendMessage({ type: 'OVERDRIVE_DETECTION_SIGNAL', signal }, () => {

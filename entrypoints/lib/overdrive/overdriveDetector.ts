@@ -45,7 +45,24 @@ interface DetectorState {
   lastActiveThreadContainer: Element | null;
   lastThreadKey: string | null;
   lastThreadUnread: boolean;
+  /** Open thread's last-inbound signature when it was opened (see
+   *  noteOpenThreadBaseline). null hash = not read yet. */
+  baselineKey: string | null;
+  baselineHash: string | null;
+  baselineSince: number;
 }
+
+/** Reads the open thread's last-inbound signature ('' when none). Set by the
+ *  content bridge; without it the title watcher can't tell whether the OPEN
+ *  thread got the new message, so it never claims a new inbound. */
+let readInboundSignature: (() => string) | null = null;
+export function setInboundSignatureReader(fn: (() => string) | null): void {
+  readInboundSignature = fn;
+}
+
+/** An empty open thread is committed as the baseline after this long, so a
+ *  first-ever customer message still counts as new. */
+const EMPTY_BASELINE_COMMIT_MS = 3000;
 
 // Recency window for auto-arm (20 minutes)
 const OVERDRIVE_AUTO_ARM_TTL_MS = 20 * 60 * 1000;
@@ -62,6 +79,9 @@ const state: DetectorState = {
   lastActiveThreadContainer: null,
   lastThreadKey: null,
   lastThreadUnread: false,
+  baselineKey: null,
+  baselineHash: null,
+  baselineSince: 0,
 };
 
 /**
@@ -99,8 +119,53 @@ function isThreadUnread(): boolean {
   }
 }
 
-/** Emit through the registered callback, tolerating callback throws. */
+function safeReadInboundSignature(): string {
+  try {
+    return readInboundSignature ? String(readInboundSignature() || '') : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Remember the open thread's last inbound as of when it was opened. Runs on
+ * the watchdog tick. Re-reads until the thread has painted (non-empty), and
+ * commits an empty baseline once the thread has been open a few seconds.
+ */
+function noteOpenThreadBaseline(now = Date.now()): void {
+  const key = computeThreadKey();
+  if (key !== state.baselineKey) {
+    state.baselineKey = key;
+    state.baselineHash = null;
+    state.baselineSince = now;
+  }
+  if (!key || state.baselineHash !== null) return;
+  const sig = safeReadInboundSignature();
+  if (sig) state.baselineHash = sig;
+  else if (now - state.baselineSince >= EMPTY_BASELINE_COMMIT_MS) state.baselineHash = '';
+}
+
+/**
+ * Does the OPEN thread have an inbound it didn't have when it was opened?
+ * The tab-title count rises when ANY chat gets a message; only a change in
+ * the open thread's own last inbound may let the title watcher auto-fire a
+ * reply there. Unsure (no reader, thread not read yet) → false.
+ */
+function openThreadHasNewInbound(): boolean {
+  noteOpenThreadBaseline();
+  if (!readInboundSignature || state.baselineKey === null || state.baselineHash === null) return false;
+  const sig = safeReadInboundSignature();
+  if (!sig || sig === state.baselineHash) return false;
+  state.baselineHash = sig;
+  return true;
+}
+
+/** Emit through the registered callback, tolerating callback throws.
+ *  Pages that aren't a message thread (feed, /photo/, profile) have nothing
+ *  to reply to — signals from them used to reach the pipeline and log a
+ *  blocked verdict on every mutation. */
 function emit(signal: DetectionSignal): void {
+  if (!computeThreadKey()) return;
   try {
     state.callback?.(signal);
   } catch {
@@ -248,8 +313,9 @@ function replaceActiveThreadObserver(): void {
  * see it and MutationObserver on <head> is unreliable across UAs.
  * We poll title on a 1s interval — cheap, no observer overhead.
  *
- * Title changes with unread count indicate a new inbound, so this
- * always sets trigger_origin to 'unread_or_new_inbound'.
+ * The unread count covers EVERY chat, so trigger_origin is
+ * 'unread_or_new_inbound' only when the open thread's own last inbound
+ * changed since it was opened; otherwise 'thread_open_or_focus'.
  */
 function installTitleObserver(): void {
   if (state.titleTimer !== null) return;
@@ -265,7 +331,9 @@ function installTitleObserver(): void {
         type: 'title_unread_count',
         detected_at: Date.now(),
         raw: current,
-        trigger_origin: 'unread_or_new_inbound',
+        // The count covers every chat. Only a new inbound in the open thread
+        // may auto-fire a reply there.
+        trigger_origin: openThreadHasNewInbound() ? 'unread_or_new_inbound' : 'thread_open_or_focus',
       });
     }
   }, 1000);
@@ -275,6 +343,7 @@ function installMainWatchdog(): void {
   if (state.mainWatchTimer !== null) return;
   state.mainWatchTimer = window.setInterval(() => {
     replaceActiveThreadObserver();
+    noteOpenThreadBaseline();
   }, 750);
 }
 
@@ -335,6 +404,7 @@ export function install(callback: DetectionCallback): void {
   const threadObs = installActiveThreadObserver();
   if (threadObs) state.observers.push(threadObs);
 
+  noteOpenThreadBaseline();
   installTitleObserver();
   installMainWatchdog();
   state.installed = true;
@@ -356,6 +426,8 @@ export function uninstall(): void {
   state.lastActiveThreadContainer = null;
   uninstallTitleObserver();
   uninstallMainWatchdog();
+  state.baselineKey = null;
+  state.baselineHash = null;
   state.installed = false;
   state.callback = null;
 }
