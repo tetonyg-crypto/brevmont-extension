@@ -2078,6 +2078,30 @@ export default defineBackground(() => {
       return true;
     }
 
+    // "Select all" correctness fix (2026-09-26): deletes every lead
+    // matching the rep's current Active/Lost filter server-side, not just
+    // whatever page the client happened to load — see
+    // routes/capturedLeads.js POST /api/v1/rep/leads/delete-all.
+    if (msg.type === 'DELETE_ALL_MY_LEADS') {
+      (async () => {
+        try {
+          const stage = msg.payload?.stage === 'lost' ? 'lost' : 'active';
+          const resp = await signedFetch(`${PROXY_URL}/api/v1/rep/leads/delete-all`, { stage });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(data.error || `Delete-all API returned ${resp.status}`);
+          try {
+            await leadDb.captured_leads
+              .filter((l) => (String(l.pipeline_stage || '') === 'lost') === (stage === 'lost'))
+              .delete();
+          } catch { /* best-effort local cleanup */ }
+          sendResponse(data);
+        } catch (e: any) {
+          sendResponse({ error: e.message });
+        }
+      })();
+      return true;
+    }
+
     // Cadence Phase 4: follow-ups pill count.
     if (msg.type === 'GET_QUEUED_DRAFTS_COUNT') {
       (async () => {

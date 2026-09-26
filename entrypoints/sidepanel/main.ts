@@ -3826,6 +3826,18 @@ function wireHandlers(root: HTMLElement): void {
   const myLeadsBtn = el('o8-my-leads-btn-inline');
   if (myLeadsBtn) myLeadsBtn.onclick = () => openMyLeads(root);
   if (myLeadsBack) myLeadsBack.onclick = () => showQuickView(root);
+  // Header-level Select toggle (moved out of the filter row — see
+  // renderMyLeadsFilterControls — to cut the dead vertical space a
+  // standalone centered button left behind).
+  const myLeadsHeaderSelect = el('o8-my-leads-select-toggle');
+  if (myLeadsHeaderSelect) {
+    myLeadsHeaderSelect.onclick = () => {
+      (root as any).__myLeadsSelectMode = true;
+      (root as any).__myLeadsSelected = new Set<string>();
+      (root as any).__myLeadsSelectAllMatching = false;
+      void renderMyLeads(root);
+    };
+  }
 
   // Follow-ups pill — polls the queued-drafts endpoint, shows count when >0.
   // Clicking opens the My Leads view (in the interim; a dedicated
@@ -5104,23 +5116,27 @@ function renderMyLeadsFilterControls(filter: 'active' | 'lost'): string {
     <div class="my-leads-filter-row" role="tablist" aria-label="Lead filter">
       <button class="my-leads-filter-btn ${filter === 'active' ? 'active' : ''}" data-stage-filter="active" type="button">Active</button>
       <button class="my-leads-filter-btn ${filter === 'lost' ? 'active' : ''}" data-stage-filter="lost" type="button">Lost</button>
-      <button class="my-leads-filter-btn" id="o8-my-leads-select-toggle" type="button" style="margin-left:auto;">Select</button>
     </div>
   `;
 }
 
 /**
- * Bulk-select toolbar shown once "Select" is clicked. "Select all" only
- * covers the leads currently rendered (visible/loaded — respecting the
- * 7-at-a-time "Show more" paging and the active/lost filter tab), never a
- * full dataset the rep hasn't loaded, per spec: deleting 40+ stale leads
- * one-by-one is the pain point, not an unbounded "wipe everything" action.
+ * Bulk-select toolbar shown once "Select" is clicked.
+ *
+ * 2026-09-26 correctness fix: "Select all" used to only cover the leads
+ * currently rendered client-side (capped by the server's 50-row page and
+ * the 7-at-a-time "Show more" paging) — founder-reported live: with 117
+ * leads, Select all/Delete selected/repeat surfaced a "new" batch every
+ * time because most leads were never loaded, not deleted. "Select all"
+ * now means every matching lead in the current Active/Lost view,
+ * including rows never rendered — see GET_MY_LEADS_IDS / totalCount.
  */
-function renderMyLeadsSelectBar(selectedCount: number, visibleCount: number): string {
+function renderMyLeadsSelectBar(selectedCount: number, totalCount: number, filter: 'active' | 'lost'): string {
+  const allSelected = totalCount > 0 && selectedCount >= totalCount;
   return `
-    <div class="my-leads-select-bar" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px;background:#F1F5F9;border-radius:8px;">
-      <span style="font-size:12px;color:#475569;font-weight:600;flex:1;">${selectedCount} selected</span>
-      <button class="lead-secondary-action" id="o8-my-leads-select-all" type="button">Select all (${visibleCount})</button>
+    <div class="my-leads-select-bar" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:6px 8px;background:#F1F5F9;border-radius:8px;flex-wrap:wrap;">
+      <span style="font-size:12px;color:#475569;font-weight:600;">${selectedCount} selected</span>
+      <button class="lead-secondary-action" id="o8-my-leads-select-all" type="button" style="margin-left:auto;">${allSelected ? 'Deselect all' : `Select all ${filter} leads${totalCount ? ` (${totalCount})` : ''}`}</button>
       <button class="lead-secondary-action lead-delete-action" id="o8-my-leads-delete-selected" type="button" ${selectedCount ? '' : 'disabled'}>Delete selected</button>
       <button class="lead-secondary-action" id="o8-my-leads-select-cancel" type="button">Cancel</button>
     </div>
@@ -5438,6 +5454,11 @@ async function renderMyLeads(root: HTMLElement): Promise<void> {
     const localLeads = Array.isArray(localResp?.leads) ? localResp.leads : [];
     const leads = mergeLeadInboxRows(remoteLeads, localLeads, leadFilter);
     (root as any).__myLeads = leads;
+    // Authoritative total for THIS filter — independent of how many rows
+    // the client actually fetched/rendered. Falls back to what we have if
+    // the server didn't send one (e.g. an older cached response).
+    const totalCount = typeof remoteResp?.total_count === 'number' ? remoteResp.total_count : leads.length;
+    (root as any).__myLeadsTotalCount = totalCount;
 
     const goingDark = leadFilter === 'active' ? leads.filter((lead: any) => lead.going_dark) : [];
     if (count && goingDark.length) {
@@ -5447,16 +5468,29 @@ async function renderMyLeads(root: HTMLElement): Promise<void> {
       count.style.display = 'none';
     }
 
+    // Dismissible per-lead — clicking the X hides it for the rest of this
+    // session; a different going-dark lead (or the same one after a fresh
+    // dismissal-clearing reload) surfaces again normally.
+    const dismissedAlertId = String((root as any).__myLeadsDismissedAlertLeadId || '');
+    const alertLead = goingDark[0];
     if (alerts) {
-      if (goingDark.length) {
-        const lead = goingDark[0];
+      if (alertLead && String(alertLead.id) !== dismissedAlertId) {
         alerts.style.display = 'flex';
         alerts.innerHTML = `
-          <div class="going-dark-card">
-            <div style="font-weight:900;color:#92400E;">Don't lose this one — they're going cold.</div>
-            <div style="margin-top:3px;">${esc(displayText(lead.customer_name, 'This lead'))} hasn't heard from you in ${esc(timeAgo(lead.last_contacted_at || lead.last_activity_at || lead.captured_at))}.</div>
-            <div style="font-size:11px;color:#78350F;margin-top:2px;">${esc(optionalDisplayText(lead.vehicle_interest) || 'General follow-up')} — Heat ${Number(lead.heat_score || 0)}</div>
+          <div class="going-dark-card" style="position:relative;">
+            <button id="o8-going-dark-dismiss" type="button" aria-label="Dismiss" style="position:absolute;top:6px;right:8px;background:none;border:none;font-size:15px;line-height:1;color:#92400E;cursor:pointer;padding:2px 4px;">&times;</button>
+            <div style="font-weight:900;color:#92400E;padding-right:18px;">Don't lose this one — they're going cold.</div>
+            <div style="margin-top:3px;">${esc(displayText(alertLead.customer_name, 'This lead'))} hasn't heard from you in ${esc(timeAgo(alertLead.last_contacted_at || alertLead.last_activity_at || alertLead.captured_at))}.</div>
+            <div style="font-size:11px;color:#78350F;margin-top:2px;">${esc(optionalDisplayText(alertLead.vehicle_interest) || 'General follow-up')} — Heat ${Number(alertLead.heat_score || 0)}</div>
           </div>`;
+        const dismissBtn = alerts.querySelector('#o8-going-dark-dismiss') as HTMLButtonElement | null;
+        if (dismissBtn) {
+          dismissBtn.onclick = () => {
+            (root as any).__myLeadsDismissedAlertLeadId = String(alertLead.id);
+            alerts.style.display = 'none';
+            alerts.innerHTML = '';
+          };
+        }
       } else {
         alerts.style.display = 'none';
         alerts.innerHTML = '';
@@ -5464,6 +5498,11 @@ async function renderMyLeads(root: HTMLElement): Promise<void> {
     }
 
     if (!leads.length) {
+      (root as any).__myLeadsSelectMode = false;
+      (root as any).__myLeadsSelected = new Set<string>();
+      (root as any).__myLeadsSelectAllMatching = false;
+      const headerSelectBtnEmpty = root.querySelector('#o8-my-leads-select-toggle') as HTMLElement | null;
+      if (headerSelectBtnEmpty) headerSelectBtnEmpty.style.display = '';
       content.innerHTML = `
         ${renderMyLeadsFilterControls(leadFilter)}
         <div style="text-align:center;color:#64748b;font-size:12px;padding:24px;line-height:1.5;">
@@ -5476,19 +5515,27 @@ async function renderMyLeads(root: HTMLElement): Promise<void> {
     const showAll = Boolean((root as any).__myLeadsShowAll);
     const visible = showAll ? leads : leads.slice(0, 7);
     const selectMode = Boolean((root as any).__myLeadsSelectMode);
+    const selectAllMatching = Boolean((root as any).__myLeadsSelectAllMatching);
     const selectedIds: Set<string> = (root as any).__myLeadsSelected || new Set();
     (root as any).__myLeadsSelected = selectedIds;
     // Selection only ever tracks ids still in view — a stale id from a
-    // previous filter/page can't linger and get deleted by surprise.
+    // previous filter/page can't linger and get deleted by surprise. Not
+    // applied while "select all matching" covers the whole server-side set
+    // regardless of what's loaded.
     const visibleIds = new Set(visible.map((lead: any) => String(lead.id)));
-    for (const id of Array.from(selectedIds)) if (!visibleIds.has(id)) selectedIds.delete(id);
+    if (!selectAllMatching) {
+      for (const id of Array.from(selectedIds)) if (!visibleIds.has(id)) selectedIds.delete(id);
+    }
+    const selectedCount = selectAllMatching ? totalCount : selectedIds.size;
+    const headerSelectBtn = root.querySelector('#o8-my-leads-select-toggle') as HTMLElement | null;
+    if (headerSelectBtn) headerSelectBtn.style.display = selectMode ? 'none' : '';
     content.innerHTML = `
       ${renderMyLeadsFilterControls(leadFilter)}
-      ${selectMode ? renderMyLeadsSelectBar(selectedIds.size, visible.length) : ''}
+      ${selectMode ? renderMyLeadsSelectBar(selectedCount, totalCount, leadFilter) : ''}
       <div style="font-size:11px;color:#64748B;margin-bottom:8px;">
         ${leadFilter === 'lost' ? 'Lost leads stay tucked away with the reason preserved.' : 'Your active leads, sorted by heat and who needs attention first.'}
       </div>
-      ${visible.map((lead: any, index: number) => renderLeadCard(lead, index, selectMode, selectedIds.has(String(lead.id)))).join('')}
+      ${visible.map((lead: any, index: number) => renderLeadCard(lead, index, selectMode, selectAllMatching || selectedIds.has(String(lead.id)))).join('')}
       ${leads.length > 7 && !selectMode ? `<button id="o8-my-leads-show-more" class="lead-secondary-action" style="width:100%;margin-top:10px;">${showAll ? 'Show top 7' : `Show more (${leads.length - 7})`}</button>` : ''}
     `;
     wireMyLeadCardActions(root);
@@ -5516,51 +5563,65 @@ function wireMyLeadCardActions(root: HTMLElement): void {
     };
   }
 
-  const selectToggle = content.querySelector('#o8-my-leads-select-toggle') as HTMLButtonElement | null;
-  if (selectToggle) {
-    selectToggle.onclick = () => {
-      (root as any).__myLeadsSelectMode = true;
-      (root as any).__myLeadsSelected = new Set<string>();
-      void renderMyLeads(root);
-    };
-  }
+  // Note: the "Select" toggle button now lives in the panel's static
+  // header (outside #o8-my-leads-content) — wired once in the panel-init
+  // block, not here. See the o8-my-leads-select-toggle binding near the
+  // My Leads back-button wiring.
   const selectCancel = content.querySelector('#o8-my-leads-select-cancel') as HTMLButtonElement | null;
   if (selectCancel) {
     selectCancel.onclick = () => {
       (root as any).__myLeadsSelectMode = false;
       (root as any).__myLeadsSelected = new Set<string>();
+      (root as any).__myLeadsSelectAllMatching = false;
       void renderMyLeads(root);
     };
   }
   const selectAll = content.querySelector('#o8-my-leads-select-all') as HTMLButtonElement | null;
   if (selectAll) {
     selectAll.onclick = () => {
-      const visibleIds = ((root as any).__myLeads || [])
-        .slice(0, Boolean((root as any).__myLeadsShowAll) ? undefined : 7)
-        .map((lead: any) => String(lead.id));
-      const selectedIds: Set<string> = (root as any).__myLeadsSelected || new Set();
-      // Toggle: if everything visible is already selected, clear instead of
-      // re-selecting, so the button also serves as "deselect all."
-      const allSelected = visibleIds.length > 0 && visibleIds.every((id: string) => selectedIds.has(id));
-      (root as any).__myLeadsSelected = allSelected ? new Set<string>() : new Set<string>(visibleIds);
+      // 2026-09-26: "Select all" now means every matching lead in the
+      // current Active/Lost view server-side (see total_count on
+      // GET_MY_LEADS), not just the rows this client happened to load —
+      // toggling this flag is enough; no id enumeration needed client-side
+      // since delete goes through DELETE_ALL_MY_LEADS when it's set.
+      const wasSelectAllMatching = Boolean((root as any).__myLeadsSelectAllMatching);
+      (root as any).__myLeadsSelectAllMatching = !wasSelectAllMatching;
+      (root as any).__myLeadsSelected = new Set<string>();
       void renderMyLeads(root);
     };
   }
   const deleteSelected = content.querySelector('#o8-my-leads-delete-selected') as HTMLButtonElement | null;
   if (deleteSelected) {
     deleteSelected.onclick = async () => {
+      const selectAllMatching = Boolean((root as any).__myLeadsSelectAllMatching);
       const selectedIds: Set<string> = (root as any).__myLeadsSelected || new Set();
-      const count = selectedIds.size;
+      const leadFilter: 'active' | 'lost' = (root as any).__myLeadsStageFilter === 'lost' ? 'lost' : 'active';
+      const count = selectAllMatching ? Number((root as any).__myLeadsTotalCount) || 0 : selectedIds.size;
       if (!count) return;
-      if (!confirm(`Delete ${count} lead${count === 1 ? '' : 's'}?\nThis can't be undone.`)) return;
+      if (!confirm(`Delete ${count} lead${count === 1 ? '' : 's'}? This can't be undone.`)) return;
       deleteSelected.disabled = true;
       deleteSelected.textContent = 'Deleting...';
-      const ids = Array.from(selectedIds);
-      const results = await Promise.allSettled(ids.map((leadId) => safeSend({ type: 'DELETE_LEAD', payload: { leadId } })));
-      const failed = results.filter((r) => r.status === 'rejected' || (r.status === 'fulfilled' && r.value?.error)).length;
-      (root as any).__myLeadsSelectMode = false;
-      (root as any).__myLeadsSelected = new Set<string>();
-      showToast(root, failed ? `Deleted ${count - failed} of ${count} (${failed} failed)` : `Deleted ${count} lead${count === 1 ? '' : 's'}`);
+      if (selectAllMatching) {
+        // Server-side delete-all: covers every matching row for this
+        // rep/dealership/stage in one request, not just what got loaded.
+        const resp = await safeSend({ type: 'DELETE_ALL_MY_LEADS', payload: { stage: leadFilter } });
+        (root as any).__myLeadsSelectMode = false;
+        (root as any).__myLeadsSelected = new Set<string>();
+        (root as any).__myLeadsSelectAllMatching = false;
+        if (resp?.error) {
+          showToast(root, `Couldn't delete: ${resp.error}`);
+        } else {
+          showToast(root, `Deleted ${Number(resp?.deleted_count) || count} lead${count === 1 ? '' : 's'}`);
+        }
+      } else {
+        const ids = Array.from(selectedIds);
+        const results = await Promise.allSettled(ids.map((leadId) => safeSend({ type: 'DELETE_LEAD', payload: { leadId } })));
+        const failed = results.filter((r) => r.status === 'rejected' || (r.status === 'fulfilled' && r.value?.error)).length;
+        (root as any).__myLeadsSelectMode = false;
+        (root as any).__myLeadsSelected = new Set<string>();
+        (root as any).__myLeadsSelectAllMatching = false;
+        showToast(root, failed ? `Deleted ${count - failed} of ${count} (${failed} failed)` : `Deleted ${count} lead${count === 1 ? '' : 's'}`);
+      }
       await renderMyLeads(root);
     };
   }
@@ -5570,6 +5631,15 @@ function wireMyLeadCardActions(root: HTMLElement): void {
       const leadId = card?.dataset.leadId;
       if (!leadId) return;
       const selectedIds: Set<string> = (root as any).__myLeadsSelected || new Set();
+      if ((root as any).__myLeadsSelectAllMatching) {
+        // Falling out of "select all matching": materialize the currently
+        // rendered ids as the explicit selection, then apply this one
+        // toggle on top of it, so unchecking a single card behaves as
+        // expected instead of silently no-op'ing against a phantom set.
+        (root as any).__myLeadsSelectAllMatching = false;
+        const visible = ((root as any).__myLeads || []).slice(0, Boolean((root as any).__myLeadsShowAll) ? undefined : 7);
+        for (const lead of visible) selectedIds.add(String(lead.id));
+      }
       if (checkbox.checked) selectedIds.add(leadId); else selectedIds.delete(leadId);
       (root as any).__myLeadsSelected = selectedIds;
       void renderMyLeads(root);
