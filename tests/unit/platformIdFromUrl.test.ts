@@ -34,6 +34,7 @@ describe('platformIdFromUrl', () => {
   // still do not.
   it('routes bare instagram.com profile pages to the instagram adapter', () => {
     expect(platformIdFromUrl('https://www.instagram.com/some_account/')).toBe('instagram');
+    expect(platformIdFromUrl('https://www.instagram.com/cardogvlogs/?hl=en')).toBe('instagram');
   });
 
   it('does not treat an Instagram reserved top-level route or post permalink as a profile', () => {

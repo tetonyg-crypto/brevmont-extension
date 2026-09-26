@@ -20,6 +20,7 @@ import { cleanCustomerNameCandidate, extractContactName as extractContactNameFor
 import { detectCustomerFromPage, findGmailThreadSender, gmailSubjectText, nameMatchesGmailSubject, parsePageTitle } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 import { withInjectInFlight as overdriveWithInjectInFlight } from './lib/overdrive/safetyEnvelope';
+import { platformIdFromUrl } from './lib/platforms/registry';
 
 type Platform = 'vinsolutions' | 'gmail' | 'outlook' | 'facebook' | 'linkedin' | 'whatsapp' | 'instagram' | 'google-messages' | 'cargurus' | 'carsdotcom' | 'autotrader' | 'dealersocket' | 'elead' | 'x' | 'unknown';
 
@@ -87,7 +88,11 @@ export default defineContentScript({
       : _url.includes('facebook.com') ? 'facebook'
       : _url.includes('linkedin.com') ? 'linkedin'
       : _url.includes('instagram.com/direct') ? 'instagram'
-      : _url.includes('instagram.com') ? 'unknown'
+      // Keep bare Instagram profile routing aligned with the adapter registry.
+      // Live regression, 2026-09-26: registry.ts recognized /cardogvlogs/?hl=en,
+      // but this older gate returned early as "unknown" before registering any
+      // message handlers, so GET_LEAD_CONTEXT and SCAN_LEAD_V2 never existed.
+      : _url.includes('instagram.com') ? (platformIdFromUrl(_url) === 'instagram' ? 'instagram' : 'unknown')
       : _url.includes('web.whatsapp.com') ? 'whatsapp'
       : _url.includes('messages.google.com') ? 'google-messages'
       : _url.includes('cargurus.com') ? 'cargurus'

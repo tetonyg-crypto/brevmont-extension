@@ -50,6 +50,7 @@ import {
   discoverLinkedInConversationFrame,
   type LinkedInFrameProbe,
 } from '../lib/linkedinFrameRouting';
+import { platformIdFromUrl } from '../lib/platforms/registry';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Platform =
@@ -238,7 +239,10 @@ function detectPlatformFromURL(url: string): Platform {
   if (url.includes('facebook.com')) return 'facebook';
   if (url.includes('linkedin.com')) return 'linkedin';
   if (url.includes('instagram.com/direct')) return 'instagram';
-  if (url.includes('instagram.com')) return 'unknown';
+  // A profile page is a supported Instagram capture surface too. This must
+  // match registry.ts or Generate skips scanning because currentPlatform is
+  // "unknown" even though the Instagram adapter can read the profile.
+  if (url.includes('instagram.com')) return platformIdFromUrl(url) === 'instagram' ? 'instagram' : 'unknown';
   if (url.includes('web.whatsapp.com')) return 'whatsapp';
   if (url.includes('messages.google.com')) return 'google-messages';
   if (url.includes('cargurus.com')) return 'cargurus';

@@ -1,0 +1,46 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { instagramAdapter } from '../../entrypoints/lib/platforms/instagram';
+import { platformIdFromUrl } from '../../entrypoints/lib/platforms/registry';
+
+// Live DOM captured 2026-09-26 from
+// https://www.instagram.com/cardogvlogs/?hl=en. The profile adapter itself
+// could read this shape, but content.ts and the side panel independently
+// classified the URL as "unknown", preventing both chip and scan messages.
+describe('Instagram profile live DOM routing', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    (window as any).happyDOM.setURL('https://www.instagram.com/cardogvlogs/?hl=en');
+  });
+
+  it('routes the exact live profile URL to Instagram', () => {
+    expect(platformIdFromUrl(window.location.href)).toBe('instagram');
+    expect(instagramAdapter.detect()).toBe(true);
+  });
+
+  it('extracts the profile username and readable header from the live DOM shape', () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <header>
+          <h1>cardogvlogs</h1>
+          <div>213 posts</div>
+          <div>263 followers</div>
+          <div>257 following</div>
+          <div>Yancy Garcia</div>
+          <div>Digital creator</div>
+          <div>Main @yancygarcia_3</div>
+          <div>Sold $26.8M in cars. Now running @brevmontlabs</div>
+        </header>
+      </main>`;
+
+    const customer = instagramAdapter.extractCustomer();
+    const thread = instagramAdapter.scrapeThread();
+
+    expect(customer).toMatchObject({
+      name: 'cardogvlogs',
+      username: 'cardogvlogs',
+      raw_source: 'ig_profile_username',
+    });
+    expect(thread.header_text).toContain('cardogvlogs');
+    expect(thread.raw_text).toContain('Sold $26.8M in cars');
+  });
+});
