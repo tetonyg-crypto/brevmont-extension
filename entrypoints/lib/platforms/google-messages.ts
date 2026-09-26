@@ -53,13 +53,24 @@ function scrapeThread(): ThreadContext {
   try {
     // Google Messages uses Angular custom elements: mws-message-part-content
     // for individual bubbles, mws-message-wrapper for direction hints.
-    const wrappers = Array.from(
+    // The selector also matches the text element nested inside each wrapper;
+    // keep only outermost matches, or every bubble is read twice, and the
+    // nested copy (no direction class) counted as the customer's even for the
+    // rep's own messages (2026-09-26 audit). Direction comes from the
+    // enclosing wrapper.
+    const matched = Array.from(
       document.querySelectorAll('mws-message-wrapper, [class*="message-wrapper"], mws-message-part-content')
-    ).slice(-40);
+    );
+    const matchedSet = new Set(matched);
+    const wrappers = matched.filter((el) => {
+      for (let p = el.parentElement; p; p = p.parentElement) if (matchedSet.has(p)) return false;
+      return true;
+    }).slice(-40);
     for (const w of wrappers) {
       const text = (w as HTMLElement).innerText?.replace(/\s+/g, ' ').trim();
       if (!text || text.length < 2) continue;
-      const outbound = /(?:outgoing|self|sender-side)/i.test(w.className || '');
+      const outbound = Boolean(w.closest('[is-outgoing="true"], [class*="outgoing"], [class*="sender-side"]'))
+        || /(?:outgoing|self|sender-side)/i.test(typeof w.className === 'string' ? w.className : '');
       const direction: ThreadContext['messages'][number]['direction'] = outbound ? 'outbound' : 'inbound';
       messages.push({ text: text.slice(0, 600), direction });
       if (direction === 'inbound') last_inbound_text = text.slice(0, 2000);

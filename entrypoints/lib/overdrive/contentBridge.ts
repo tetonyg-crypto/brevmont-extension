@@ -53,11 +53,16 @@ function readThreadHeaderText(): string {
   }
 }
 
-function lastReadableInboundFromHistory(history: string[]): string {
+// Only a Customer line can be the inbound. If the rep spoke last there is no
+// new customer message to answer: returning the "Rep: ..." line here let
+// Overdrive auto-reply to the rep's own words (2026-09-26 audit).
+export function lastReadableInboundFromHistory(history: string[]): string {
   for (let index = history.length - 1; index >= 0; index -= 1) {
     const line = history[index] || '';
+    if (/^Rep:/i.test(line)) return '';
     const match = line.match(/^Customer:\s*(.+)$/i);
-    const text = String(match ? match[1] : line).replace(/\s+/g, ' ').trim();
+    if (!match) continue;
+    const text = String(match[1]).replace(/\s+/g, ' ').trim();
     if (text) return text.slice(0, 2000);
   }
   return '';

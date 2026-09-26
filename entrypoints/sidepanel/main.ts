@@ -1165,11 +1165,19 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
   const isDeterministicThread = isDeterministicGmailThread || (ctx.platform || currentPlatform.platform) === 'facebook' && messages.length > 0;
   const platformId = String(ctx.platform || currentPlatform.platform || '');
   const isLinkedIn = platformId === 'linkedin';
+  // Never promote the rep's own bubble to "last customer message": the
+  // any-direction fallbacks only apply when the last bubble isn't known to be
+  // outbound, and raw page text only when there are no structured messages
+  // at all (2026-09-26 audit: rep follow-ups were sent to the AI as the
+  // customer's words on every platform).
+  const lastMessage = messages[messages.length - 1];
+  const lastIsOutbound = lastMessage?.direction === 'outbound' || lastMessage?.role === 'rep';
+  const allowLooseFallback = !isDeterministicGmailThread && !isLinkedIn && !lastIsOutbound;
   const lastInbound = firstNonSystemThreadText(
     thread.last_inbound_text,
     messages.slice().reverse().find((message) => message.direction === 'inbound' || message.role === 'customer')?.text,
-    (isDeterministicGmailThread || isLinkedIn) ? '' : messages[messages.length - 1]?.text,
-    (isDeterministicGmailThread || isLinkedIn) ? '' : lastReadableThreadLine(rawText)
+    allowLooseFallback ? lastMessage?.text : '',
+    allowLooseFallback && messages.length === 0 ? lastReadableThreadLine(rawText) : ''
   );
   const headerText = stripThreadDecorators(thread.header_text || ctx.context?.subject_line || ctx.context?.listing_title || '');
   if (!rawText && !lastInbound && !headerText) return null;
@@ -1207,7 +1215,7 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
       conversation_key: thread.conversation_key || ctx.thread_fingerprint || ctx.context_fingerprint || null,
       raw_text: rawText || [headerText, ...messages.map((message) => `[${message.direction || 'unknown'}] ${message.text}`)].filter(Boolean).join('\n').slice(0, 5000),
       messages,
-      last_inbound_text: lastInbound || ((isDeterministicThread || isLinkedIn) ? '' : lastReadableThreadLine(rawText)),
+      last_inbound_text: lastInbound || ((isDeterministicThread || isLinkedIn || messages.length > 0) ? '' : lastReadableThreadLine(rawText)),
       last_inbound_hash: thread.last_inbound_hash || ctx.last_inbound_hash || null,
       header_text: headerText || null,
       url: thread.url || currentPlatform.url || null,
