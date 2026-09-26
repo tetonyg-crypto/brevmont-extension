@@ -50,29 +50,58 @@ function scrapeThread(): ThreadContext {
   };
 }
 
+// Words that appear in VinSolutions navigation / page chrome, never in a
+// customer's name. "Customer Dashboard Leads Jennifer Ramirez Sales" came
+// from a nav bar, not a label.
+const VIN_NAV_WORDS = /\b(?:customers?|dashboard|leads?|sales|inventory|reports?|desking|deals?|settings|home|search|tasks?|calendar|service|admin|menu|contacts?|details?|marketing|showroom|appointments?|notes?|activity|log ?out|sign ?out)\b/i;
+const VIN_NAME_RE = /^[A-Z][A-Za-z'.-]+(?:\s+[A-Z][A-Za-z'.-]+){0,3}$/;
+
+function vinCustomerPanel(): HTMLElement | null {
+  return document.querySelector(
+    '#customer-header, .vs-customer-header, [id*="CustomerInfo" i], [class*="customer-info" i], [class*="CustomerInfo"], [class*="customer-header" i], [id*="customer-panel" i], [class*="customer-panel" i]',
+  ) as HTMLElement | null;
+}
+
+function acceptVinName(value: string): string | null {
+  const v = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!v || v.length > 60 || !VIN_NAME_RE.test(v)) return null;
+  if (VIN_NAV_WORDS.test(v)) return null;
+  return v;
+}
+
+/** "Customer: Jennifer Ramirez" -- a real label with a colon, the value alone on its line. */
+function vinLabeledCustomer(text: string): string | null {
+  const lines = String(text || '').split('\n').map((line) => line.replace(/\s+/g, ' ').trim());
+  for (let i = 0; i < lines.length; i += 1) {
+    const m = lines[i].match(/^Customer(?:\s+Name)?\s*:\s*(.*)$/i);
+    if (!m) continue;
+    const value = m[1] || lines[i + 1] || '';
+    const name = acceptVinName(value);
+    if (name) return name;
+  }
+  return null;
+}
+
 function extractCustomer(): CustomerCandidate {
   // VinSolutions surfaces the customer name in several places; the
-  // page's h1 or a Customer: label are the most reliable anchors.
+  // customer panel's "Customer:" label or the contact H1 are the anchors.
+  // When unsure, return no name rather than page chrome.
   try {
-    // 1) Explicit "Customer: <Name>" pattern
-    const bodyText = document.body?.innerText || '';
-    const m = bodyText.match(/Customer\s*:?\s+([A-Z][A-Za-z'.-]+(?:\s+[A-Z][A-Za-z'.-]+){0,3})/);
-    if (m && m[1]) {
-      return { name: m[1].trim(), raw_source: 'vin_customer_label', confidence: 0.9 };
-    }
+    // 1) Explicit "Customer: <Name>" label, customer panel first.
+    const panel = vinCustomerPanel();
+    const fromPanel = panel ? vinLabeledCustomer(panel.innerText || '') : null;
+    if (fromPanel) return { name: fromPanel, raw_source: 'vin_customer_label', confidence: 0.9 };
+    const fromBody = vinLabeledCustomer(document.body?.innerText || '');
+    if (fromBody) return { name: fromBody, raw_source: 'vin_customer_label', confidence: 0.8 };
     // 2) Contact record H1
     const h1 = document.querySelector('h1') as HTMLElement | null;
-    if (h1) {
-      const raw = (h1.innerText || '').trim();
-      if (/^[A-Z][A-Za-z'.-]+(?:\s+[A-Z][A-Za-z'.-]+){0,3}$/.test(raw) && raw.length < 60) {
-        return { name: raw, raw_source: 'vin_h1', confidence: 0.75 };
-      }
-    }
+    const fromH1 = h1 ? acceptVinName(h1.innerText || '') : null;
+    if (fromH1) return { name: fromH1, raw_source: 'vin_h1', confidence: 0.75 };
     // 3) [data-name] anywhere
     const named = document.querySelector('[data-name]') as HTMLElement | null;
     if (named) {
       const n = named.getAttribute('data-name');
-      if (n && n.length > 1 && n.length < 60) {
+      if (n && n.length > 1 && n.length < 60 && !VIN_NAV_WORDS.test(n)) {
         return { name: n, raw_source: 'vin_data_name_attr', confidence: 0.8 };
       }
     }

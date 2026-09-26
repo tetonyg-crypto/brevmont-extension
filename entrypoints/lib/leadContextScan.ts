@@ -294,11 +294,19 @@ export function isLinkedInSelfOrCompanyLabel(value: string): boolean {
 const LEADING_DAY_DIVIDER_RE =
   /^(?:TODAY|YESTERDAY|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\s+\d{1,2}(?:,?\s*\d{4})?)\s+/i;
 
-/** First-line lockup on a LinkedIn bubble ("Yancy Garcia Sent ya an email"). */
+const DAY_DIVIDER_ONLY_RE =
+  /^(?:TODAY|YESTERDAY|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\s+\d{1,2}(?:,?\s*\d{4})?)$/i;
+
+/**
+ * First-line lockup on a LinkedIn bubble ("Yancy Garcia Sent ya an email").
+ * In real innerText the day divider usually sits on its OWN line
+ * ("MONDAY\nYancy Garcia sent the following message..."), so divider-only
+ * leading lines are skipped rather than treated as the lockup line.
+ */
 export function linkedInSenderLabelFromBubbleText(text: string): string {
-  const first = String(text || '')
-    .split('\n')[0]
-    .replace(/\s+/g, ' ')
+  const lines = String(text || '').split('\n').map((line) => line.replace(/\s+/g, ' ').trim());
+  const firstLine = lines.find((line) => line && !DAY_DIVIDER_ONLY_RE.test(line)) || '';
+  const first = firstLine
     .replace(/\b\d{1,2}:\d{2}\s*(?:AM|PM)\b/ig, '')
     .replace(/\breact with\b.*$/i, '')
     .replace(LEADING_DAY_DIVIDER_RE, '')
@@ -309,37 +317,116 @@ export function linkedInSenderLabelFromBubbleText(text: string): string {
 }
 
 /**
- * True when the bubble is the signed-in member's own send.
- * LinkedIn concatenates sender + body, so matching the whole blob against
- * the profile name always fails ("Yancy Garcia Sent ya an email" !== "Yancy Garcia").
+ * The sender name from LinkedIn's group header ("<Name> sent the following
+ * message(s) at 4:40 PM"), or '' when the text carries no such header.
+ * Follow-on bubbles in a group have no header -- their body must never be
+ * mistaken for one ("Yancy, what does Brevmont cost?" is not a sender).
  */
-export function linkedInMessageLooksOutbound(text: string, personName?: string | null): boolean {
-  const raw = String(text || '').replace(/\s+/g, ' ').trim();
-  if (!raw) return false;
-  const sender = linkedInSenderLabelFromBubbleText(text);
-  if (sender && isLinkedInSelfOrCompanyLabel(sender)) return true;
-  const firstLine = String(text || '').split('\n')[0].replace(/\s+/g, ' ').trim();
-  if (firstLine.length < 80 && isLinkedInSelfOrCompanyLabel(firstLine)) return true;
-  const personFirst = String(personName || '').trim().split(/\s+/)[0];
-  if (personFirst && personFirst.length >= 2) {
-    const escaped = personFirst.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const greeting = new RegExp(`^hey\\s+${escaped}\\b`, 'i');
-    const withoutSender = sender ? raw.slice(sender.length).trim() : raw;
-    if (greeting.test(raw) || greeting.test(withoutSender)) return true;
+export function linkedInSenderHeaderFromText(text: string): string {
+  let flat = String(text || '').replace(/\s+/g, ' ').trim();
+  for (let i = 0; i < 2; i += 1) flat = flat.replace(LEADING_DAY_DIVIDER_RE, '');
+  const match = flat.match(/^(.{2,80}?)\s+sent the following messages?\b/i);
+  if (!match) return '';
+  const name = match[1].replace(/\s*\([^)]{0,40}\)\s*$/, '').trim();
+  // Any header -- even one whose name we cannot match -- starts a new group,
+  // so an unrecognised sender resets inheritance to 'unknown'.
+  return name.length >= 2 ? name : '';
+}
+
+/**
+ * Strict self check for a LinkedIn SENDER HEADER: the full normalized name
+ * must equal the signed-in member's name. Unlike isLinkedInSelfOrCompanyLabel
+ * (a name-candidate filter), no prefix matching and no company-word match --
+ * a customer message that starts with the rep's first name or mentions
+ * "Brevmont" is still the customer's.
+ */
+export function isLinkedInSelfSender(label: string): boolean {
+  const key = normalizePersonKey(String(label || '').replace(/\s*\([^)]{0,40}\)\s*$/, ''));
+  if (!key) return false;
+  for (const self of linkedInSelfNames()) {
+    if (self && key === self) return true;
   }
   return false;
 }
 
-export function linkedInBubbleLooksOutbound(el: HTMLElement, text: string, personName?: string | null): boolean {
+function sameLinkedInPerson(a: string, b: string): boolean {
+  const clean = (v: string) => String(v || '').split('\n')[0].replace(/\s*\([^)]{0,40}\).*$/, '').split(/\s+[·•|,]\s*|\s+[-–—]\s+/)[0].trim();
+  const ka = normalizePersonKey(clean(a));
+  const kb = normalizePersonKey(clean(b));
+  return !!ka && !!kb && ka === kb;
+}
+
+/** Direction of a LinkedIn sender header: self -> outbound, the thread's person -> inbound, else unknown. */
+export function linkedInSenderDirection(sender: string, personName?: string | null): 'inbound' | 'outbound' | 'unknown' {
+  if (!sender) return 'unknown';
+  if (isLinkedInSelfSender(sender)) return 'outbound';
+  if (personName && sameLinkedInPerson(sender, personName)) return 'inbound';
+  return 'unknown';
+}
+
+function linkedInGreetsPerson(text: string, personName?: string | null): boolean {
+  const personFirst = String(personName || '').trim().split(/\s+/)[0];
+  if (!personFirst || personFirst.length < 2) return false;
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  const escaped = personFirst.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const greeting = new RegExp(`^hey\\s+${escaped}\\b`, 'i');
+  const sender = linkedInSenderLabelFromBubbleText(text);
+  const withoutSender = sender ? raw.slice(sender.length).trim() : raw;
+  return greeting.test(raw) || greeting.test(withoutSender);
+}
+
+/**
+ * True when the bubble is the signed-in member's own send.
+ * LinkedIn concatenates sender + body, so matching the whole blob against
+ * the profile name always fails ("Yancy Garcia Sent ya an email" !== "Yancy Garcia").
+ * Only a real sender header counts, matched on the full name.
+ */
+export function linkedInMessageLooksOutbound(text: string, personName?: string | null): boolean {
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return false;
+  const sender = linkedInSenderHeaderFromText(text);
+  if (sender && isLinkedInSelfSender(sender)) return true;
+  return linkedInGreetsPerson(text, personName);
+}
+
+const LINKEDIN_SENDER_NAME_SELECTOR = '.msg-s-message-group__name, .msg-s-event-listitem__name, [data-anonymize="person-name"]';
+
+/** The group sender header carried by this bubble (DOM name lockup first, then header text), or ''. */
+export function linkedInBubbleSenderHeader(el: HTMLElement, text: string): string {
+  const nameEl = el.querySelector(LINKEDIN_SENDER_NAME_SELECTOR) as HTMLElement | null;
+  const lockup = String(nameEl?.textContent || '').split('\n')[0].replace(/\s+/g, ' ').trim();
+  if (lockup) return lockup;
+  return linkedInSenderHeaderFromText(text);
+}
+
+function linkedInBubbleHasSelfClass(el: HTMLElement): boolean {
   const classBlob = `${el.className || ''} ${el.parentElement?.className || ''}`;
   if (/message-group--self|(?:^|[\s_-])self(?:$|[\s_-])/i.test(classBlob)) return true;
-  if (el.closest('[class*="message-group--self"]')) return true;
-  const nameEl = el.querySelector(
-    '.msg-s-message-group__name, .msg-s-event-listitem__name, [data-anonymize="person-name"]',
-  ) as HTMLElement | null;
-  const lockup = String(nameEl?.textContent || '').split('\n')[0].replace(/\s+/g, ' ').trim();
-  if (lockup && isLinkedInSelfOrCompanyLabel(lockup)) return true;
-  return linkedInMessageLooksOutbound(text, personName);
+  return !!el.closest('[class*="message-group--self"]');
+}
+
+/**
+ * Direction of one LinkedIn bubble. LinkedIn shows the sender header only on
+ * the first bubble of a group, so a bubble without a header inherits the
+ * direction of the group it belongs to (`inherited`). Nothing determinable
+ * -> 'unknown', never a guessed 'inbound'.
+ */
+export function linkedInBubbleDirection(
+  el: HTMLElement,
+  text: string,
+  personName: string | null | undefined,
+  inherited: 'inbound' | 'outbound' | 'unknown' | null,
+): { direction: 'inbound' | 'outbound' | 'unknown'; group: 'inbound' | 'outbound' | 'unknown' | null } {
+  const header = linkedInBubbleSenderHeader(el, text);
+  const group = header ? linkedInSenderDirection(header, personName) : inherited;
+  let direction = group || 'unknown';
+  if (linkedInBubbleHasSelfClass(el)) direction = 'outbound';
+  if (direction === 'unknown' && linkedInGreetsPerson(text, personName)) direction = 'outbound';
+  return { direction, group };
+}
+
+export function linkedInBubbleLooksOutbound(el: HTMLElement, text: string, personName?: string | null): boolean {
+  return linkedInBubbleDirection(el, text, personName, null).direction === 'outbound';
 }
 
 function cleanLinkedInPersonLabel(value: string): string | null {
