@@ -42,6 +42,17 @@ export function platformIdFromUrl(url: string): PlatformId | null {
   if (u.includes('facebook.com')) return 'facebook';
   if (u.includes('linkedin.com')) return 'linkedin';
   if (u.includes('instagram.com/direct')) return 'instagram';
+  // Instagram profile pages (instagram.com/<username>/) — added 2026-09-26.
+  // Confirmed live: "+Lead > Scan This Page" on a real profile
+  // (instagram.com/cardogvlogs/) failed with "no_adapter_for_url" because
+  // only /direct thread routes were ever recognized. A bare single path
+  // segment is a profile; excludes Instagram's own reserved top-level
+  // routes so /explore, /reels, etc. are never mistaken for a username.
+  if (/instagram\.com\/([a-z0-9._]{1,40})\/?(?:[?#]|$)/i.test(u)) {
+    const seg = u.match(/instagram\.com\/([a-z0-9._]{1,40})\/?(?:[?#]|$)/i)?.[1]?.toLowerCase() || '';
+    const IG_RESERVED = new Set(['direct', 'explore', 'reels', 'reel', 'stories', 'accounts', 'about', 'legal', 'p', 'tv', 'developer', 'privacy', 'terms', 'challenge', 'emails']);
+    if (seg && !IG_RESERVED.has(seg)) return 'instagram';
+  }
   if (u.includes('web.whatsapp.com')) return 'whatsapp';
   if (u.includes('messages.google.com')) return 'google-messages';
   if (u.includes('cargurus.com')) return 'cargurus';
@@ -74,6 +85,19 @@ export function platformIdFromUrl(url: string): PlatformId | null {
   if (/x\.com\/i\/chat\/?(?:[?#]|$)/.test(u)) return 'x';
   if (/x\.com\/messages\/\d+-\d+(?:[/?#]|$)/.test(u)) return 'x';
   if (/x\.com\/messages\/?(?:[?#]|$)/.test(u)) return 'x';
+  // X profile pages (x.com/<handle>) — added 2026-09-26. Confirmed live:
+  // the chip already detects the profile (generic title-based fallback),
+  // but "+Lead > Scan This Page" failed with "no_adapter_for_url" since
+  // only DM routes were ever recognized. Excludes X's own reserved
+  // top-level routes so /home, /messages, /i/..., etc. are never mistaken
+  // for a handle. Also excludes a status/post permalink
+  // (x.com/<handle>/status/<id>) per the founder's original spec — that's
+  // a post, not a profile.
+  if (/^x\.com\/([a-z0-9_]{1,15})\/?(?:[?#]|$)/i.test(u.replace(/^https?:\/\//, ''))) {
+    const seg = u.replace(/^https?:\/\//, '').match(/^x\.com\/([a-z0-9_]{1,15})\/?(?:[?#]|$)/i)?.[1]?.toLowerCase() || '';
+    const X_RESERVED = new Set(['home', 'explore', 'notifications', 'messages', 'i', 'search', 'settings', 'compose', 'jobs', 'premium_sign_up', 'about', 'tos', 'privacy', 'help', 'lists', 'bookmarks', 'communities']);
+    if (seg && !X_RESERVED.has(seg)) return 'x';
+  }
   return null;
 }
 

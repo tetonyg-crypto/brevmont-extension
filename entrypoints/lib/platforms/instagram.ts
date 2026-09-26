@@ -63,6 +63,7 @@ import {
   isInstagramNoiseText,
   isInstagramReplyContextText,
 } from '../instagramMessageText';
+import { deepVisibleText } from '../leadContextScan';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
@@ -75,9 +76,38 @@ const CAPS: AdapterCapabilities = {
 };
 
 const THREAD_PATH_RE = /\/direct\/t\/([^/?#]+)/i;
+const PROFILE_PATH_RE = /^\/([a-z0-9._]{1,40})\/?(?:[?#]|$)/i;
+const IG_RESERVED_PATHS = new Set(['direct', 'explore', 'reels', 'reel', 'stories', 'accounts', 'about', 'legal', 'p', 'tv', 'developer', 'privacy', 'terms', 'challenge', 'emails']);
 
 function hostMatches(url: string): boolean {
-  return String(url || '').toLowerCase().includes('instagram.com/direct');
+  const u = String(url || '').toLowerCase();
+  if (u.includes('instagram.com/direct')) return true;
+  // Bare profile route — see registry.ts's platformIdFromUrl for the
+  // matching 2026-09-26 fix and its reasoning (confirmed live "+Lead"
+  // failure on instagram.com/<username>/).
+  return !!profileUsernameFromUrl(u);
+}
+
+/** Username from a bare profile URL ("/cardogvlogs/"), or null when the
+ *  path is a reserved top-level route or not a single-segment path at all
+ *  (post permalinks, direct threads, etc). Host-agnostic so it works on
+ *  either the full URL or just the pathname. */
+export function profileUsernameFromUrl(url: string): string | null {
+  try {
+    const u = String(url || '');
+    const pathname = u.includes('://') ? new URL(u).pathname : u.replace(/^[^/]*instagram\.com/i, '');
+    const m = pathname.match(PROFILE_PATH_RE);
+    if (!m) return null;
+    const seg = m[1];
+    if (IG_RESERVED_PATHS.has(seg.toLowerCase())) return null;
+    return seg;
+  } catch {
+    return null;
+  }
+}
+
+function isInstagramProfilePage(): boolean {
+  return !THREAD_PATH_RE.test(window.location.pathname) && !!profileUsernameFromUrl(window.location.href);
 }
 
 function detect(): boolean {
@@ -206,7 +236,65 @@ function emptyThread(): ThreadContext {
   };
 }
 
+/**
+ * Instagram PROFILE page (instagram.com/<username>/, not a DM thread).
+ * Added 2026-09-26 after a live confirmed failure: "+Lead > Scan This
+ * Page" on a real profile returned "Couldn't read this page" because no
+ * adapter matched the bare profile route at all (registry.ts fix is the
+ * other half of this).
+ *
+ * Deliberately narrow, matching the LinkedIn profile branch's own
+ * discipline: the username comes from the URL path itself (100% reliable,
+ * no DOM guessing), never a scraped selector. The bio/stats block is
+ * Instagram's long-standing `<header>` wrapper around the whole profile
+ * card (photo, name, stats, bio) -- the same container instagram.ts
+ * already relies on for thread headers -- read as one bounded blob of
+ * visible text rather than parsed line-by-line, so a markup change can
+ * only ever shrink what's captured, never misattribute one field's text
+ * to another. The server-side generation prompt already knows how to pull
+ * company/role signals out of unstructured bio text (this mirrors exactly
+ * how the LinkedIn profile branch hands over headline text).
+ */
+function scrapeInstagramProfile(): ThreadContext {
+  const username = profileUsernameFromUrl(window.location.href) || '';
+  const header = document.querySelector('[role="main"] header') as HTMLElement | null;
+  const headerText = header ? deepVisibleText(header, 1200) : '';
+  // The username itself is the only field guaranteed correct without a
+  // live DOM read; use it as the header_text fallback name so a rep still
+  // gets "@username" instead of nothing if the bio block can't be found.
+  const header_text = headerText || (username ? `@${username}` : '');
+  return {
+    conversation_key: stableKeyFromPath('ig_profile'),
+    raw_text: header_text.slice(0, 4000),
+    messages: [],
+    last_inbound_text: '',
+    header_text: header_text.slice(0, 200),
+    url: window.location.href,
+    scanned_at: Date.now(),
+    message_count: 0,
+  };
+}
+
+/** Best-effort display name for a profile page: prefer a heading inside
+ *  the profile header that ISN'T the bare username (Instagram renders the
+ *  username and a separate display name together in that header), else
+ *  fall back to the username itself so the rep always has something. */
+function instagramProfileDisplayName(username: string): { name: string | null; raw_source: string; confidence: number } {
+  try {
+    const header = document.querySelector('[role="main"] header') as HTMLElement | null;
+    const heading = header?.querySelector('h1, h2') as HTMLElement | null;
+    const headingText = (heading?.innerText || '').replace(/\s+/g, ' ').trim();
+    if (headingText && headingText.toLowerCase() !== username.toLowerCase() && headingText.length < 60) {
+      return { name: headingText, raw_source: 'ig_profile_heading', confidence: 0.7 };
+    }
+  } catch {
+    /* noop */
+  }
+  return username ? { name: username, raw_source: 'ig_profile_username', confidence: 0.55 } : { name: null, raw_source: 'ig_profile_unresolved', confidence: 0 };
+}
+
 function scrapeThread(): ThreadContext {
+  if (isInstagramProfilePage()) return scrapeInstagramProfile();
   if (!hasOpenInstagramThread()) return emptyThread();
 
   const messages: ThreadContext['messages'] = [];
@@ -357,6 +445,18 @@ function scrapeThread(): ThreadContext {
 }
 
 function extractCustomer(): CustomerCandidate {
+  if (isInstagramProfilePage()) {
+    const username = profileUsernameFromUrl(window.location.href) || '';
+    const display = instagramProfileDisplayName(username);
+    if (!display.name) return { name: null };
+    return {
+      name: display.name,
+      username: username || undefined,
+      profile_url: username ? `https://www.instagram.com/${username}/` : undefined,
+      raw_source: display.raw_source,
+      confidence: display.confidence,
+    };
+  }
   if (!hasOpenInstagramThread()) return { name: null };
   try {
     const { username, profile_url } = readHeaderProfileLink();

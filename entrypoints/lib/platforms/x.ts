@@ -96,6 +96,7 @@ import type {
 } from './types';
 import { extractVehicleHint, stableKeyFromPath } from './shared';
 import { classifyXBubble, isXNoiseText } from '../xMessageText';
+import { deepVisibleText } from '../leadContextScan';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
@@ -137,10 +138,40 @@ const RESERVED_PATH_SEGMENTS = new Set([
   'help', 'download', 'account', 'logout', 'login', 'signup', 'share',
 ]);
 
+const X_RESERVED_PATHS = new Set(['home', 'explore', 'notifications', 'messages', 'i', 'search', 'settings', 'compose', 'jobs', 'premium_sign_up', 'about', 'tos', 'privacy', 'help', 'lists', 'bookmarks', 'communities']);
+
+/** Handle from a bare profile URL ("/itskamrankhan"), or null for a
+ *  reserved top-level route, a status/post permalink
+ *  ("/<handle>/status/<id>" is a post, not a profile — per the founder's
+ *  original spec), or anything else that isn't a single path segment. */
+export function profileHandleFromUrl(url: string): string | null {
+  try {
+    const u = String(url || '');
+    const pathname = u.includes('://') ? new URL(u).pathname : u.replace(/^[^/]*x\.com/i, '');
+    const m = pathname.match(/^\/([A-Za-z0-9_]{1,15})\/?(?:[?#]|$)/);
+    if (!m) return null;
+    const seg = m[1];
+    if (X_RESERVED_PATHS.has(seg.toLowerCase())) return null;
+    return seg;
+  } catch {
+    return null;
+  }
+}
+
+function isXProfilePage(): boolean {
+  return !!profileHandleFromUrl(window.location.href);
+}
+
 function hostMatches(url: string): boolean {
   const u = String(url || '').toLowerCase();
   if (!u.includes('x.com')) return false;
-  return u.includes('x.com/i/chat') || u.includes('x.com/messages');
+  if (u.includes('x.com/i/chat') || u.includes('x.com/messages')) return true;
+  // Profile pages — added 2026-09-26. Confirmed live: the chip already
+  // detects the profile (generic title fallback), but "+Lead > Scan This
+  // Page" failed with "no_adapter_for_url" since only DM routes were ever
+  // recognized here. See registry.ts's platformIdFromUrl for the matching
+  // fix and profileHandleFromUrl above for what counts as a profile.
+  return !!profileHandleFromUrl(url);
 }
 
 function detect(): boolean {
@@ -359,7 +390,65 @@ function emptyThread(): ThreadContext {
   };
 }
 
+/**
+ * X PROFILE page (x.com/<handle>, not a DM thread). Added 2026-09-26 after
+ * a live confirmed failure: the chip already detects the profile (generic
+ * title fallback found "Kamran Khan"), but "+Lead > Scan This Page"
+ * returned "Couldn't read this page" because no adapter matched a bare
+ * profile route at all.
+ *
+ * `[data-testid="UserName"]` / `[data-testid="UserDescription"]` /
+ * `[data-testid="UserProfileHeader_Items"]` are X's own long-standing,
+ * stable component test ids for the profile header, bio, and the
+ * location/website/joined-date row -- these are read-only display
+ * attributes (not app logic), so they're a materially safer bet than a
+ * guessed class name or DOM position, but per this file's own standing
+ * caution they are still unverified against a live authenticated session
+ * in this sandbox. The handle itself comes from the URL path (100%
+ * reliable, no DOM guessing) exactly like Instagram's profile branch.
+ */
+function scrapeXProfile(): ThreadContext {
+  const handle = profileHandleFromUrl(window.location.href) || '';
+  const header =
+    (document.querySelector('[data-testid="UserName"]')?.closest('div[data-testid], header, div') as HTMLElement | null)
+    || (document.querySelector('main[role="main"]') as HTMLElement | null);
+  const bio = (document.querySelector('[data-testid="UserDescription"]') as HTMLElement | null)?.innerText || '';
+  const meta = (document.querySelector('[data-testid="UserProfileHeader_Items"]') as HTMLElement | null)?.innerText || '';
+  const nameEl = document.querySelector('[data-testid="UserName"]') as HTMLElement | null;
+  const nameBlock = (nameEl?.innerText || '').replace(/\s+/g, ' ').trim();
+  const fallbackHeader = header ? deepVisibleText(header, 1200) : '';
+  const header_text = (nameBlock || fallbackHeader || (handle ? `@${handle}` : '')).slice(0, 200);
+  const raw_text = [nameBlock, bio, meta].filter(Boolean).join('\n').slice(0, 4000) || fallbackHeader.slice(0, 4000);
+  return {
+    conversation_key: stableKeyFromPath('x_profile'),
+    raw_text,
+    messages: [],
+    last_inbound_text: '',
+    header_text,
+    url: window.location.href,
+    scanned_at: Date.now(),
+    message_count: 0,
+  };
+}
+
+/** Best-effort display name for a profile page: the `[data-testid="UserName"]`
+ *  block's first line is the display name (the @handle line follows it) --
+ *  fall back to the handle itself so the rep always has something. */
+function xProfileDisplayName(handle: string): { name: string | null; raw_source: string; confidence: number } {
+  try {
+    const nameEl = document.querySelector('[data-testid="UserName"]') as HTMLElement | null;
+    const firstLine = (nameEl?.innerText || '').split('\n').map((l) => l.trim()).find(Boolean) || '';
+    if (firstLine && !firstLine.startsWith('@') && firstLine.toLowerCase() !== handle.toLowerCase() && firstLine.length < 60) {
+      return { name: firstLine, raw_source: 'x_profile_username_block', confidence: 0.7 };
+    }
+  } catch {
+    /* noop */
+  }
+  return handle ? { name: handle, raw_source: 'x_profile_handle', confidence: 0.55 } : { name: null, raw_source: 'x_profile_unresolved', confidence: 0 };
+}
+
 function scrapeThread(): ThreadContext {
+  if (isXProfilePage()) return scrapeXProfile();
   if (!hasOpenXThread()) return emptyThread();
 
   const messages: ThreadContext['messages'] = [];
@@ -496,6 +585,18 @@ function scrapeThread(): ThreadContext {
 }
 
 function extractCustomer(): CustomerCandidate {
+  if (isXProfilePage()) {
+    const handle = profileHandleFromUrl(window.location.href) || '';
+    const display = xProfileDisplayName(handle);
+    if (!display.name) return { name: null };
+    return {
+      name: display.name,
+      username: handle || undefined,
+      profile_url: handle ? `https://x.com/${handle}` : undefined,
+      raw_source: display.raw_source,
+      confidence: display.confidence,
+    };
+  }
   if (!hasOpenXThread()) return { name: null };
   try {
     const { username, profile_url } = readHeaderProfileLink();

@@ -27,8 +27,19 @@ describe('platformIdFromUrl', () => {
     expect(platformIdFromUrl('https://www.instagram.com/direct/inbox/')).toBe('instagram');
   });
 
-  it('does not route bare instagram.com (feed/profile pages, no DM surface) to the instagram adapter', () => {
-    expect(platformIdFromUrl('https://www.instagram.com/some_account/')).toBeNull();
+  // 2026-09-26: bare Instagram profile pages now route to the instagram
+  // adapter too (confirmed live: "+Lead > Scan This Page" on a real
+  // profile failed with "no_adapter_for_url" before this). Instagram's
+  // own reserved top-level routes (explore, reels, a post permalink, etc)
+  // still do not.
+  it('routes bare instagram.com profile pages to the instagram adapter', () => {
+    expect(platformIdFromUrl('https://www.instagram.com/some_account/')).toBe('instagram');
+  });
+
+  it('does not treat an Instagram reserved top-level route or post permalink as a profile', () => {
+    expect(platformIdFromUrl('https://www.instagram.com/explore/')).toBeNull();
+    expect(platformIdFromUrl('https://www.instagram.com/reels/')).toBeNull();
+    expect(platformIdFromUrl('https://www.instagram.com/p/AbC123xyz/')).toBeNull();
   });
 
   it('does not invent adapters for website logo-only surfaces (TikTok)', () => {
@@ -66,9 +77,18 @@ describe('platformIdFromUrl', () => {
     expect(platformIdFromUrl('https://x.com/messages/compose')).toBeNull();
   });
 
-  it('does not route bare x.com feed/profile/post pages to the x adapter', () => {
+  it('does not route the X home feed or a reserved top-level route to the x adapter', () => {
     expect(platformIdFromUrl('https://x.com/home')).toBeNull();
-    expect(platformIdFromUrl('https://x.com/some_account')).toBeNull();
+    expect(platformIdFromUrl('https://x.com/notifications')).toBeNull();
+  });
+
+  // 2026-09-26: bare X profile pages now route to the x adapter too
+  // (confirmed live: the chip already detected the profile, but
+  // "+Lead > Scan This Page" failed with "no_adapter_for_url" before
+  // this). A status/post permalink is still excluded per the founder's
+  // original spec — that's a post, not a profile.
+  it('routes bare x.com profile pages to the x adapter, but not a status/post permalink', () => {
+    expect(platformIdFromUrl('https://x.com/some_account')).toBe('x');
     expect(platformIdFromUrl('https://x.com/some_account/status/1234567890')).toBeNull();
   });
 
