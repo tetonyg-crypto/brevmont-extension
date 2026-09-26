@@ -46,6 +46,53 @@ function detect(): boolean {
   return hostMatches(window.location.href);
 }
 
+// Facebook's own reserved top-level routes -- excluded so a profile/page
+// username is never mistaken among them. Longer than Instagram/X's lists
+// because Facebook has far more first-class surfaces at the bare root.
+const FB_RESERVED_PATHS = new Set([
+  'messages', 'marketplace', 'groups', 'pages', 'watch', 'gaming', 'events',
+  'friends', 'notifications', 'settings', 'help', 'ads', 'business',
+  'bookmarks', 'stories', 'reel', 'reels', 'live', 'jobs', 'dating',
+  'weather', 'games', 'offers', 'saved', 'memories', 'hashtag', 'photo',
+  'photos', 'video', 'videos', 'login', 'recover', 'policies', 'about',
+  'legal', 'privacy', 'terms', 'campaign', 'plugins', 'sharer', 'dialog',
+  'tr', 'l.php', 'profile.php', 'checkpoint', 'mbasic', 'gaming', 'ads_manager',
+  'permalink.php', 'story.php', 'search', 'find-friends', 'allactivity',
+]);
+
+/**
+ * Profile identifier for a Facebook profile/business page (not Messenger,
+ * not Marketplace). Handles both the vanity-username route
+ * ("facebook.com/jflores.carguy/") and the numeric-id route
+ * ("facebook.com/profile.php?id=100012345") since Facebook still serves
+ * both styles for real accounts. Added 2026-09-26 after a live confirmed
+ * failure: "+Lead > Scan This Page" on a real profile returned "Couldn't
+ * read this page" because extractCustomer/scrapeThread both unconditionally
+ * gated on hasOpenFacebookThread(), which a profile page (no Messenger/
+ * Marketplace thread key) always fails.
+ */
+export function facebookProfileIdFromUrl(url: string): string | null {
+  try {
+    const u = String(url || '');
+    const parsed = u.includes('://') ? new URL(u) : new URL(u, 'https://www.facebook.com');
+    if (parsed.pathname.toLowerCase() === '/profile.php') {
+      const id = parsed.searchParams.get('id');
+      return id ? `id:${id}` : null;
+    }
+    const m = parsed.pathname.match(/^\/([A-Za-z0-9.]{1,60})\/?(?:[?#]|$)/);
+    if (!m) return null;
+    const seg = m[1];
+    if (FB_RESERVED_PATHS.has(seg.toLowerCase())) return null;
+    return seg;
+  } catch {
+    return null;
+  }
+}
+
+function isFacebookProfilePage(): boolean {
+  return !hasOpenFacebookThread() && !!facebookProfileIdFromUrl(window.location.href);
+}
+
 function conversationKey(): string {
   try {
     const path = window.location.pathname;
@@ -85,7 +132,35 @@ function readHeaderText(): string {
   }
 }
 
+/**
+ * Facebook PROFILE/business page (not a Messenger/Marketplace thread).
+ * Same discipline as Instagram/X's profile branches: no ID guessing --
+ * the identifier comes from the URL itself -- and the "Personal
+ * details"/"Work"/"About" block is read as one bounded blob of visible
+ * text rather than parsed field-by-field, so a markup change can only
+ * shrink what's captured, never misattribute one field's text to another.
+ */
+function scrapeFacebookProfile(): ThreadContext {
+  const profileId = facebookProfileIdFromUrl(window.location.href) || '';
+  const main = document.querySelector('[role="main"]') as HTMLElement | null;
+  const bodyText = (main?.innerText || '').slice(0, 4000);
+  const nameHeading = readHeaderText();
+  const header_text = nameHeading || (profileId.startsWith('id:') ? '' : profileId);
+  return {
+    conversation_key: `fb_profile:${profileId || 'unknown'}`,
+    raw_text: bodyText,
+    messages: [],
+    last_inbound_text: '',
+    header_text: header_text.slice(0, 200),
+    url: window.location.href,
+    scanned_at: Date.now(),
+    message_count: 0,
+    listing: { title: null, sold: false },
+  };
+}
+
 function scrapeThread(): ThreadContext {
+  if (isFacebookProfilePage()) return scrapeFacebookProfile();
   if (!hasOpenFacebookThread()) {
     return {
       conversation_key: conversationKey(),
@@ -126,6 +201,21 @@ function scrapeThread(): ThreadContext {
 }
 
 function extractCustomer(): CustomerCandidate {
+  if (isFacebookProfilePage()) {
+    const profileId = facebookProfileIdFromUrl(window.location.href) || '';
+    const name = readHeaderText();
+    const cleaned = stripConversationWrapper(name).trim();
+    if (cleaned && cleaned.length > 1 && cleaned.length < 80 && !/^id:/.test(cleaned)) {
+      return {
+        name: cleaned,
+        username: profileId.startsWith('id:') ? undefined : profileId || undefined,
+        profile_url: profileId && !profileId.startsWith('id:') ? `https://www.facebook.com/${profileId}` : undefined,
+        raw_source: 'fb_profile_heading',
+        confidence: 0.7,
+      };
+    }
+    return { name: null };
+  }
   if (!hasOpenFacebookThread()) return { name: null };
   // Priority order:
   //   1. aria-label paths (Conversation with X, Conversation titled X,

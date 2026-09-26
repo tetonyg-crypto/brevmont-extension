@@ -77,6 +77,15 @@ const CHANNEL_OR_UI_NAMES = new Set([
   // Support?" flashed before the correct name (e.g. Fred) rendered.
   'support', 'help', 'help center', 'business help center',
   'facebook marketplace assistant', 'marketplace assistant', 'meta',
+  // 2026-09-26 regression: Facebook profile-page scanning (new this
+  // release) hit the About-section left-nav, whose tab labels read like
+  // plausible human-adjacent headings out of context. Confirmed live:
+  // "Personal details" reached the chip as a customer name on a real
+  // profile page. These are Facebook's own fixed section headers, never
+  // a person's name.
+  'personal details', 'overview', 'work', 'education', 'places lived',
+  'contact info', 'basic info', 'life events', 'family and relationships',
+  'details about', 'about',
 ]);
 
 // STRUCTURAL FIX (2026-09-23, defect: LinkedIn "Add section" false prospect):
@@ -114,7 +123,14 @@ export function isChannelOrUiName(value: unknown): boolean {
   // Multi-word variants: "SOLD - 2015 Subaru Outback", "Facebook Marketplace",
   // "Marketplace Buyer" etc.
   if (/^(?:sold|active|available|listed|new)\b/i.test(raw)) return true;
-  if (/^(?:facebook|messenger|marketplace|instagram)\s/i.test(raw)) return true;
+  // 2026-09-26 regression: "This for LinkedIn Follow Compa...?" reached the
+  // chip on a LinkedIn profile page with a promoted-card sidebar ("BTI,
+  // Inc. ... Follow") -- some page-wide scan flattened the tab title
+  // ("(14) LinkedIn") and a nearby "Follow Company"-style button label
+  // into one string with no separator. This platform-prefix list only had
+  // facebook/messenger/marketplace/instagram; a person's real name never
+  // starts with the platform's own product name.
+  if (/^(?:facebook|messenger|marketplace|instagram|linkedin|whatsapp)\s/i.test(raw)) return true;
   if (/^brevmont\b/i.test(raw)) return true;
   if (/\bbrevmont labs\b/i.test(raw)) return true;
   if (LINKEDIN_UI_NAME_RE.test(raw)) return true;
@@ -598,6 +614,20 @@ export function extractLinkedInPersonName(): string | null {
     const profile = document.querySelector('main h1.text-heading-xlarge, .pv-text-details__left-panel h1, .ph5 h1, h1.text-heading-xlarge') as HTMLElement | null;
     const name = cleanLinkedInPersonLabel(profile?.innerText || profile?.textContent || '');
     if (name && !isLinkedInSelfOrCompanyLabel(name)) return name;
+    // 2026-09-26: the selectors above are LinkedIn's known-stable classes,
+    // but LinkedIn rotates markup often enough ("Couldn't read this page"
+    // confirmed live on a real profile with no other symptom) that a
+    // single missed class should not fail the whole scan. Fall back to any
+    // heading in main -- still gated by the same UI-chrome/self/company
+    // rejection used everywhere else in this file, so a mismatch here
+    // costs a missed capture, not a bad one.
+    const main = document.querySelector('main, [role="main"]');
+    if (main) {
+      for (const node of Array.from(main.querySelectorAll('h1, [role="heading"]')) as HTMLElement[]) {
+        const candidate = cleanLinkedInPersonLabel(node.innerText || node.textContent || '');
+        if (candidate && !isLinkedInSelfOrCompanyLabel(candidate) && !isChannelOrUiName(candidate)) return candidate;
+      }
+    }
     return null;
   }
   const threadRoot = linkedInThreadRoot();

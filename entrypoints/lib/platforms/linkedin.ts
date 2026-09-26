@@ -90,18 +90,28 @@ function scrapeThread(): ThreadContext {
   try {
     if (!isMessaging) {
       const name = extractLinkedInPersonName() || '';
+      const headlineEl = document.querySelector('.text-body-medium.break-words, .pv-text-details__left-panel .text-body-medium') as HTMLElement | null;
+      const headline = (headlineEl?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 240);
       if (!name) {
+        // 2026-09-26: previously bailed to fully empty here whenever the
+        // name selectors missed ("Couldn't read this page" confirmed live
+        // on a real profile) even when the page plainly has readable
+        // profile text. Fall back to a bounded raw-text scrape of main so
+        // the scan still surfaces something for PARSE_LEAD to classify,
+        // same pattern used for Instagram/X/Facebook profile scraping.
+        const main = document.querySelector('main, [role="main"]') as HTMLElement | null;
+        const bodyText = deepVisibleText(main, 4000);
+        header_text = headline;
+        raw_text = [headline, bodyText].filter(Boolean).join('\n');
         return {
           conversation_key: stableKeyFromPath('linkedin'),
-          raw_text: '',
+          raw_text: raw_text.slice(0, 4000),
           messages: [],
           last_inbound_text: '',
-          header_text: '',
+          header_text,
           url: href,
         };
       }
-      const headlineEl = document.querySelector('.text-body-medium.break-words, .pv-text-details__left-panel .text-body-medium') as HTMLElement | null;
-      const headline = (headlineEl?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 240);
       header_text = [name, headline].filter(Boolean).join(' · ');
       raw_text = header_text;
       return {
@@ -191,7 +201,7 @@ function extractCustomer(): CustomerCandidate {
   const name = extractLinkedInPersonName()
     || extractLinkedInPersonNameFromText(deepVisibleText(threadRoot || (isMessaging ? null : document.querySelector('[role="main"]')), 2500));
   if (!name) return { name: null };
-  return { name, raw_source: 'linkedin_person', confidence: 0.88 };
+  return { name, raw_source: isMessaging ? 'linkedin_person' : 'linkedin_profile_person', confidence: 0.88 };
 }
 
 function extractContext(): DealContext {

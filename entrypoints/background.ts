@@ -1839,6 +1839,7 @@ export default defineBackground(() => {
                 customer_id: customerRecord?.id || null,
                 context_fingerprint: msg.payload?.context_fingerprint || null,
                 thread_fingerprint: msg.payload?.thread_fingerprint || msg.payload?.context_fingerprint || null,
+                capture_mode: msg.payload?.capture_mode || null,
               },
             };
             await leadDb.captured_leads.put(localLead);
@@ -1868,6 +1869,7 @@ export default defineBackground(() => {
                 confidence: leadForSave.confidence || null,
                 is_lead: leadForSave.is_lead !== false,
                 lead_stage_at_capture: localLead.lead_stage_at_capture || null,
+                capture_mode: msg.payload?.capture_mode || null,
               },
             };
             if (customerRecord?.id) {

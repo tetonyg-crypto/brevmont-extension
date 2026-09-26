@@ -166,3 +166,18 @@ export function stableKeyFromPath(prefix: string): string {
     return `${prefix}:unknown`;
   }
 }
+
+/**
+ * True when a customer candidate's raw_source came from a static profile
+ * page (Instagram/X/Facebook/LinkedIn "About" pages) rather than an active
+ * conversation. 2026-09-26 founder directive: a profile-page capture is a
+ * cold-outreach prospect, not a "Buyer" mid-conversation — the sidepanel
+ * uses this to relabel accordingly. Each platform's profile branch tags its
+ * raw_source with this prefix on purpose (ig_profile_*, x_profile_*,
+ * fb_profile_*, linkedin_profile_*); a header fallback that merely COULDN'T
+ * find a name inside a real thread (ig_header_profile_link_only,
+ * x_header_profile_link_only) intentionally does NOT match this prefix.
+ */
+export function isProfilePageRawSource(rawSource: unknown): boolean {
+  return /^(?:ig_profile_|x_profile_|fb_profile_|linkedin_profile_)/.test(String(rawSource || ''));
+}

@@ -11,6 +11,7 @@
 
 import { getPanelHTML } from '../lib/panelUI';
 import { getPanelCSS } from '../lib/panelCSS';
+import { isProfilePageRawSource } from '../lib/platforms/shared';
 import { lockDocumentZoom } from '../lib/hostZoom';
 import {
   LOCAL_GENERATION_COUNT_KEY,
@@ -5820,6 +5821,11 @@ function showLeadResult(root: HTMLElement, lead: any): void {
   const intent = String(lead.intent || '').toLowerCase();
   const confidence = String(lead.confidence || '').toLowerCase();
   const isFleet = intent === 'fleet_inquiry' || !!company;
+  // 2026-09-26 founder directive: a static-profile-page capture (Instagram/
+  // X/Facebook/LinkedIn "About") is a cold-outreach prospect, not a "Buyer"
+  // mid-conversation. capture_mode is set client-side at scan time via
+  // isProfilePageRawSource and survives through PARSE_LEAD's response.
+  const isProspectCapture = String(lead.capture_mode || '') === 'profile';
   const name = displayText([lead.first_name, lead.last_name].filter(Boolean).join(' ') || lead.name || lead.customer_name || company, 'Unknown lead');
   const rawVehicle = optionalDisplayText(lead.vehicle_of_interest || lead.vehicle_interest || lead.vehicle);
   const vehicle = currentPlatform.platform === 'linkedin' && /^\d{4}$/.test(rawVehicle || '') ? null : rawVehicle;
@@ -5881,14 +5887,14 @@ function showLeadResult(root: HTMLElement, lead: any): void {
   result.style.display = 'block';
   result.innerHTML = `<div class="lead-capture-card">
     <div class="lead-capture-topline">
-      ${isFleet ? '<span class="lead-capture-mode">Fleet inquiry</span>' : '<span class="lead-capture-mode">Captured buyer</span>'}
+      ${isFleet ? '<span class="lead-capture-mode">Fleet inquiry</span>' : isProspectCapture ? '<span class="lead-capture-mode">Captured prospect</span>' : '<span class="lead-capture-mode">Captured buyer</span>'}
       ${confidenceNote ? `<span class="lead-capture-review">${esc(confidenceNote)}</span>` : ''}
     </div>
     <div class="lead-capture-rows">
       <div class="lead-capture-row">
         ${leadCaptureIcon('buyer')}
         <div class="lead-capture-copy">
-          <div class="lead-capture-label">Buyer</div>
+          <div class="lead-capture-label">${isProspectCapture ? 'Prospect' : 'Buyer'}</div>
           <div class="lead-capture-value">${company ? esc(company) : esc(name)}${company && name && name !== company ? ` <span>${esc(name)}</span>` : ''}</div>
         </div>
       </div>
@@ -5917,7 +5923,7 @@ function showLeadResult(root: HTMLElement, lead: any): void {
     <div class="lead-capture-tags">
       <span class="lead-capture-tag">${esc(stageLabelMap(pipelineStage))}</span>
       <span class="lead-capture-tag muted">${esc(sourceLabel)}</span>
-      ${intent ? `<span class="lead-capture-tag muted">${esc(getDisplayLabel(intent))}</span>` : ''}
+      ${intent ? `<span class="lead-capture-tag muted">${esc(isProspectCapture && intent === 'individual_buyer' ? 'Prospect' : getDisplayLabel(intent))}</span>` : ''}
       ${heatScore !== null ? `<span class="lead-capture-tag heat">Heat ${esc(String(heatScore))}</span>` : ''}
       ${hasTrade ? '<span class="lead-capture-tag warm">Trade-in</span>' : ''}
       ${hasFinance ? '<span class="lead-capture-tag cool">Finance</span>' : ''}
@@ -6150,6 +6156,10 @@ function wireLeadCapture(root: HTMLElement): void {
             ctx.email ? `Email: ${ctx.email}` : '',
             ctx.vehicle || ctx.vehicle_interest ? `Vehicle: ${ctx.vehicle || ctx.vehicle_interest}` : '',
           ].filter(Boolean).join('\n');
+          // 2026-09-26: a capture off a static profile page (Instagram/X/
+          // Facebook/LinkedIn "About") is a cold-outreach prospect, not a
+          // "Buyer" mid-conversation — see isProfilePageRawSource.
+          const captureMode = isProfilePageRawSource(ctx.detectionMethod) ? 'profile' : null;
           const resp = await safeSend({
             type: 'PARSE_LEAD',
             payload: {
@@ -6162,9 +6172,10 @@ function wireLeadCapture(root: HTMLElement): void {
               vehicle_interest: ctx.vehicle_interest || ctx.vehicle || null,
               context_fingerprint: ctx.context_fingerprint || null,
               thread_fingerprint: ctx.thread_fingerprint || ctx.context_fingerprint || null,
+              capture_mode: captureMode,
             },
           });
-          showLeadResult(root, resp?.lead || resp || ctx);
+          showLeadResult(root, { ...(resp?.lead || resp || ctx), capture_mode: (resp?.lead || resp)?.capture_mode || captureMode });
         } else if (emptyMsg) {
           emptyMsg.style.display = 'block';
         }
