@@ -12,7 +12,7 @@ import type {
   ThreadContext,
 } from './types';
 import { extractVehicleHint, stableKeyFromPath } from './shared';
-import { deepVisibleText, extractLinkedInPersonName, extractLinkedInPersonNameFromText, isChannelOrUiName, isLinkedInSelfOrCompanyLabel, isLinkedInUiChromeText, linkedInBubbleLooksOutbound, linkedInMessageLooksOutbound, linkedInThreadRoot } from '../leadContextScan';
+import { deepVisibleText, extractLinkedInPersonName, extractLinkedInPersonNameFromText, isChannelOrUiName, isLinkedInSelfOrCompanyLabel, isLinkedInUiChromeText, linkedInBubbleDirection, linkedInMessageLooksOutbound, linkedInThreadRoot } from '../leadContextScan';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
@@ -128,16 +128,24 @@ function scrapeThread(): ThreadContext {
     }
     if (!header_text) header_text = extractLinkedInPersonName() || extractLinkedInPersonNameFromText(raw_text) || '';
     const bubbleRoot = list || threadRoot;
-    const bubbles = bubbleRoot
-      ? Array.from(bubbleRoot.querySelectorAll('.msg-s-event-listitem, .msg-s-message-list__event')).slice(-30)
+    // The list item and its inner message element both match; keep only the
+    // outermost so every bubble is read once.
+    const matched = bubbleRoot
+      ? Array.from(bubbleRoot.querySelectorAll('.msg-s-event-listitem, .msg-s-message-list__event')) as HTMLElement[]
       : [];
+    const bubbles = matched.filter((el) => !matched.some((other) => other !== el && other.contains(el))).slice(-30);
+    // LinkedIn shows the sender header only on the first bubble of a group;
+    // follow-on bubbles inherit that group's direction.
+    let group: 'inbound' | 'outbound' | 'unknown' | null = null;
     for (const b of bubbles) {
-      const t = stripLinkedInChrome((b as HTMLElement).innerText || '');
+      const rawBubble = b.innerText || '';
+      const t = stripLinkedInChrome(rawBubble);
+      const result = linkedInBubbleDirection(b, rawBubble, header_text, group);
+      group = result.group;
       if (!t || t.length < 3 || isLinkedInChromeLine(t)) continue;
-      const outbound = linkedInBubbleLooksOutbound(b as HTMLElement, t, header_text);
       messages.push({
         text: t.slice(0, 600),
-        direction: outbound ? 'outbound' : 'inbound',
+        direction: result.direction,
       });
     }
     if (!messages.length && raw_text) {
@@ -158,9 +166,11 @@ function scrapeThread(): ThreadContext {
   }
   const person = header_text || extractLinkedInPersonName() || extractLinkedInPersonNameFromText(raw_text) || '';
   if (!header_text) header_text = person;
+  // Only a bubble positively attributed to the customer can be the last
+  // inbound; 'unknown' never is (wrong text is worse than none downstream).
   const inboundRaw = messages.slice().reverse().find((message) => {
     if (isLinkedInChromeLine(message.text)) return false;
-    if (message.direction === 'outbound' || linkedInMessageLooksOutbound(message.text, person)) return false;
+    if (message.direction !== 'inbound' || linkedInMessageLooksOutbound(message.text, person)) return false;
     return true;
   })?.text || '';
   const inbound = stripLinkedInMessageChrome(inboundRaw, person);
