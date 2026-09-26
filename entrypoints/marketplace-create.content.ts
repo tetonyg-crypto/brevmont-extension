@@ -5,6 +5,7 @@
  * Does NOT select comboboxes and does NOT click Publish.
  * Photos: asks the background to fetch blobs, then DataTransfer onto file input.
  */
+import { DEALER_INVENTORY } from './lib/featureFlags';
 import {
   injectMarketplaceDraft,
   type MarketplaceDraftVehicle,
@@ -12,6 +13,8 @@ import {
 import { applyIndependentZoom } from './lib/hostZoom';
 
 export default defineContentScript({
+  // Frozen until the dealership rollout (see lib/featureFlags.ts).
+  exclude: DEALER_INVENTORY ? [] : ['chrome'],
   matches: [
     '*://www.facebook.com/marketplace/create/vehicle*',
     '*://facebook.com/marketplace/create/vehicle*',

@@ -2,6 +2,7 @@ import { defineConfig } from 'wxt';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { DEALER_INVENTORY } from './entrypoints/lib/featureFlags';
 
 // Single source of truth for the extension version: package.json.
 // Anything else (manifest hardcode, .env override, etc.) gets one place to break.
@@ -179,9 +180,9 @@ export default defineConfig({
       // says not to add one without a genuine reason.
       '*://x.com/*',
       '*://*.brevmont.com/*',
-      // FLAG: photo inject fetches dealer CDN images in the service worker.
-      // Without this, jazelc photo blobs fail from facebook.com's origin.
-      '*://*.jazelc.com/*',
+      // Dealer CDN photos for the Marketplace listing autofill. Frozen with
+      // DEALER_INVENTORY until the dealership rollout.
+      ...(DEALER_INVENTORY ? ['*://*.jazelc.com/*'] : []),
     ],
   },
 });

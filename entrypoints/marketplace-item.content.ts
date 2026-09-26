@@ -3,7 +3,10 @@
  * If a Brevmont draft is still in storage (under 2h), flip that vehicle to Posted.
  * Does not click Publish. The rep published.
  */
+import { DEALER_INVENTORY } from './lib/featureFlags';
 export default defineContentScript({
+  // Frozen until the dealership rollout (see lib/featureFlags.ts).
+  exclude: DEALER_INVENTORY ? [] : ['chrome'],
   matches: [
     '*://www.facebook.com/marketplace/item/*',
     '*://facebook.com/marketplace/item/*',
