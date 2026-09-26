@@ -237,9 +237,10 @@ function isGroupChat(): boolean {
 //      a message. This signal will not fire on the current build; it
 //      is kept only in case a future WhatsApp Web release reintroduces
 //      it, and execution always falls through correctly to #2 below.
-//   2. A stable hash of the header contact name + subtitle (phone
-//      number for unsaved contacts often appears in the subtitle or as
-//      the name itself). CONFIRMED LIVE this is what actually resolves
+//   2. A stable hash of the header contact name ONLY (for unsaved
+//      contacts the phone number is the name itself). The presence
+//      subtitle is never part of the key — it changes while the same
+//      chat stays open. CONFIRMED LIVE this is what actually resolves
 //      identity on the current build, and correctly distinguishes
 //      contacts even when no message row is rendered yet (empty/new
 //      chat) — verified against three different real contacts.
@@ -271,8 +272,14 @@ function conversationKey(): string {
       const jid = extractJidFromDataId(rowWithId?.getAttribute('data-id') || null);
       if (jid) return `wa_jid:${jid}`;
     }
-    const identity = `${readHeaderText()}|${readHeaderSubtitleText()}`.trim();
-    if (identity && identity !== '|') return `wa_header:${hashString(identity)}`;
+    // Name only. The subtitle under it is a presence line that flips
+    // between nothing / "online" / "typing…" / "last seen …" for the SAME
+    // contact (and "Alex is typing…" in groups), so including it gave one
+    // chat several keys and every flip looked like a thread switch
+    // (clearing the pinned customer and wiping drafts). The name line
+    // carries the phone number itself for unsaved contacts.
+    const identity = readHeaderText().replace(PRESENCE_DECORATORS_RE, '').trim();
+    if (identity) return `wa_header:${hashString(identity)}`;
   } catch {
     /* noop */
   }
