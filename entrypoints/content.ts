@@ -2133,6 +2133,47 @@ export default defineContentScript({
               return null;
             };
             const gmailSignal = isGmail ? extractGmailLeadSignal('') : {};
+            // Platforms with a structured adapter (Instagram, WhatsApp,
+            // Facebook/Messenger, LinkedIn, X, ...) already resolve the
+            // customer name correctly for SCAN_LEAD_V2 via
+            // adapter.extractCustomer(), scoped to the actual open thread's
+            // header. This "This for <name>?" chip never consulted that path
+            // — only the generic, unscoped detectCustomerFromPage() — so on
+            // any platform without its own override (Instagram, WhatsApp,
+            // Messenger) the chip fell back to reading the highlighted INBOX
+            // ROW (Instagram) or the tab title of a system thread like
+            // "Support" (Messenger), or found nothing at all (WhatsApp).
+            // Confirmed live 2026-09-26: chip showed "Saray Parra" while the
+            // open Instagram thread was "Yancy Garcia". Give the adapter's
+            // candidate top priority, same as SCAN_LEAD_V2 already does.
+            let adapterCustomerName: string | null = null;
+            let adapterCustomerConfidence: number | null = null;
+            let adapterPhone: string | null = null;
+            let adapterEmail: string | null = null;
+            let adapterHeaderText: string | null = null;
+            let adapterVehicle: string | null = null;
+            if (!isGmail) {
+              try {
+                const platforms = await import('./lib/platforms');
+                const adapter = await platforms.resolveAdapter(window.location.href);
+                if (adapter && adapter.detect()) {
+                  const adapterCustomer = adapter.extractCustomer();
+                  const cleanedAdapterName = cleanCustomerNameCandidate(adapterCustomer?.name || '');
+                  if (cleanedAdapterName) {
+                    adapterCustomerName = cleanedAdapterName;
+                    adapterCustomerConfidence = adapterCustomer?.confidence ?? 0.7;
+                  }
+                  adapterPhone = adapterCustomer?.phone || null;
+                  adapterEmail = adapterCustomer?.email || null;
+                  const thread = adapter.scrapeThread();
+                  adapterHeaderText = thread?.header_text || null;
+                  const context = adapter.extractContext();
+                  adapterVehicle = context?.vehicle || null;
+                }
+              } catch {
+                /* noop — falls through to the legacy heuristics below */
+              }
+            }
             const customerName = isGmail
               ? pickCleanName(
                   nameMatchesGmailSubject(gmailSignal.customerName) ? null : gmailSignal.customerName,
@@ -2141,34 +2182,36 @@ export default defineContentScript({
                   nameMatchesGmailSubject(detected?.name) ? null : detected?.name,
                 )
               : pickCleanName(
+                  adapterCustomerName,
                   detected?.name,
                   extractFacebookConversationName(),
                   safeExtractContactName(),
                   leadData?.customerName,
                 );
-            const vehicle = leadData?.vehicle || detected?.vehicle || null;
+            const usedAdapterName = !isGmail && customerName && adapterCustomerName === customerName;
+            const vehicle = leadData?.vehicle || adapterVehicle || detected?.vehicle || null;
             const fingerprint = buildContextFingerprint({
               name: customerName,
               vehicle,
-              method: detected ? `auto_${detected.method}` : 'content_context',
+              method: usedAdapterName ? 'adapter' : (detected ? `auto_${detected.method}` : 'content_context'),
             });
             sendResponse({
               customerName,
               customer_name: customerName,
               name: customerName,
               vehicle,
-              phone: leadData?.phone || detected?.phone || null,
-              email: leadData?.email || detected?.email || gmailSignal.email || null,
+              phone: leadData?.phone || adapterPhone || detected?.phone || null,
+              email: leadData?.email || adapterEmail || detected?.email || gmailSignal.email || null,
               source: leadData?.source || detected?.source || null,
               vehicleMake: leadData?.vehicleMake || null,
               vehicleModel: leadData?.vehicleModel || null,
               vehicleOfInterest: leadData?.vehicleOfInterest || vehicle || null,
               platform: PLATFORM,
-              detectionConfidence: detected?.confidence ?? (customerName ? 0.55 : 0),
-              detectionMethod: detected ? `auto_${detected.method}` : null,
+              detectionConfidence: usedAdapterName ? (adapterCustomerConfidence ?? 0.7) : (detected?.confidence ?? (customerName ? 0.55 : 0)),
+              detectionMethod: usedAdapterName ? 'adapter' : (detected ? `auto_${detected.method}` : null),
               leadCreatedAt: scrapeLeadCreatedAt(),
               gmail_subject: isGmail ? gmailSubjectText() : null,
-              header_text: isGmail ? gmailSubjectText() : null,
+              header_text: isGmail ? gmailSubjectText() : (adapterHeaderText || null),
               ...fingerprint,
             });
           } catch {

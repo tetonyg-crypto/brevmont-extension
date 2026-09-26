@@ -69,6 +69,14 @@ const CHANNEL_OR_UI_NAMES = new Set([
   'messaging', 'messages', 'message', 'feed', 'ad options', 'ad option',
   'sponsored', 'sponsored messaging', 'sponsored messaging ad', 'inmail',
   'jobs', 'my network', 'network', 'premium', 'people also viewed',
+  // 2026-09-26 regression: Meta's automated Marketplace/Messenger system
+  // thread renders as a real conversation with document.title "Support"
+  // (and the tab title only catches up to the real contact a beat later
+  // as the SPA re-renders), so a single legit-looking capitalized word
+  // reached the chip as a customer name. Confirmed live: "This for
+  // Support?" flashed before the correct name (e.g. Fred) rendered.
+  'support', 'help', 'help center', 'business help center',
+  'facebook marketplace assistant', 'marketplace assistant', 'meta',
 ]);
 
 // STRUCTURAL FIX (2026-09-23, defect: LinkedIn "Add section" false prospect):
