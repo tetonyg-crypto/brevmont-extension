@@ -17,7 +17,7 @@ import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
 import { cleanCustomerNameCandidate, extractContactName as extractContactNameForPlatform, extractLinkedInPersonName, gatherAllText, hasActiveComposeSurface, isChannelOrUiName, isLinkedInSelfOrCompanyLabel, stripConversationWrapper } from './lib/leadContextScan';
-import { detectCustomerFromPage, findGmailThreadSender, gmailSubjectText, nameMatchesGmailSubject } from './lib/customerDetection';
+import { detectCustomerFromPage, findGmailThreadSender, gmailSubjectText, nameMatchesGmailSubject, parsePageTitle } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 import { withInjectInFlight as overdriveWithInjectInFlight } from './lib/overdrive/safetyEnvelope';
 
@@ -328,23 +328,28 @@ export default defineContentScript({
         const text = (el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
         return text || null;
       };
-      // Founder-reported defect 2026-09-26: "Scan This Page" on a LinkedIn
-      // messaging thread (Darrin Guttman, then Alec Langton) captured the
-      // REP as the Buyer. First attempt reordered the raw selector list
-      // (messaging selectors before profile-page h1s) -- that made it WORSE
-      // ("Brevmont Yancy Garcia"), because .msg-thread__link-to-profile and
-      // .msg-s-message-group__name are PER-MESSAGE-GROUP selectors, not a
-      // single header element: an unscoped document.querySelector grabs
-      // whichever sender's name-lockup happens to appear FIRST in DOM order,
-      // which is the rep's own name whenever the rep sent the first message
-      // in the thread (exactly this case -- Yancy initiated contact).
-      // extractLinkedInPersonName() in lib/leadContextScan.ts (already used
-      // by the separate, correctly-working lead-radar detector that showed
-      // "This for Alec Langton?") does this right: it scopes to the actual
-      // open thread root, prefers the selected conversation-list item's
-      // name, and filters every candidate through isLinkedInSelfOrCompanyLabel
-      // so the rep's own name/company can never win. Delegate to it instead
-      // of maintaining a second, weaker reimplementation here.
+      // Founder-reported defect 2026-09-26, three rounds. Round 1 (reorder
+      // the raw selector list) made it worse ("Brevmont Yancy Garcia") --
+      // .msg-thread__link-to-profile / .msg-s-message-group__name are
+      // PER-MESSAGE-GROUP selectors, so an unscoped query grabs whichever
+      // sender's name-lockup appears first in DOM order. Round 2 (delegate
+      // to extractLinkedInPersonName(), scoped to threadRoot + self-filtered
+      // via isLinkedInSelfOrCompanyLabel) still returned "Yancy Garcia":
+      // isLinkedInSelfOrCompanyLabel's self-name set comes from reading
+      // .global-nav__me DOM elements live, which found nothing on this page
+      // state, so the filter silently no-op'd -- and even the threadRoot-
+      // scoped selector loop still can't tell WHICH message group's name
+      // it's reading when both parties have multiple message groups in
+      // scope, so it kept landing on Yancy's (he initiated contact, so his
+      // name-lockup appears earliest in DOM order too).
+      // Sidestep all of that: LinkedIn sets the browser tab title to the
+      // OTHER party's name on a messaging thread ("(1) Alec Langton |
+      // LinkedIn") -- this is exactly what the separate, always-correct
+      // "This for Alec Langton?" lead-radar chip actually reads under the
+      // hood (GET_LEAD_CONTEXT -> detectCustomerFromPage -> parsePageTitle).
+      // It has no dependency on message order or DOM self-identity lookups
+      // at all. Prefer it first.
+      const titleName = parsePageTitle(document.title || '')?.name || null;
       const fallbackNameSelectors = [
         'main h1.text-heading-xlarge',
         '.pv-text-details__left-panel h1',
@@ -356,7 +361,8 @@ export default defineContentScript({
         '.msg-entity-lockup__entity-title',
         '[data-anonymize="person-name"]',
       ];
-      const rawName = extractLinkedInPersonName()
+      const rawName = (titleName && !isLinkedInSelfOrCompanyLabel(titleName) ? titleName : null)
+        || extractLinkedInPersonName()
         || fallbackNameSelectors.map(pickText).find((candidate) => candidate && !isLikelyUiName(candidate) && !isLinkedInSelfOrCompanyLabel(candidate))
         || null;
       const headline = pickText('.text-body-medium.break-words')

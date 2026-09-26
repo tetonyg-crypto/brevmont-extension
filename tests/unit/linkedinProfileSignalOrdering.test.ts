@@ -2,50 +2,56 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-// Founder-reported defect 2026-09-26, two rounds:
+// Founder-reported defect 2026-09-26, three rounds:
 //
-// Round 1: extractLinkedInProfileSignal() in entrypoints/content.ts tried
-// profile-page selectors (h1.text-heading-xlarge etc) before messaging-
-// thread selectors, so LinkedIn's own persistent identity markup for the
-// logged-in rep won on every messaging-thread scan ("Scan This Page"
-// captured "Yancy Garcia" instead of Darrin Guttman / Alec Langton).
+// Round 1: extractLinkedInProfileSignal() tried profile-page selectors
+// before messaging-thread selectors -- LinkedIn's own persistent identity
+// markup for the logged-in rep won on every messaging-thread scan.
 //
-// Round 1 fix (reordering the raw selector list) made it WORSE ("Brevmont
-// Yancy Garcia"): .msg-thread__link-to-profile and .msg-s-message-group__name
-// are PER-MESSAGE-GROUP selectors, not a single header element, so an
-// unscoped document.querySelector grabbed whichever sender's name-lockup
-// happened to appear first in DOM order -- the rep's own, since the rep
+// Round 1 fix (reorder the raw selector list) made it WORSE ("Brevmont
+// Yancy Garcia"): .msg-thread__link-to-profile / .msg-s-message-group__name
+// are PER-MESSAGE-GROUP selectors, so an unscoped query grabbed whichever
+// sender's name-lockup appeared first in DOM order -- the rep's, since he
 // sent the first message in both broken threads.
 //
-// Round 2 fix: delegate to extractLinkedInPersonName() (lib/leadContextScan.ts),
-// the function the separate, already-correct lead-radar detector uses. It
-// scopes to the actual open thread root, prefers the selected
-// conversation-list item's name, and filters every candidate through
-// isLinkedInSelfOrCompanyLabel so the rep's own name/company can never win.
-describe("extractLinkedInProfileSignal delegates to the proven name extractor", () => {
+// Round 2 fix (delegate to extractLinkedInPersonName(), scoped to
+// threadRoot + self-filtered via isLinkedInSelfOrCompanyLabel) STILL
+// returned "Yancy Garcia": isLinkedInSelfOrCompanyLabel's self-name set
+// comes from reading .global-nav__me DOM elements live, which found nothing
+// on this page state, so the filter silently no-op'd -- and even the
+// threadRoot-scoped selector loop can't tell WHICH message group's name
+// it's reading when both parties have multiple groups in scope.
+//
+// Round 3 fix: prefer the browser tab title. LinkedIn sets it to the OTHER
+// party's name on a messaging thread ("(1) Alec Langton | LinkedIn") --
+// this is exactly what the separate, always-correct "This for Alec
+// Langton?" lead-radar chip reads under the hood (GET_LEAD_CONTEXT ->
+// detectCustomerFromPage -> parsePageTitle in lib/customerDetection.ts). It
+// has no dependency on message order or DOM self-identity lookups at all.
+describe("extractLinkedInProfileSignal prefers the tab-title signal", () => {
   const source = readFileSync(resolve(process.cwd(), "entrypoints/content.ts"), "utf8");
   const fnStart = source.indexOf("function extractLinkedInProfileSignal(");
   const fnBody = source.slice(fnStart, source.indexOf("\n    }\n", fnStart));
 
-  it("imports the proven, scoped name extractor and its self/company filter", () => {
-    const importLine = source.split("\n").find((line) => line.includes("from './lib/leadContextScan'")) || "";
-    expect(importLine).toContain("extractLinkedInPersonName");
-    expect(importLine).toContain("isLinkedInSelfOrCompanyLabel");
+  it("imports parsePageTitle from the shared customer-detection module", () => {
+    const importLine = source.split("\n").find((line) => line.includes("from './lib/customerDetection'")) || "";
+    expect(importLine).toContain("parsePageTitle");
   });
 
-  it("tries extractLinkedInPersonName() before any raw selector fallback", () => {
-    const idx = fnBody.indexOf("const rawName = extractLinkedInPersonName()");
-    expect(idx).toBeGreaterThan(-1);
+  it("reads the tab title as the primary name candidate", () => {
+    expect(fnBody).toContain("const titleName = parsePageTitle(document.title || '')?.name || null;");
+  });
+
+  it("title candidate is tried before extractLinkedInPersonName() and the raw-selector fallback", () => {
+    const titleIdx = fnBody.indexOf("const rawName = (titleName");
+    const personNameIdx = fnBody.indexOf("|| extractLinkedInPersonName()");
     const fallbackIdx = fnBody.indexOf("fallbackNameSelectors.map(pickText)");
-    expect(fallbackIdx).toBeGreaterThan(idx);
+    expect(titleIdx).toBeGreaterThan(-1);
+    expect(personNameIdx).toBeGreaterThan(titleIdx);
+    expect(fallbackIdx).toBeGreaterThan(personNameIdx);
   });
 
-  it("the raw-selector fallback still filters self/company labels", () => {
-    expect(fnBody).toContain("!isLinkedInSelfOrCompanyLabel(candidate)");
-  });
-
-  it("does not resurrect the unscoped document-wide selector reorder from round 1", () => {
-    expect(fnBody).not.toContain("isMessagingThread");
-    expect(fnBody).not.toContain("messagingSelectors");
+  it("still guards the title candidate against a self/company label", () => {
+    expect(fnBody).toContain("!isLinkedInSelfOrCompanyLabel(titleName)");
   });
 });
