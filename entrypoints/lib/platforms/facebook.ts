@@ -279,14 +279,35 @@ export function extractFacebookProfileSnapshot(
     add(elementText(heading), 'identity_heading', weight);
   }
 
-  // Some Facebook experiments render the display name as a plain div with
-  // large type. This remains scoped by typography and identity exclusions;
-  // it is not a page-wide "first plausible text" fallback.
-  for (const element of Array.from(doc.querySelectorAll('[dir="auto"]'))) {
+  // Some Facebook experiments render the display name as a plain span/div
+  // with large, bold type and NO dir="auto" wrapper. Confirmed live on two
+  // independent real profiles (facebook.com/ahormozi, facebook.com/zuck,
+  // 2026-09-27): the actual profile-hero name is a leaf <span> at
+  // font-size:32px / font-weight:700 with no dir attribute at all, meta
+  // og:title absent, no h1 present, and document.title reduced to the
+  // generic "Facebook". The old dir="auto"-only selector never matched
+  // that element on either profile, so identity extraction fell through
+  // to the fragile last-resort bounded-main-text heuristic below on every
+  // profile in this render state -- not a selector miss on "some" pages,
+  // a miss on the strong signal for ALL of them, leaving success or
+  // failure to depend entirely on incidental line ordering in
+  // [role="main"]'s text. Matching this confirmed large+bold leaf-text
+  // shape directly (independent of the dir attribute) restores a real,
+  // specific signal ahead of that fallback. Leaf-only (no element
+  // children) keeps this scoped to the name element itself, never a
+  // page-wide "first plausible text" scan.
+  for (const element of Array.from(doc.querySelectorAll('[dir="auto"], span, div'))) {
+    if (element.children.length > 0) continue;
     if (!isProfileIdentityElement(element)) continue;
     let size = 0;
-    try { size = Number.parseFloat(doc.defaultView?.getComputedStyle(element).fontSize || '0'); } catch { /* noop */ }
-    if (size >= 20) add(elementText(element), 'identity_text', 2);
+    let weight = 0;
+    try {
+      const style = doc.defaultView?.getComputedStyle(element);
+      size = Number.parseFloat(style?.fontSize || '0');
+      weight = Number.parseInt(style?.fontWeight || '0', 10);
+    } catch { /* noop */ }
+    if (size >= 28 && weight >= 700) add(elementText(element), 'identity_text', 4);
+    else if (size >= 20) add(elementText(element), 'identity_text', 2);
   }
 
   // Classic personal profiles sometimes omit semantic headings altogether.
