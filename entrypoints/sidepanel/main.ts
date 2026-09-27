@@ -31,7 +31,7 @@ import {
 } from '../../lib/accessState';
 import { sanitizeCustomerFacingOutput } from '../lib/outputContract';
 import { resolveGenerateInput } from '../lib/repInstruction';
-import { cleanCustomerNameCandidate } from '../lib/leadContextScan';
+import { cleanCustomerNameCandidate, isChannelOrUiName } from '../lib/leadContextScan';
 import { isMessengerSystemCardText } from '../lib/messengerSystemText';
 import { didPlatformChange, shouldDropCarriedOverPin } from '../lib/pinnedThreadCarryover';
 import { resolveRepIndustryContext, type RepIndustryContext } from '../lib/repIndustryContext';
@@ -5206,9 +5206,13 @@ function normalizeLocalLeadForInbox(lead: any): any {
 
 function mergeLeadInboxRows(remoteLeads: any[], localLeads: any[], filter: 'active' | 'lost'): any[] {
   const byId = new Map<string, any>();
+  const isUsableLeadName = (lead: any): boolean => {
+    const name = optionalDisplayText(lead?.customer_name || lead?.name);
+    return Boolean(name && !isChannelOrUiName(name));
+  };
   const includeForFilter = (lead: any): boolean => {
     const stage = String(lead?.pipeline_stage || lead?.status || '').toLowerCase();
-    return filter === 'lost' ? stage === 'lost' : stage !== 'lost';
+    return isUsableLeadName(lead) && (filter === 'lost' ? stage === 'lost' : stage !== 'lost');
   };
   for (const lead of remoteLeads) {
     if (!lead || !includeForFilter(lead)) continue;
@@ -5484,7 +5488,18 @@ async function renderMyLeads(root: HTMLElement): Promise<void> {
   const alerts = root.querySelector('#o8-going-dark-alerts') as HTMLElement | null;
   const count = root.querySelector('#o8-my-leads-count') as HTMLElement | null;
   if (!content) return;
-  content.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading your pipeline...</div>';
+  // Selection actions only update the selection state; keep the already
+  // rendered cards in place while the authoritative lead fetch completes so
+  // Select All does not flash a blank/loading screen before the checkboxes
+  // settle. Initial entry and filter changes still show the loading state.
+  const preserveRenderedLeads = Boolean(
+    (root as any).__myLeadsSelectMode &&
+    Array.isArray((root as any).__myLeads) &&
+    content.querySelector('.my-lead-card'),
+  );
+  if (!preserveRenderedLeads) {
+    content.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px;padding:24px;">Loading your pipeline...</div>';
+  }
 
   try {
     const leadFilter: 'active' | 'lost' = (root as any).__myLeadsStageFilter === 'lost' ? 'lost' : 'active';

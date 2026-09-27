@@ -425,6 +425,7 @@ function scrapeXProfile(): ThreadContext {
     messages: [],
     last_inbound_text: '',
     header_text,
+    profile_bio: [bio, meta].filter(Boolean).join('\n').slice(0, 1800) || null,
     url: window.location.href,
     scanned_at: Date.now(),
     message_count: 0,
