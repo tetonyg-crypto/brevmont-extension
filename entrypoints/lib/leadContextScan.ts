@@ -281,9 +281,19 @@ export function isLinkedInMessagingSurface(href = window.location.href): boolean
   // real profile page with the overlay present. Only count it when the
   // matched element is actually visible (an open/expanded conversation),
   // not merely present as a collapsed chat-head bubble.
-  const candidates = document.querySelectorAll('.msg-entity-lockup__entity-title, .msg-thread__link-to-profile, .msg-form__contenteditable, .msg-s-message-list-content, .msg-overlay-conversation-bubble');
+  const candidates = document.querySelectorAll('.msg-entity-lockup__entity-title, .msg-thread__link-to-profile, .msg-form__contenteditable, .msg-s-message-list-content');
   for (const el of Array.from(candidates)) {
-    if (isElementHiddenChain(el as HTMLElement)) continue;
+    const node = el as HTMLElement;
+    if (isElementHiddenChain(node)) continue;
+    // A minimized chat-head is intentionally visible and often retains a
+    // composer/title node in the DOM. It is not the conversation the rep is
+    // viewing; only an expanded bubble with real thread markup qualifies.
+    const bubble = node.closest('.msg-overlay-conversation-bubble') as HTMLElement | null;
+    if (bubble) {
+      const bubbleClass = String(bubble.className || '');
+      if (/minimi[sz]|collapsed/i.test(bubbleClass)) continue;
+      if (!bubble.querySelector('.msg-s-message-list-content, .msg-form__contenteditable')) continue;
+    }
     return true;
   }
   return false;

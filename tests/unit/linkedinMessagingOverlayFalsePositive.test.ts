@@ -29,6 +29,24 @@ describe('isLinkedInMessagingSurface', () => {
     expect(isLinkedInMessagingSurface('https://www.linkedin.com/in/oleg-melnikov/')).toBe(false);
   });
 
+  it('is false when the persistent minimized chat-head is visible', () => {
+    document.body.innerHTML = `
+      <main><h1 class="text-heading-xlarge">Oleg Melnikov</h1></main>
+      <div class="msg-overlay-conversation-bubble msg-overlay-conversation-bubble--is-minimized">
+        <div class="msg-form__contenteditable" contenteditable="true"></div>
+      </div>`;
+    expect(isLinkedInMessagingSurface('https://www.linkedin.com/in/oleg-melnikov/')).toBe(false);
+  });
+
+  it('still recognizes an expanded conversation bubble', () => {
+    document.body.innerHTML = `
+      <div class="msg-overlay-conversation-bubble msg-overlay-conversation-bubble--is-expanded">
+        <div class="msg-s-message-list-content">Hello</div>
+        <div class="msg-form__contenteditable" contenteditable="true"></div>
+      </div>`;
+    expect(isLinkedInMessagingSurface('https://www.linkedin.com/in/oleg-melnikov/')).toBe(true);
+  });
+
   it('is false on a profile page with no messaging markup at all', () => {
     document.body.innerHTML = `<main><h1>Oleg Melnikov</h1></main>`;
     expect(isLinkedInMessagingSurface('https://www.linkedin.com/in/oleg-melnikov/')).toBe(false);
