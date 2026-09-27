@@ -7,10 +7,12 @@ import {
 } from '../../entrypoints/lib/platforms/facebook';
 import { sanitizeFacebookProspectContext } from '../../entrypoints/lib/platforms/facebookProspectContext';
 
-// 2026-09-27: Facebook Prospect Context was a page dump. The old scraper kept
-// every line of [role="main"] that wasn't on a small blocklist, so the post
-// composer, Stories, the feed, "People you may know", ads and the footer all
-// landed in the lead card. These fixtures mirror the live failures.
+// 2026-09-27: Facebook Prospect Context was first a page dump (composer,
+// Stories, feed, "People you may know", ads, footer), then — after the
+// allow-list fix — too conservative for the live 2026 layout, where the bio,
+// category, location and workplace sit in the profile header and contact
+// data sits under Details / Contact info / Links. Fixtures marked LIVE are the
+// exact [role="main"].innerText line order captured from real profiles.
 
 const lines = (...values: string[]) => values.map((v) => `<div>${v}</div>`).join('');
 const tabs = (...values: string[]) => `<div role="tablist">${values.map((v) => `<div role="tab">${v}</div>`).join('')}</div>`;
@@ -21,11 +23,17 @@ const PAGE_DUMP = [
   'Privacy · Terms · Advertising · Ad Choices · Cookies · More · Meta © 2026',
 ];
 
+const FEED_TAIL = [
+  'Posts', 'Filters', 'Facebook', 'Facebook', 'Facebook', 'Create a post', "What's on your mind?",
+  '5h', 'If AI kills junior marketing work, how do we get senior marketers?', 'Like', 'Comment', 'Share',
+  'People you may know', 'Jessica Tran', 'Add friend', 'Sponsored', 'Privacy · Terms · Advertising · Ad Choices · Cookies · More · Meta © 2026',
+];
+
 function expectNoDump(context: string) {
   for (const chrome of PAGE_DUMP) expect(context).not.toContain(chrome);
-  expect(context).not.toMatch(/followers|following|Call now|^Details$|^Links$|Like|Comment|Share/m);
-  expect(context.split('\n').length).toBeLessThanOrEqual(5);
-  expect(context.length).toBeLessThanOrEqual(500);
+  expect(context).not.toMatch(/\bfollowers\b|\bfollowing\b|Call now|Not yet rated|Closed now|Always open|Jessica Tran|junior marketing|\bLike\b|\bComment\b/);
+  expect(context.split('\n').length).toBe(1);
+  expect(context.length).toBeLessThanOrEqual(700);
 }
 
 function scan(path: string, html: string, title = 'Facebook') {
@@ -36,76 +44,121 @@ function scan(path: string, html: string, title = 'Facebook') {
   return { snapshot, context: snapshot.profile_bio || '' };
 }
 
-describe('Facebook Prospect Context: short prospect summary, never a page dump', () => {
+describe('Facebook Prospect Context: structured public profile fields, never a page dump', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
     resetFacebookProfileCarryoverForTests();
   });
 
-  it('A: business page keeps the description + category and drops counts, CTAs, Details/Links, posts and footer', () => {
-    const { snapshot, context } = scan('/wscautocenter', `
-      <h1>WSC AUTO Center</h1>
-      ${lines('2.1K followers', '48 following', 'Call now', 'Message', 'Like')}
-      ${tabs('Posts', 'About', 'Mentions', 'Reviews', 'Followers', 'Photos', 'More')}
+  it('Peyton Moda: captures the intro with the public work phone, moderator role and creator category', () => {
+    const { snapshot, context } = scan('/peyton.moda', `
+      <h1>Peyton Moda</h1>
+      ${lines('3.4K followers • 210 following', 'Follow', 'Message', 'Search')}
+      ${tabs('All', 'About', 'Reels', 'Photos', 'Followers', 'More')}
       ${lines('Intro',
-        'German automotive repair and service for BMW, Audi, Mercedes-Benz, VW and Porsche.',
-        'Page · Automotive Repair Shop',
-        '1234 Fairview Ave, Boise, ID 83702',
-        '(208) 555-0199', 'service@wscauto.com', 'wscauto.com',
-        'Not yet rated (0 Reviews)', 'Always open')}
-      ${lines('Details', 'Links', 'Photos', 'See all photos')}
-      ${lines('Create a post', "What's on your mind?", 'WSC AUTO Center', '3d',
-        'Just finished a full timing chain job on this 2014 BMW 535i. Book your service today and ask about our winter special.',
-        'Like', 'Comment', 'Share', 'Sponsored', 'Privacy · Terms · Advertising · Ad Choices · Cookies · More · Meta © 2026')}
+        'Facebook doesn’t always let people message me. Got Moda questions? Text my work phone: 605-906-0529',
+        'Moderator of Moda Collective', 'Profile · Digital creator', 'Photos', 'See all photos', ...FEED_TAIL)}
     `);
-    expect(snapshot.display_name).toBe('WSC AUTO Center');
-    expect(context).toContain('German automotive repair and service');
-    expect(context).toContain('Automotive Repair Shop');
-    expect(context).not.toContain('timing chain');
-    expect(context).not.toMatch(/555-0199|wscauto\.com|Fairview|Not yet rated|Always open/);
+    expect(snapshot.display_name).toBe('Peyton Moda');
+    expect(context).toContain('605-906-0529');
+    expect(context).toContain('Moderator of Moda Collective');
+    expect(context).toContain('Digital creator');
     expectNoDump(context);
   });
 
-  it('B: creator keeps the specialty + category and drops the composer, suggestions and feed posts', () => {
+  it('Bitkey: captures the business description, category, website and public social handles', () => {
+    const { snapshot, context } = scan('/bitkeyworld', `
+      <h1>Bitkey</h1>
+      ${lines('25K followers • 3 following', 'Message', 'Follow', 'Search',
+        'Bitkey is the self-custody bitcoin wallet with an app, hardware, and recovery tools. Built by the team at Block, Inc.',
+        'Business Center', 'More')}
+      ${tabs('All', 'About', 'Reels', 'Photos', 'Followers', 'More')}
+      ${lines('Links', 'bitkey.world', 'ownbitkey', 'bitkeyofficial',
+        'Featured', 'Bitkey', 'Big news: inheritance is now live in the Bitkey app. Update today and set it up in minutes.', ...FEED_TAIL)}
+    `);
+    expect(snapshot.display_name).toBe('Bitkey');
+    expect(context).toContain('self-custody bitcoin wallet with an app, hardware, and recovery tools');
+    expect(context).toContain('Built by the team at Block, Inc.');
+    expect(context).toContain('Website: bitkey.world');
+    expect(context).toContain('@ownbitkey');
+    expect(context).toContain('@bitkeyofficial');
+    expect(context).not.toContain('inheritance');
+    expectNoDump(context);
+  });
+
+  it('Hridoy Reh (LIVE line order): captures the SEO/marketing specialty, category and website', () => {
     const { snapshot, context } = scan('/hridoyreh', `
       <h1>Hridoy Reh</h1>
-      ${lines('12K followers • 150 following', 'Add friend', 'Message')}
-      ${tabs('All', 'About', 'Followers', 'Photos', 'Reels', 'More')}
-      ${lines('Intro', 'SEO / marketing specialist helping local businesses rank on Google',
-        'Profile · Advertising/Marketing', 'Lives in Dhaka, Bangladesh', 'Joined March 2016')}
-      ${lines('Photos', 'Stories', 'Create story', "What's on your mind?", 'Live video', 'Photo/video', 'Posts', 'Filters',
-        'Hridoy Reh', '5h', 'Top 10 SEO tips for 2026 that every agency owner should know about before the next update.',
-        'People you may know', 'Jessica Tran', 'Add friend', 'Marco Diaz', 'Add friend')}
+      ${lines('7K followers • 33 following', 'Follow', 'Search', 'An SEO / marketing specialist...', 'Advertising/Marketing', 'More',
+        'All', 'About', 'Reels', 'Photos', 'Followers', 'More', 'Links', 'hridoyreh.com', 'Photos', 'See all photos',
+        'Privacy', ' · Consumer Health Privacy', ' · Terms', ' · Advertising', ' · Ad Choices', ' · Cookies', ' · More', ...FEED_TAIL)}
     `);
     expect(snapshot.display_name).toBe('Hridoy Reh');
-    expect(context).toContain('SEO / marketing specialist');
-    expect(context).toContain('Advertising/Marketing');
-    expect(context).not.toMatch(/Top 10 SEO tips|Jessica Tran|Marco Diaz|Joined/);
+    expect(context).toBe('An SEO / marketing specialist. Advertising/Marketing. Website: hridoyreh.com.');
+  });
+
+  it('Grupo Fuerza Legal: captures the law-firm description, category, website and email', () => {
+    const { snapshot, context } = scan('/grupofuerzalegal', `
+      <h1>Grupo Fuerza Legal</h1>
+      ${lines('12 followers • 0 following', 'Message', 'Follow', 'Search',
+        'Los abogados de Grupo Fuerza Legal ponen a disposición de la Comunidad Latina en el Sur de Californ...',
+        'Lawyer & Law Firm', 'More', 'All', 'About', 'Followers', 'Photos', 'Mentions', 'More',
+        'Details', 'Not yet rated (0 reviews)', 'Links', 'grupofuerzalegal.com',
+        'Contact info', 'grupofuerzalegal@gmail.com', 'Grupo Fuerza Legal', ...FEED_TAIL)}
+    `);
+    expect(snapshot.display_name).toBe('Grupo Fuerza Legal');
+    expect(context).toContain('Los abogados de Grupo Fuerza Legal ponen a disposición de la Comunidad Latina');
+    expect(context).toContain('Lawyer & Law Firm');
+    expect(context).toContain('Website: grupofuerzalegal.com');
+    expect(context).toContain('Email: grupofuerzalegal@gmail.com');
     expectNoDump(context);
   });
 
-  it('C: group-profile person keeps a clean intro when one exists', () => {
-    const { snapshot, context } = scan('/groups/idahoconstruction/user/100001/', `
-      <h1>Mark Fulton</h1>
-      ${lines('Member of Idaho Construction', 'Joined Facebook in 2014', 'View profile', 'Message')}
-      ${lines('Intro', 'Project manager at Fulton Builders')}
-      ${lines("Mark's posts in this group", 'Mark Fulton', '2d', 'Anyone have a good excavator for rent near Nampa this week?', 'Like', 'Comment')}
+  it('Grupo Fuerza Legal (LIVE line order): a long header bio is no longer dropped', () => {
+    const { context } = scan('/grupofuerzalegal', `
+      <h1>Grupo Fuerza Legal</h1>
+      ${lines('12 followers • 0 following', 'Message', 'Follow', 'Search',
+        'Grupo Fuerza Legal es la organización de representación legal más confiable para casos de accidentes y de casos laborales en California.',
+        'Consulting agency', 'More', 'All', 'About', 'Followers', 'Photos', 'Mentions', 'More',
+        'Details', 'Not yet rated (0 reviews)', 'Links', 'grupofuerzalegal.com', ...FEED_TAIL)}
     `);
-    expect(snapshot.display_name).toBe('Mark Fulton');
-    expect(context).toBe('Project manager at Fulton Builders');
+    expect(context).toContain('representación legal más confiable');
+    expect(context).toContain('Consulting agency');
+    expect(context).toContain('Website: grupofuerzalegal.com');
+    expectNoDump(context);
   });
 
-  it('C: group-profile person with no intro gets empty context, not group chrome or posts', () => {
-    const { snapshot, context } = scan('/groups/idahoconstruction/user/100001/', `
-      <h1>Mark Fulton</h1>
-      ${lines('Member of Idaho Construction', 'Joined Facebook in 2014', 'View profile', 'Message',
-        "Mark's posts in this group", 'Mark Fulton', '2d', 'Anyone have a good excavator for rent near Nampa this week?', 'Like', 'Comment')}
+  it('Alex Ramirez: captures an Intro membership/work field, nothing from cover art or group feed', () => {
+    const { snapshot, context } = scan('/alex.ramirez.siding', `
+      <img alt="Cover photo: Solid Seal Siding" />
+      <h1>Alex Ramirez</h1>
+      ${lines('412 friends', 'Add friend', 'Message')}
+      ${tabs('All', 'About', 'Friends', 'Photos', 'Reels', 'More')}
+      ${lines('Intro', 'Member of Siding Installer', 'Photos', 'Siding Installer', 'Alex Ramirez', '2d',
+        'Anyone need a crew in Boise next week? DM me.', 'Like', 'Comment', ...FEED_TAIL)}
     `);
-    expect(snapshot.display_name).toBe('Mark Fulton');
-    expect(context).toBe('');
+    expect(snapshot.display_name).toBe('Alex Ramirez');
+    expect(context).toBe('Member of Siding Installer.');
+    expect(context).not.toContain('Solid Seal');
   });
 
-  it('F: a profile with only Facebook chrome and feed returns empty context', () => {
+  it('Paulina Salazar: captures the intro with both Instagram handles and the creator category', () => {
+    const { snapshot, context } = scan('/paulina.salazar.ut', `
+      <h1>Paulina Salazar</h1>
+      ${lines('1.9K followers', 'Follow', 'Message')}
+      ${tabs('All', 'About', 'Reels', 'Photos', 'More')}
+      ${lines('Intro', 'IG @thelasheffect.ut & @axiseventsut Helping women elevate their beauty, mind and business',
+        'Profile · Digital creator', 'Photos', ...FEED_TAIL)}
+    `);
+    expect(snapshot.display_name).toBe('Paulina Salazar');
+    expect(context).toContain('@thelasheffect.ut');
+    expect(context).toContain('@axiseventsut');
+    expect(context).toContain('Helping women elevate their beauty, mind and business');
+    expect(context).toContain('Digital creator');
+    expectNoDump(context);
+  });
+
+  it('Ronan Danial: no meaningful public bio stays empty (card shows the minimal line)', () => {
     const { snapshot, context } = scan('/ronan.danial', `
       <h1>Ronan Danial</h1>
       ${lines('1.1K friends', 'Add friend', 'Message')}
@@ -117,11 +170,71 @@ describe('Facebook Prospect Context: short prospect summary, never a page dump',
     expect(facebookAdapter.scrapeThread().raw_text).toBe('Profile: Ronan Danial');
   });
 
-  it('a stored page dump from an older build is never displayed', () => {
+  it('public figure (LIVE line order): header bio/category/location/workplace + Personal details; birthday and Communities excluded', () => {
+    const { context } = scan('/zuck', `
+      <h1>Mark Zuckerberg</h1>
+      ${lines('121M followers', 'Follow', 'Search', 'Bringing the world closer together.', 'Public figure', 'Palo Alto, CA',
+        'Meta', 'Harvard University', 'More', 'All', 'About', 'Reels', 'Photos', 'Friends', 'More',
+        'Personal details', 'Lives in Palo Alto, California', 'From Dobbs Ferry, New York', 'May 14, 1984', 'See more personal details',
+        'Communities', 'Meta Channel', 'Channel · 823K members', ...FEED_TAIL)}
+    `);
+    expect(context).toContain('Bringing the world closer together.');
+    expect(context).toContain('Public figure');
+    expect(context).toContain('Palo Alto, CA');
+    expect(context).toContain('Meta.');
+    expect(context).toContain('Lives in Palo Alto, California');
+    expect(context).not.toMatch(/May 14|See more|Meta Channel|823K/);
+    expectNoDump(context);
+  });
+
+  it('local business (LIVE line order): category, phone and email captured once; rating, hours and street address dropped', () => {
+    const { context } = scan('/fixitrightboise', `
+      <h1>Fix It Right Auto Repair Boise</h1>
+      ${lines('7 followers • 0 following', 'Call now', 'Message', 'Follow', 'Automotive Repair Shop', '(208) 260-1244', 'More',
+        'All', 'About', 'Followers', 'Photos', 'Mentions', 'More',
+        'Details', 'Not yet rated (0 reviews)', 'Closed now', '205 w Ellis st, Paul, ID, United States, 83347',
+        'Contact info', '(208) 260-1244', 'fixitrightautorepairboise@gmail.com', 'Fix It Right Auto Repair Boise',
+        'Posts', 'Filters', 'No posts available')}
+    `);
+    expect(context).toBe('Automotive Repair Shop. Phone: (208) 260-1244. Email: fixitrightautorepairboise@gmail.com.');
+  });
+
+  it('group-profile person keeps a clean intro when one exists', () => {
+    const { snapshot, context } = scan('/groups/idahoconstruction/user/100001/', `
+      <h1>Mark Fulton</h1>
+      ${lines('Member of Idaho Construction', 'Joined Facebook in 2014', 'View profile', 'Message')}
+      ${lines('Intro', 'Project manager at Fulton Builders')}
+      ${lines("Mark's posts in this group", 'Mark Fulton', '2d', 'Anyone have a good excavator for rent near Nampa this week?', 'Like', 'Comment')}
+    `);
+    expect(snapshot.display_name).toBe('Mark Fulton');
+    expect(context).toBe('Project manager at Fulton Builders.');
+  });
+
+  it('group-profile person with no intro gets empty context, not group chrome or posts', () => {
+    const { snapshot, context } = scan('/groups/idahoconstruction/user/100001/', `
+      <h1>Mark Fulton</h1>
+      ${lines('Member of Idaho Construction', 'Joined Facebook in 2014', 'View profile', 'Message',
+        "Mark's posts in this group", 'Mark Fulton', '2d', 'Anyone have a good excavator for rent near Nampa this week?', 'Like', 'Comment')}
+    `);
+    expect(snapshot.display_name).toBe('Mark Fulton');
+    expect(context).toBe('');
+  });
+
+  it('Facebook links and feed-post URLs never become the website', () => {
+    const { context } = scan('/somebiz', `
+      <h1>Some Biz</h1>
+      ${lines('Search', 'Plumbing Service', 'More', 'All', 'About', 'Links', 'facebook.com/somebiz', 'm.me/somebiz',
+        'Featured', 'Some Biz', 'Shop now at https://somebiz-preview.myshopify.com', ...FEED_TAIL)}
+    `);
+    expect(context).toBe('Plumbing Service.');
+  });
+
+  it('a stored page dump from an older build is never displayed; current-format context is kept', () => {
     const dump = ['About: Intro', ...PAGE_DUMP, 'Camden Gladden', 'Jessica Tran', 'Great weekend at the lake'].join('\n');
     expect(sanitizeFacebookProspectContext(dump, 'Camden Gladden')).toBe('');
-    expect(sanitizeFacebookProspectContext('Owner at Gladden Detailing\nAutomotive Service', 'Camden Gladden'))
-      .toBe('Owner at Gladden Detailing\nAutomotive Service');
+    expect(sanitizeFacebookProspectContext('Owner at Gladden Detailing. Automotive Service. Website: gladden.com.', 'Camden Gladden'))
+      .toBe('Owner at Gladden Detailing. Automotive Service. Website: gladden.com.');
+    expect(sanitizeFacebookProspectContext("Great bio. What's on your mind? People you may know", 'Camden Gladden')).toBe('');
   });
 });
 
@@ -195,7 +308,7 @@ describe('D: Facebook SPA route change never carries the previous profile over',
     document.body.innerHTML = `<div role="main">${piotrDom}</div>`;
     expect(facebookAdapter.extractCustomer().name).toBe('Piotr Proditus');
     const thread = facebookAdapter.scrapeThread();
-    expect(thread.profile_bio).toBe('Fleet manager at Proditus Logistics');
+    expect(thread.profile_bio).toBe('Fleet manager at Proditus Logistics.');
     expect(thread.raw_text).not.toContain('Mark');
   });
 
