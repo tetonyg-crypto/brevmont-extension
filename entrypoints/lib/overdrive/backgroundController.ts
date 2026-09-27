@@ -21,7 +21,16 @@ import { orchestrateReply, isHeroStage, replayPendingConfirms } from './orchestr
 import { reportOverdriveBlocked, reportOverdriveDetection, reportOverdriveDraftPrefilled } from './apiClient';
 import type { OverdriveBlockedPayload } from './apiClient';
 import { createBlockedVerdictDeduper, isOverdriveThreadKey } from './signalGate';
-import { radarCapture, radarSweepDone } from './radarClient';
+import { radarCapture, radarStatus, radarSweepDone } from './radarClient';
+import {
+  currentRadarPreference,
+  loadRadarPreference,
+  planSweepAgainstBaseline,
+  readSweepBaseline,
+  storeRadarPreference,
+  writeSweepBaseline,
+  type RadarPreference,
+} from './radarPreference';
 import { getOverdriveSettings } from './apiClient';
 import { extractVehicleHint } from '../platforms/shared';
 import { atomicStorageUpdate } from './atomicStorage';
@@ -162,6 +171,19 @@ async function activeSettings(): Promise<CachedSettings | null> {
   return loadSettingsFresh();
 }
 
+/**
+ * Facebook Lead Radar gate (2026-09-27). Background capture requires the
+ * existing prerequisites (Facebook linked + disclosure acknowledged) AND the
+ * rep's explicit opt-in. OFF means zero automatic capture: no live capture,
+ * no catch-up sweep, no detector installed on radar's behalf. Manual
+ * "+ Lead / Scan This Page" does not go through here.
+ */
+async function radarActive(cached: CachedSettings | null, force = false): Promise<boolean> {
+  if (!(cached?.linked && cached?.disclosure_acked)) return false;
+  const pref = await loadRadarPreference(radarStatus, { force });
+  return pref.opt_in;
+}
+
 function overdriveGoLightIsGreen(cached: CachedSettings | null): boolean {
   if (!cached) return false;
   return cached.master_enabled && cached.dealership_enabled && cached.linked && cached.disclosure_acked;
@@ -277,6 +299,8 @@ async function ensureFacebookTabIfEnabled(cached: CachedSettings | null): Promis
  * server idempotency prevents dupes across sweeps.
  */
 async function runRadarCatchupSweep(): Promise<void> {
+  // Never sweep unless the rep has turned Lead Radar on.
+  if (!currentRadarPreference().opt_in) return;
   if (Date.now() - state.lastRadarSweepAt < RADAR_SWEEP_COOLDOWN_MS) return;
   state.lastRadarSweepAt = Date.now();
   await overdriveLog({ event: 'radar_sweep_start' });
@@ -285,55 +309,68 @@ async function runRadarCatchupSweep(): Promise<void> {
     await overdriveLog({ event: 'radar_sweep_no_tabs' });
     return;
   }
-  const counts = { total: 0, created: 0, updated: 0, noop: 0, error: 0 };
+  const counts = { total: 0, created: 0, updated: 0, noop: 0, error: 0, baselined: 0 };
+  type SweepItem = {
+    conversation_key: string;
+    header_text: string;
+    last_inbound_text: string;
+    last_inbound_hash: string;
+    url: string;
+  };
+  const eligible: SweepItem[] = [];
   for (const tab of tabs) {
     if (!tab.id) continue;
-    const list = await sendToTab<{ ok: boolean; items?: Array<{
-      conversation_key: string;
-      header_text: string;
-      last_inbound_text: string;
-      last_inbound_hash: string;
-      url: string;
-    }> }>(tab.id, { type: 'RADAR_SWEEP_LIST', deep: true, maxItems: RADAR_SWEEP_MAX_ITEMS });
+    const list = await sendToTab<{ ok: boolean; items?: SweepItem[] }>(tab.id, { type: 'RADAR_SWEEP_LIST', deep: true, maxItems: RADAR_SWEEP_MAX_ITEMS });
     if (!list?.ok || !list.items) continue;
     for (const item of list.items) {
-      try {
-        if (!isCarInquirySweepItem(item)) {
-          await overdriveLog({
-            event: 'radar_sweep_item_skipped',
-            reason: 'not_vehicle_marketplace_inquiry',
-            conversation_key: item.conversation_key,
-            header_text: item.header_text,
-          });
-          continue;
-        }
-        counts.total += 1;
-        const { customer_name, listing_title } = splitMarketplaceHeader(item.header_text);
-        const vehicle = vehicleHintFromSweepItem(item);
-        const result = await radarCapture({
+      if (!isCarInquirySweepItem(item)) {
+        await overdriveLog({
+          event: 'radar_sweep_item_skipped',
+          reason: 'not_vehicle_marketplace_inquiry',
           conversation_key: item.conversation_key,
-          last_inbound_hash: item.last_inbound_hash,
-          last_inbound_text: item.last_inbound_text,
-          customer_name,
-          listing: {
-            title: listing_title,
-            url: item.url,
-            vehicle_year: vehicle?.year || null,
-            vehicle_make: vehicle?.make || null,
-            vehicle_model: vehicle?.model || null,
-          },
-          source_platform: /marketplace/i.test(item.url) ? 'facebook_marketplace' : 'facebook_messenger',
-          sweep_source: 'catchup_sweep',
+          header_text: item.header_text,
         });
-        if (result.mode === 'created') counts.created += 1;
-        else if (result.mode === 'updated') counts.updated += 1;
-        else if (result.mode === 'noop') counts.noop += 1;
-        else if (!result.ok) counts.error += 1;
-        await new Promise((r) => setTimeout(r, RADAR_SWEEP_CAPTURE_PACE_MS));
-      } catch (e: any) {
-        counts.error += 1;
-        await overdriveLog({ event: 'radar_sweep_item_error', error: e?.message });
+        continue;
       }
+      eligible.push(item);
+    }
+  }
+  // Turning Radar ON does not bulk-ingest the existing inbox: the first
+  // sweep after an enable only records a baseline.
+  const pref = currentRadarPreference();
+  const plan = planSweepAgainstBaseline(eligible, await readSweepBaseline(), pref.enabled_at);
+  await writeSweepBaseline(plan.nextBaseline);
+  counts.baselined = eligible.length - plan.toCapture.length;
+  for (const item of plan.toCapture) {
+    // Turning Radar OFF stops an in-flight sweep at the next item.
+    if (!currentRadarPreference().opt_in) break;
+    try {
+      counts.total += 1;
+      const { customer_name, listing_title } = splitMarketplaceHeader(item.header_text);
+      const vehicle = vehicleHintFromSweepItem(item);
+      const result = await radarCapture({
+        conversation_key: item.conversation_key,
+        last_inbound_hash: item.last_inbound_hash,
+        last_inbound_text: item.last_inbound_text,
+        customer_name,
+        listing: {
+          title: listing_title,
+          url: item.url,
+          vehicle_year: vehicle?.year || null,
+          vehicle_make: vehicle?.make || null,
+          vehicle_model: vehicle?.model || null,
+        },
+        source_platform: /marketplace/i.test(item.url) ? 'facebook_marketplace' : 'facebook_messenger',
+        sweep_source: 'catchup_sweep',
+      });
+      if (result.mode === 'created') counts.created += 1;
+      else if (result.mode === 'updated') counts.updated += 1;
+      else if (result.mode === 'noop') counts.noop += 1;
+      else if (!result.ok) counts.error += 1;
+      await new Promise((r) => setTimeout(r, RADAR_SWEEP_CAPTURE_PACE_MS));
+    } catch (e: any) {
+      counts.error += 1;
+      await overdriveLog({ event: 'radar_sweep_item_error', error: e?.message });
     }
   }
   await radarSweepDone(counts);
@@ -374,7 +411,7 @@ async function handleDetectionSignal(tabId: number, signal: { type: string; conv
   // the rep is signed in AND Facebook is linked, regardless of the
   // Overdrive toggle. Overdrive being green adds an autonomous reply
   // ON TOP of the radar capture. Neither gates the other.
-  const radarEligible = !!(cached?.linked && cached?.disclosure_acked);
+  const radarEligible = await radarActive(cached);
   const overdriveEligible = overdriveGoLightIsGreen(cached);
 
   if (!radarEligible && !overdriveEligible) {
@@ -795,10 +832,10 @@ export async function installOverdriveController(): Promise<void> {
         await ensureFacebookTabIfEnabled(cached);
         // Install detector when EITHER radar or overdrive is eligible;
         // radar-only paths still need the observer to fire signals.
-        const radarEligible = !!(cached?.linked && cached?.disclosure_acked);
+        const radarEligible = await radarActive(cached);
         if (overdriveGoLightIsGreen(cached) || radarEligible) {
           await armDetectorOnAllFbTabs();
-          void runRadarCatchupSweep();
+          if (radarEligible) void runRadarCatchupSweep();
         }
         // Replay any pending send-confirms that survived a worker
         // teardown mid-fetch. Server dedupes by idempotency_key.
@@ -807,8 +844,7 @@ export async function installOverdriveController(): Promise<void> {
       }
       if (alarm.name === RADAR_SWEEP_ALARM) {
         const cached = await activeSettings();
-        const radarEligible = !!(cached?.linked && cached?.disclosure_acked);
-        if (!radarEligible) return;
+        if (!(await radarActive(cached))) return;
         await runRadarCatchupSweep();
         return;
       }
@@ -827,12 +863,12 @@ export async function installOverdriveController(): Promise<void> {
       const cached = await activeSettings();
       // Radar-only paths still need the observer installed. Install
       // when EITHER radar or overdrive is eligible.
-      const radarEligible = !!(cached?.linked && cached?.disclosure_acked);
+      const radarEligible = await radarActive(cached);
       if (!overdriveGoLightIsGreen(cached) && !radarEligible) return;
       const r = await sendToTab<{ ok: boolean }>(tabId, { type: 'OVERDRIVE_INSTALL_DETECTOR' });
       if (r?.ok) {
         state.perTabDetectorInstalled.add(tabId);
-        void runRadarCatchupSweep();
+        if (radarEligible) void runRadarCatchupSweep();
       }
     });
     chrome.tabs.onRemoved?.addListener((tabId) => {
@@ -859,11 +895,30 @@ export async function installOverdriveController(): Promise<void> {
         // controller re-reads settings on the next cycle without
         // waiting for the 5-min TTL.
         void loadSettingsFresh().then(async (cached) => {
-          const radarEligible = !!(cached?.linked && cached?.disclosure_acked);
-          if (overdriveGoLightIsGreen(cached)) {
+          const radarEligible = await radarActive(cached, true);
+          if (overdriveGoLightIsGreen(cached) || radarEligible) {
             await armDetectorOnAllFbTabs();
           }
           if (radarEligible) void runRadarCatchupSweep();
+        });
+        sendResponse({ ok: true });
+        return false;
+      }
+
+      if (m.type === 'LEAD_RADAR_PREF_CHANGED') {
+        // Settings toggle: apply immediately (no TTL wait). OFF takes effect
+        // on the very next signal / sweep item; ON arms the detector.
+        const incoming = (msg as { pref?: Partial<RadarPreference> }).pref || {};
+        const next: RadarPreference = {
+          opt_in: incoming.opt_in === true,
+          enabled_at: incoming.enabled_at || null,
+          count_today: Number(incoming.count_today) || 0,
+          fetchedAt: Date.now(),
+        };
+        void storeRadarPreference(next).then(async () => {
+          await overdriveLog({ event: 'radar_pref_changed', opt_in: next.opt_in });
+          const cached = await activeSettings();
+          if (next.opt_in && (await radarActive(cached))) await armDetectorOnAllFbTabs();
         });
         sendResponse({ ok: true });
         return false;
@@ -890,7 +945,8 @@ export async function installOverdriveController(): Promise<void> {
   if (overdriveGoLightIsGreen(cached)) {
     await armDetectorOnAllFbTabs();
   }
-  if (cached?.linked && cached?.disclosure_acked) {
+  if (await radarActive(cached)) {
+    await armDetectorOnAllFbTabs();
     void runRadarCatchupSweep();
   }
   await overdriveLog({ event: 'controller_installed', go: overdriveGoLightIsGreen(cached) });

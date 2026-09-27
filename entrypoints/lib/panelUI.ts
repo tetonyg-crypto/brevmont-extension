@@ -76,6 +76,18 @@ function getSettingsHTML(): string {
       <div class="settings-note-title">Disclosure</div>
       <div class="settings-note-copy">Brevmont reads supported conversations so it can draft a reply for you to review and send.</div>
     </div>
+    <div id="sp-radar-card" class="settings-card settings-radar-card">
+      <div class="settings-radar-head">
+        <div class="settings-note-title">Facebook Lead Radar</div>
+        <div class="settings-radar-segment" role="radiogroup" aria-label="Facebook Lead Radar">
+          <button id="sp-radar-off" class="settings-radar-option active" type="button" role="radio" aria-checked="true">Off</button>
+          <button id="sp-radar-on" class="settings-radar-option" type="button" role="radio" aria-checked="false">On</button>
+        </div>
+      </div>
+      <div class="settings-note-copy">Automatically captures new Facebook and Marketplace leads while you work.</div>
+      <div id="sp-radar-help" class="settings-radar-help">Brevmont will only save leads when you add them manually.</div>
+      <div id="sp-radar-stat" class="settings-radar-stat" style="display:none"></div>
+    </div>
     <button id="sp-settings-sign-out" class="settings-secondary" type="button">Sign out</button>
     <div class="settings-divider"></div>
     <div id="sp-overdrive-kicker" class="settings-kicker settings-kicker-row" style="display:none"><span>Overdrive</span><button id="sp-link-overdrive-manual" class="settings-inline-help" type="button">Guide</button></div>

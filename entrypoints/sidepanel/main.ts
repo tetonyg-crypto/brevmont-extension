@@ -53,6 +53,8 @@ import {
 import { platformIdFromUrl } from '../lib/platforms/registry';
 import { createFacebookScanOwner, facebookScanRouteKey } from '../lib/facebookScanOwner';
 import { sanitizeFacebookProspectContext } from '../lib/platforms/facebookProspectContext';
+import { radarStatus, radarToggle } from '../lib/overdrive/radarClient';
+import { preferenceFromStatus, type RadarStatusLike } from '../lib/overdrive/radarPreference';
 import { coalesceLeadRows, sortActiveLeadRows } from '../../lib/leadIdentity';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -2827,7 +2829,8 @@ async function renderPanel(): Promise<void> {
   startChallengePolling(root);
   renderMyLeads(root).catch(() => {});
   renderAccountChip().then(() => removeAutomotivePresetsForGeneralRep(root)).catch(() => {});
-  renderRadarStatus(root).catch(() => {});
+  wireRadarSettings(root);
+  loadRadarSettings(root).catch(() => {});
   renderOverdriveStatusPill(root).catch(() => {});
   renderOverdriveHeartbeatStrip(root).catch(() => {});
   wireIdentityReactivity();
@@ -3043,24 +3046,21 @@ function wireIdentityReactivity(): void {
 }
 
 /**
- * Radar status line (Radar Phase D). Shows a quiet indicator with
- * today's capture count when radar is active. Hides when disabled
- * (rep opt-out or dealership flag off). Refreshes every 60s.
+ * Radar status line (Radar Phase D). Shows a quiet indicator with today's
+ * capture count ONLY when the rep has turned Facebook Lead Radar on
+ * (explicit opt-in, 2026-09-27). Hidden otherwise. Refreshes every 60s.
  */
-async function renderRadarStatus(root: HTMLElement): Promise<void> {
+async function renderRadarStatus(root: HTMLElement, known?: RadarStatusLike | null): Promise<void> {
   const el = root.querySelector('#o8-radar-status') as HTMLElement | null;
   const txt = root.querySelector('#o8-radar-status-text') as HTMLElement | null;
   if (!el || !txt) return;
   try {
-    const base = (await chrome.storage.local.get(['api_base_url']))?.api_base_url || 'https://api.brevmont.com';
-    const resp = await signedGet(`${base}/api/v1/radar/status`).catch(() => null);
-    if (!resp?.ok) { el.style.display = 'none'; return; }
-    const data = await resp.json().catch(() => ({}));
-    if (!data?.enabled) { el.style.display = 'none'; return; }
-    const count = Number(data.count_today) || 0;
-    txt.textContent = count > 0
-      ? `Lead radar active — ${count} captured today`
-      : 'Lead radar active';
+    const data = known !== undefined ? known : await radarStatus();
+    const pref = preferenceFromStatus(data);
+    if (!pref.opt_in) { el.style.display = 'none'; return; }
+    txt.textContent = pref.count_today > 0
+      ? `Facebook Lead Radar on · ${pref.count_today} captured today`
+      : 'Facebook Lead Radar on';
     el.style.display = 'block';
   } catch {
     el.style.display = 'none';
@@ -3068,9 +3068,73 @@ async function renderRadarStatus(root: HTMLElement): Promise<void> {
   // Re-check every 60s while the panel is open.
   if (!(root as any).__radarStatusTimer) {
     (root as any).__radarStatusTimer = window.setInterval(() => {
-      renderRadarStatus(root).catch(() => {});
+      void renderRadarStatus(root);
     }, 60 * 1000);
   }
+}
+
+/**
+ * Settings → Facebook Lead Radar card. OFF by default; the server holds the
+ * per-rep preference so it survives Chrome restarts and extension reloads.
+ * A change is pushed to the background controller immediately so turning
+ * it OFF stops background capture on the very next signal.
+ */
+function paintRadarSettings(root: HTMLElement, optIn: boolean, countToday: number, busy = false): void {
+  const off = root.querySelector('#sp-radar-off') as HTMLButtonElement | null;
+  const on = root.querySelector('#sp-radar-on') as HTMLButtonElement | null;
+  const help = root.querySelector('#sp-radar-help') as HTMLElement | null;
+  const stat = root.querySelector('#sp-radar-stat') as HTMLElement | null;
+  if (!off || !on) return;
+  off.classList.toggle('active', !optIn);
+  on.classList.toggle('active', optIn);
+  off.setAttribute('aria-checked', String(!optIn));
+  on.setAttribute('aria-checked', String(optIn));
+  off.disabled = busy;
+  on.disabled = busy;
+  if (help) {
+    help.textContent = optIn
+      ? 'Brevmont can automatically capture supported Facebook and Marketplace leads while you work.'
+      : 'Brevmont will only save leads when you add them manually.';
+  }
+  if (stat) {
+    stat.textContent = `${countToday} captured today`;
+    stat.style.display = optIn && countToday > 0 ? 'block' : 'none';
+  }
+}
+
+async function loadRadarSettings(root: HTMLElement): Promise<void> {
+  const status = await radarStatus().catch(() => null);
+  const pref = preferenceFromStatus(status);
+  paintRadarSettings(root, pref.opt_in, pref.count_today);
+  void renderRadarStatus(root, status);
+}
+
+function wireRadarSettings(root: HTMLElement): void {
+  const off = root.querySelector('#sp-radar-off') as HTMLButtonElement | null;
+  const on = root.querySelector('#sp-radar-on') as HTMLButtonElement | null;
+  if (!off || !on || (root as any).__radarSettingsWired) return;
+  (root as any).__radarSettingsWired = true;
+  const apply = async (enabled: boolean) => {
+    if (on.classList.contains('active') === enabled) return;
+    paintRadarSettings(root, enabled, 0, true);
+    await radarToggle(enabled).catch(() => false);
+    // Server truth wins; unknown reads as OFF.
+    const status = await radarStatus().catch(() => null);
+    const pref = preferenceFromStatus(status);
+    const effective = status ? pref.opt_in : false;
+    paintRadarSettings(root, effective, pref.count_today);
+    try {
+      void chrome.runtime.sendMessage({
+        type: 'LEAD_RADAR_PREF_CHANGED',
+        pref: { opt_in: effective, enabled_at: pref.enabled_at, count_today: pref.count_today },
+      }).catch(() => {});
+    } catch { /* noop */ }
+    void renderRadarStatus(root, status);
+    if (enabled && !effective) showToast(root, 'Could not turn on Facebook Lead Radar. Try again.');
+    else showToast(root, effective ? 'Facebook Lead Radar is on' : 'Facebook Lead Radar is off');
+  };
+  off.onclick = () => { void apply(false); };
+  on.onclick = () => { void apply(true); };
 }
 
 async function getStoredToken(): Promise<string | null> {
@@ -3692,6 +3756,7 @@ function wireHandlers(root: HTMLElement): void {
   if (accountBtn) {
     accountBtn.onclick = () => {
       showPrimaryPanel(root, '#o8-settings-panel');
+      loadRadarSettings(root).catch(() => {});
     };
   }
   // Inventory → Marketplace (Phase 1): keep code, hide UI until scanner is

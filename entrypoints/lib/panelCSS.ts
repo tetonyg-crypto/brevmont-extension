@@ -319,6 +319,13 @@ export function getPanelCSS(platform: Platform, options?: PanelCSSOptions): stri
 .settings-note-card { background:#F8FAFC; }
 .settings-note-title { font-size:11px; font-weight:850; color:#0F1419; margin-bottom:3px; }
 .settings-note-copy { color:#64748B; font-size:11px; line-height:1.4; }
+.settings-radar-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:3px; }
+.settings-radar-segment { display:inline-flex; border:1px solid #D1D5DB; border-radius:999px; overflow:hidden; flex-shrink:0; }
+.settings-radar-option { border:0; background:#fff; color:#64748B; font-size:11px; font-weight:700; padding:4px 12px; cursor:pointer; }
+.settings-radar-option.active { background:#0D6E6E; color:#fff; }
+.settings-radar-option:disabled { opacity:0.6; cursor:default; }
+.settings-radar-help { color:#0F1419; font-size:11px; line-height:1.4; margin-top:6px; }
+.settings-radar-stat { color:#0D6E6E; font-size:11px; font-weight:700; margin-top:4px; }
 .settings-secondary { width:100%; margin-top:10px; border:1px solid #E5E7EB; border-radius:7px; background:#fff; color:#334155; font-family:inherit; font-size:12px; font-weight:800; padding:9px 12px; cursor:pointer; }
 .settings-secondary:hover { border-color:#B91C1C; color:#B91C1C; background:#FEF2F2; }
 .settings-back-bottom:hover { border-color:#0D6E6E; color:#0D6E6E; background:#F0FAFA; }
