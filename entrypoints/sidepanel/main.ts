@@ -908,6 +908,17 @@ async function sendToContent(msg: any): Promise<any> {
 
   try {
     if (isLinkedInMessagingContext()) return await sendToLinkedInConversationFrame(msg);
+    // The LinkedIn profile document contains several ad/preload iframes and
+    // our content script intentionally runs in every frame so Messaging can
+    // discover its conversation document. Without an explicit frame target,
+    // chrome.tabs.sendMessage broadcasts to every frame and resolves with an
+    // arbitrary responder. On /in/... pages that was frequently an empty ad
+    // frame instead of the visible profile. Profile/context scans always
+    // belong to the top document; Messaging keeps its dedicated discovery
+    // path above.
+    if (currentPlatform.platform === 'linkedin') {
+      return await tabMessage(currentPlatform.tabId, msg, { frameId: 0 });
+    }
     return await tabMessage(currentPlatform.tabId, msg);
   } catch (error) {
     if (!isContentScriptMissing(error)) throw error;
@@ -915,6 +926,9 @@ async function sendToContent(msg: any): Promise<any> {
     if (isLinkedInMessagingContext()) {
       clearLinkedInFrameCache();
       return await sendToLinkedInConversationFrame(msg);
+    }
+    if (currentPlatform.platform === 'linkedin') {
+      return await tabMessage(currentPlatform.tabId, msg, { frameId: 0 });
     }
     return await tabMessage(currentPlatform.tabId, msg);
   }

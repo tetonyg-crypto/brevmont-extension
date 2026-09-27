@@ -2293,7 +2293,10 @@ export default defineBackground(() => {
                 ? await discoverLinkedInConversationFrame(activeTab.id).catch(() => null)
                 : null;
               if (linkedinMessaging && !frame) throw new Error('linkedin_conversation_frame_not_found');
-              const target = frame ? { frameId: frame.frameId } : {};
+              // LinkedIn profiles live in the top document. Omitting frameId
+              // broadcasts to the page's ad/preload frames and can return an
+              // empty responder before the visible profile document.
+              const target = frame ? { frameId: frame.frameId } : (activeTab.url?.includes('linkedin.com/') ? { frameId: 0 } : {});
               const ctx = await chrome.tabs.sendMessage(activeTab.id, { type: 'GET_CONVERSATION_TEXT' }, target).catch(() => null);
               const lead = await chrome.tabs.sendMessage(activeTab.id, { type: 'GET_LEAD_CONTEXT' }, target).catch(() => null);
               const bits = [

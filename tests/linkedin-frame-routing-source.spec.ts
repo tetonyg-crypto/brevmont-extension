@@ -19,6 +19,12 @@ test('LinkedIn messaging discovers and targets the active conversation frame', (
   expect(routing).toContain("'.msg-form__contenteditable, [aria-label*=\"Write a message\" i][contenteditable=\"true\"]'");
 });
 
+test('LinkedIn profile reads always target the top document', () => {
+  const source = read('entrypoints/sidepanel/main.ts');
+  expect(source).toContain("if (currentPlatform.platform === 'linkedin')");
+  expect(source).toContain("tabMessage(currentPlatform.tabId, msg, { frameId: 0 })");
+});
+
 test('LinkedIn conversation reads never fall back to whole-page chrome', () => {
   const content = read('entrypoints/content.ts');
   const adapter = read('entrypoints/lib/platforms/linkedin.ts');
@@ -44,7 +50,7 @@ test('LinkedIn conversation reads never fall back to whole-page chrome', () => {
 test('background screenshot fallback also targets the LinkedIn conversation frame', () => {
   const background = read('entrypoints/background.ts');
   expect(background).toContain('discoverLinkedInConversationFrame(activeTab.id)');
-  expect(background).toContain('const target = frame ? { frameId: frame.frameId } : {}');
+  expect(background).toContain("const target = frame ? { frameId: frame.frameId } : (activeTab.url?.includes('linkedin.com/') ? { frameId: 0 } : {})");
   expect(background).toContain("{ type: 'GET_CONVERSATION_TEXT' }, target");
   expect(background).toContain("{ type: 'GET_LEAD_CONTEXT' }, target");
 });
