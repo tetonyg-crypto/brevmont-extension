@@ -34,7 +34,7 @@ const TAB_BAR_LINE = /^(?:all|about|friends|photos|reels|videos|more|posts|menti
 const INFO_SECTION = /^(?:intro|details|contact info|contact and basic info|links|websites and social links|personal details|overview|work|work and education|education|places lived|basic info|category|details about .+)$/i;
 
 /** Lines that end a section: the next non-profile region or the feed. */
-const SECTION_STOP = /^(?:photos|see all photos|friends|see all friends|featured|posts|create (?:a )?post|what(?:'|’)?s on your mind\??|manage posts|filters|list view|grid view|reels|videos|life events|people you may know|suggested for you|suggested pages|related pages|pages you may like|sponsored|stories|feed|privacy|terms|about|all|mentions|reviews|followers|following|communities|groups|highlights|music|check-ins|events|no posts available|recent activity|group posts|pinned post)$/i;
+const SECTION_STOP = /^(?:photos|see all photos|friends|see all friends|featured|posts|create (?:a )?post|what(?:'|’)?s on your mind\??|manage posts|filters|list view|grid view|reels|videos|life events|people you may know|suggested for you|suggested pages|related pages|pages you may like|sponsored|stories|feed|privacy|terms|about|all|mentions|reviews|followers|following|communities|groups|highlights|music|check-ins|events|no posts available|recent activity|recent photos|badges|group posts|pinned post)$/i;
 
 const UI_LINE = /^(?:add friend|friends|message|messages|follow|following|followed|like|liked|likes|share|comment|comments|send|send message|messengersend|messenger|call now|call|book now|contact us|learn more|sign up|shop now|see more|see less|see all|edit|edit details|edit profile|edit bio|add bio|add featured|add to story|add hobbies|details|links|intro|more|manage|search|home|notifications?|menu|marketplace|watch|video|groups|gaming|create|stories|feed|reels?|posts?|photos?|videos?|about|all|everyone|public|only me|friends of friends|live video|photo\/video|feeling\/activity|hide|report|not now|close|options|verified|verified account|profile|page|facebook|intro|overview|work|education|contact info|basic info|places lived|personal details|family and relationships|details about .+|professional dashboard|view as|invite|invite friends|boost post|promote|advertise|insights|get messages|send email|visit website|directions|order food|view shop|join|joined|member|admin|moderator|top fan|rising fan|write a review|recommend|reviews?|communities|featured|filters)$/i;
 
@@ -64,7 +64,7 @@ type Region = 'header' | 'intro' | 'section' | 'links';
 
 type Field =
   | { kind: 'bio' | 'label'; value: string }
-  | { kind: 'website' | 'phone' | 'email' | 'social'; value: string };
+  | { kind: 'website' | 'phone' | 'email' | 'social' | 'socials'; value: string };
 
 function clean(value: unknown): string {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -149,6 +149,14 @@ function classifyLine(raw: string, name: string, region: Region): Field | null {
     return { kind: 'website', value: site };
   }
   if (HANDLE_RE.test(line)) return { kind: 'social', value: line };
+  // Contact info renders several social profiles on one row next to icons:
+  // "ownbitkey · bitkeyofficial".
+  if ((region === 'links' || region === 'section') && /[·•]/.test(line)) {
+    const parts = line.split(/\s*[·•]\s*/).map((part) => part.replace(/^@/, '').trim()).filter(Boolean);
+    if (parts.length >= 2 && parts.every((part) => BARE_HANDLE_RE.test(part) && !UI_LINE.test(part) && !/^\d+$/.test(part))) {
+      return { kind: 'socials', value: parts.map((part) => `@${part}`).join(' ') };
+    }
+  }
   // The Links card shows social profiles as a bare handle next to an icon.
   if (region === 'links' && BARE_HANDLE_RE.test(line) && !UI_LINE.test(line) && lower(line) !== lower(clean(name))) {
     return { kind: 'social', value: `@${line}` };
@@ -184,7 +192,12 @@ function assemble(fields: Field[]): string {
   const emails: string[] = [];
   const socials: string[] = [];
   const seenDigits = new Set<string>();
+  const expanded: Field[] = [];
   for (const field of fields) {
+    if (field.kind === 'socials') for (const handle of field.value.split(' ')) expanded.push({ kind: 'social', value: handle });
+    else expanded.push(field);
+  }
+  for (const field of expanded) {
     const key = lower(field.value);
     if (field.kind === 'bio') {
       if (bios.length < 2 && !bios.some((b) => lower(b).includes(key) || key.includes(lower(b)))) bios.push(truncateBio(field.value));

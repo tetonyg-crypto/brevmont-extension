@@ -335,11 +335,27 @@ export function extractFacebookProfileSnapshot(
   // region-bounded (name-anchored header + named profile sections), so the
   // document body is a safe fallback root there.
   const { root: mainRoot, index: mainIndex, count: mainCount } = pickFacebookProfileRoot(doc, winner.name);
-  const profileRoot = mainRoot || doc.body;
-  const profileBio = extractFacebookProspectContext(profileRoot, winner.name);
+  // Try the picked region first; if it yields nothing (layout variant, stale
+  // region), try every other region and finally the body. The extractor is
+  // name-anchored and section-bounded, so a wider root cannot turn into a
+  // page dump — it can only find the profile's own header/sections.
+  const allMains = Array.from(doc.querySelectorAll('[role="main"], main')) as HTMLElement[];
+  const roots: Array<{ el: HTMLElement; label: string }> = [];
+  if (mainRoot) roots.push({ el: mainRoot, label: `main#${mainIndex}/${mainCount}` });
+  allMains.forEach((el, i) => {
+    if (el !== mainRoot && !el.closest('[hidden], [aria-hidden="true"]')) roots.push({ el, label: `main#${i}/${mainCount}` });
+  });
+  if (doc.body) roots.push({ el: doc.body, label: 'body' });
+  let profileBio = '';
+  let usedRoot = 'none';
+  for (const candidate of roots) {
+    profileBio = extractFacebookProspectContext(candidate.el, winner.name);
+    usedRoot = candidate.label;
+    if (profileBio) break;
+  }
   recordFacebookScanDiagnostics(doc, {
     route: surface.route_key,
-    root: mainRoot ? `main#${mainIndex}/${mainCount}` : 'body',
+    root: usedRoot,
     name_chars: winner.name.length,
     bio_chars: profileBio.length,
   });
@@ -378,7 +394,16 @@ function pickFacebookProfileRoot(doc: Document, name: string): { root: HTMLEleme
     }
   };
   const rendered = candidates.filter(isRendered);
-  const pool = rendered.length ? rendered : candidates;
+  // In a real browser (the body has layout) a candidate that is not rendered
+  // is a hidden, stale route — e.g. the previous profile's [role="main"] left
+  // behind when clicking through to a group-member card, which has no
+  // landmark of its own. Never read it; use the document body instead.
+  let hasLayout = false;
+  try { hasLayout = !!doc.body && doc.body.getClientRects().length > 0; } catch { /* noop */ }
+  if (!rendered.length && hasLayout) return { root: null, index: -1, count: candidates.length };
+  const visible = candidates.filter((el) => !el.closest('[hidden], [aria-hidden="true"]'));
+  const pool = rendered.length ? rendered : visible;
+  if (!pool.length) return { root: null, index: -1, count: candidates.length };
   const nameLower = String(name || '').toLocaleLowerCase();
   const named = nameLower
     ? pool.filter((el) => String(el.textContent || '').toLocaleLowerCase().includes(nameLower))
@@ -389,7 +414,7 @@ function pickFacebookProfileRoot(doc: Document, name: string): { root: HTMLEleme
 
 /** Build marker for the Facebook Prospect Context extractor. Bump when the
  *  extractor changes so a live page can prove which build scanned it. */
-export const FACEBOOK_CONTEXT_BUILD = 'fb-context-4';
+export const FACEBOOK_CONTEXT_BUILD = 'fb-context-6';
 
 /**
  * Facebook-only diagnostics written to a data attribute on <html>, readable

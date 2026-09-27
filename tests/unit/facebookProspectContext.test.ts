@@ -361,7 +361,7 @@ describe('group-member profiles with no [role="main"] landmark (LIVE)', () => {
     expect(context).toContain('Member of Utah Side Hustle and Labor Gigs');
     expect(context).toContain('Digital creator');
     expect(context).not.toMatch(/points|liked|flyers|Mindi/);
-    expect(JSON.parse(document.documentElement.getAttribute('data-brevmont-fb-scan') || '{}')).toMatchObject({ root: 'body', build: 'fb-context-4' });
+    expect(JSON.parse(document.documentElement.getAttribute('data-brevmont-fb-scan') || '{}')).toMatchObject({ root: 'body', build: 'fb-context-6' });
   });
 
   it('Aleem Iqbal (LIVE line order): header bio with links, category, company, Personal details and website', () => {
@@ -415,7 +415,7 @@ describe('SPA navigation leaves the previous page mounted (LIVE root cause)', ()
     expect(context).toContain('Phone: (800) 656-8534');
     expect(context).toContain('Email: jeremy@7thlevelhqteam.com');
     expect(context).not.toMatch(/What's on your mind|Create a post|Angel Velaz|causing objections/);
-    expect(JSON.parse(document.documentElement.getAttribute('data-brevmont-fb-scan') || '{}')).toMatchObject({ root: 'main#1/2', build: 'fb-context-4' });
+    expect(JSON.parse(document.documentElement.getAttribute('data-brevmont-fb-scan') || '{}')).toMatchObject({ root: 'main#1/2', build: 'fb-context-6' });
   });
 
   it('Super Contractor Group (LIVE): header services + category, Personal details, phone; rating dropped', () => {
@@ -432,5 +432,58 @@ describe('SPA navigation leaves the previous page mounted (LIVE root cause)', ()
     expect(context).toContain('Lives in Orlando, Florida');
     expect(context).toContain('Phone: (407) 529-7361');
     expect(context).not.toMatch(/Not yet rated|What's on your mind/);
+  });
+});
+
+describe('clicking from a normal profile to a group-member card (LIVE)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    resetFacebookProfileCarryoverForTests();
+  });
+
+  it('Jonathan Montoya: ignores the previous profile\'s hidden [role="main"] and reads the card from the body', () => {
+    window.history.pushState({}, '', '/groups/698593531630485/user/1300831178');
+    document.title = 'Jonathan Montoya | Facebook';
+    document.body.innerHTML = `
+      <div role="main" hidden><h1>Jeremy Miner</h1>${lines('Companies come to us when they are frustrated by losing sales', 'Links', '7thlevelhq.com')}</div>
+      <div><h1>Jonathan Montoya</h1>${lines('30,528 points', 'Admin', '•', '4842 friends', 'Message', 'Add friend', 'View profile', 'More',
+        'Group posts', "Jonathan's contributions", 'Intro',
+        'I help YOU create an AI software + Customers all in 1 day 👉 https://getmakerai.com',
+        'Admin of AI: Artificial Intelligence since August 9, 2025', 'Profile · Digital creator',
+        'Badges', 'Admin', 'Group expert', 'All-star contributor', 'Recent photos', 'Recent activity',
+        'Jonathan Montoya commented on Suzanne Taylor’s post: "🙏🙏"')}</div>`;
+    const snapshot = extractFacebookProfileSnapshot();
+    const context = snapshot.profile_bio || '';
+    expect(snapshot.display_name).toBe('Jonathan Montoya');
+    expect(context).toContain('I help YOU create an AI software + Customers all in 1 day');
+    expect(context).toContain('getmakerai.com');
+    expect(context).toContain('Admin of AI: Artificial Intelligence');
+    expect(context).toContain('Digital creator');
+    expect(context).not.toMatch(/Jeremy|7thlevelhq|4842 friends|points|Group expert|commented/);
+  });
+
+  it('Adrees AI Automation (LIVE): intro with link, admin role and Entrepreneur category', () => {
+    window.history.pushState({}, '', '/groups/1576900073381388/user/61555901316761/');
+    document.body.innerHTML = `<div><h1>Adrees AI Automation</h1>${lines('20,145 points', 'Admin', 'Message', 'Add friend', 'View profile', 'More',
+      'Group posts', "Adrees's contributions", 'Intro',
+      'I help you adopt AI | adreesai.gumroad.com/l/premium_guides | DM “SYSTEM” to work together:',
+      'Admin of Claude Ai Builders since March 29, 2026', 'Profile · Entrepreneur', 'Badges', 'Admin', 'All-star contributor', 'Recent photos')}</div>`;
+    const context = extractFacebookProfileSnapshot().profile_bio || '';
+    expect(context).toContain('I help you adopt AI');
+    expect(context).toContain('Admin of Claude Ai Builders');
+    expect(context).toContain('Entrepreneur');
+    expect(context).not.toMatch(/points|All-star/);
+  });
+
+  it('Bitkey (LIVE): Contact info handles row becomes Social handles', () => {
+    window.history.pushState({}, '', '/profile.php?id=100088526238789');
+    document.body.innerHTML = `<div role="main"><h1>Bitkey</h1>${lines('3.5K followers • 0 following', 'Learn more', 'Message', 'Follow',
+      'Bitkey is the self-custody bitcoin wallet with an app, hardware, and recovery tools. Built by the team at Block, Inc.',
+      'Business Center', 'More', 'All', 'About', 'Reels', 'Photos', 'Followers', 'More', 'Details', '3 reviews', 'Links', 'bitkey.world',
+      'Contact info', 'ownbitkey · bitkeyofficial', 'Bitkey', 'Posts', 'Filters')}</div>`;
+    const context = extractFacebookProfileSnapshot().profile_bio || '';
+    expect(context).toContain('Website: bitkey.world');
+    expect(context).toContain('Social: @ownbitkey / @bitkeyofficial.');
+    expect(context).not.toMatch(/ownbitkey\. ·|3 reviews/);
   });
 });
