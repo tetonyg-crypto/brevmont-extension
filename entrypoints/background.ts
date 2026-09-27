@@ -146,6 +146,7 @@ void storage.init();
 import { leadDb } from '../lib/leadDb';
 import { syncPendingLeads, getSyncStats } from '../lib/leadSync';
 import type { LocalLead } from '../lib/types/lead';
+import { findStrongIdentityMatch } from '../lib/leadIdentity';
 import { getLegacyFeatureFlagsForTier } from '../lib/featureGate';
 
 async function traceBackgroundAuthBridge(
@@ -1810,7 +1811,29 @@ export default defineBackground(() => {
             : (leadForSave.vehicle_interest || msg.payload?.vehicle_interest || msg.payload?.vehicle || looseFallback.vehicle_interest || null);
 
           if (customerName) {
-            const leadId = crypto.randomUUID();
+            const now = Date.now();
+            const identityMetadata = {
+              context_fingerprint: msg.payload?.context_fingerprint || null,
+              thread_fingerprint: msg.payload?.thread_fingerprint || msg.payload?.context_fingerprint || null,
+              capture_mode: msg.payload?.capture_mode || null,
+              username: msg.payload?.username || null,
+              profile_url: msg.payload?.profile_url || null,
+            };
+            // A repeat profile/thread scan used to mint a fresh UUID every
+            // time. The API correctly merged that UUID into its existing row,
+            // but Dexie kept the second local copy, so My Leads rendered both.
+            // Reuse a strong local identity before writing; never dedupe here
+            // by name alone because two real buyers can share a name.
+            const existingLocalLead = findStrongIdentityMatch(
+              await leadDb.captured_leads.toArray(),
+              {
+                phone: leadForSave.phone || msg.payload?.phone || null,
+                email: leadForSave.email || msg.payload?.email || null,
+                source_platform: msg.payload.platform || 'unknown',
+                metadata: identityMetadata,
+              },
+            ) as LocalLead | null;
+            const leadId = existingLocalLead?.id || crypto.randomUUID();
             const localHeatScore = inferLocalLeadHeat(leadForSave, msg.payload);
             const customerRecord = await resolveCustomerForContext({
               name: customerName,
@@ -1822,37 +1845,35 @@ export default defineBackground(() => {
               thread_fingerprint: msg.payload?.thread_fingerprint || msg.payload?.context_fingerprint || null,
             });
             const localLead: LocalLead = {
+              ...(existingLocalLead || {}),
               id: leadId,
-              customer_id: customerRecord?.id || null,
+              customer_id: customerRecord?.id || existingLocalLead?.customer_id || null,
               customer_name: customerName,
               phone: leadForSave.phone || msg.payload?.phone || null,
               email: leadForSave.email || msg.payload?.email || null,
               vehicle_interest: capturedVehicle,
               source_platform: msg.payload.platform || 'unknown',
               source_raw_text: (msg.payload.raw_text || '').slice(0, 5000),
-              status: 'captured',
-              captured_at: Date.now(),
+              status: existingLocalLead?.status || 'captured',
+              captured_at: existingLocalLead?.captured_at || now,
               sync_status: 'pending',
-              updated_at: Date.now(),
+              updated_at: now,
               has_trade_in: leadForSave.has_trade_in || false,
               finance_intent: leadForSave.finance_intent || false,
               extracted_trade_in: leadForSave.extracted_trade_in || leadForSave.trade_in_vehicle || null,
               extracted_urgency: leadForSave.extracted_urgency || leadForSave.urgency || null,
-              pipeline_stage: 'captured',
+              pipeline_stage: existingLocalLead?.pipeline_stage || 'captured',
               lead_stage_at_capture: msg.payload?.lead_stage_at_capture || null,
-              heat_score: localHeatScore,
+              heat_score: Math.max(Number(existingLocalLead?.heat_score || 0), localHeatScore),
               metadata: {
+                ...(existingLocalLead?.metadata || {}),
                 company: leadForSave.company || null,
                 intent: leadForSave.intent || null,
                 confidence: leadForSave.confidence || null,
                 is_lead: leadForSave.is_lead !== false,
                 lead_stage_at_capture: msg.payload?.lead_stage_at_capture || null,
                 customer_id: customerRecord?.id || null,
-                context_fingerprint: msg.payload?.context_fingerprint || null,
-                thread_fingerprint: msg.payload?.thread_fingerprint || msg.payload?.context_fingerprint || null,
-                capture_mode: msg.payload?.capture_mode || null,
-                username: msg.payload?.username || null,
-                profile_url: msg.payload?.profile_url || null,
+                ...identityMetadata,
                 profile_bio: msg.payload?.profile_bio || null,
               },
             };

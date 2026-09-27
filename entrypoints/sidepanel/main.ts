@@ -51,6 +51,7 @@ import {
   type LinkedInFrameProbe,
 } from '../lib/linkedinFrameRouting';
 import { platformIdFromUrl } from '../lib/platforms/registry';
+import { coalesceLeadRows, sortActiveLeadRows } from '../../lib/leadIdentity';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Platform =
@@ -5244,7 +5245,6 @@ function normalizeLocalLeadForInbox(lead: any): any {
 }
 
 function mergeLeadInboxRows(remoteLeads: any[], localLeads: any[], filter: 'active' | 'lost'): any[] {
-  const byId = new Map<string, any>();
   const isUsableLeadName = (lead: any): boolean => {
     const name = optionalDisplayText(lead?.customer_name || lead?.name);
     return Boolean(name && !isChannelOrUiName(name));
@@ -5253,28 +5253,21 @@ function mergeLeadInboxRows(remoteLeads: any[], localLeads: any[], filter: 'acti
     const stage = String(lead?.pipeline_stage || lead?.status || '').toLowerCase();
     return isUsableLeadName(lead) && (filter === 'lost' ? stage === 'lost' : stage !== 'lost');
   };
-  for (const lead of remoteLeads) {
-    if (!lead || !includeForFilter(lead)) continue;
-    const id = String(lead.id || crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`);
-    byId.set(id, { ...lead, id });
-  }
-  for (const rawLead of localLeads) {
-    const lead = normalizeLocalLeadForInbox(rawLead);
-    if (!lead?.id || !includeForFilter(lead)) continue;
-    if (!byId.has(lead.id)) byId.set(lead.id, lead);
-  }
-  const leads = Array.from(byId.values());
+  const remote = remoteLeads
+    .filter((lead) => lead && includeForFilter(lead))
+    .map((lead) => ({ ...lead, id: String(lead.id || crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`) }));
+  const local = localLeads
+    .map(normalizeLocalLeadForInbox)
+    .filter((lead) => lead?.id && includeForFilter(lead));
+  const leads = coalesceLeadRows(remote, local);
+  if (filter === 'active') return sortActiveLeadRows(leads);
   leads.sort((a: any, b: any) => {
     if (filter === 'lost') {
       const aLost = dateLikeMs(a.lost_at || a.last_activity_at || a.captured_at);
       const bLost = dateLikeMs(b.lost_at || b.last_activity_at || b.captured_at);
       return bLost - aLost;
     }
-    const heat = Number(b.heat_score || 0) - Number(a.heat_score || 0);
-    if (heat !== 0) return heat;
-    const aTime = dateLikeMs(a.last_contacted_at || a.last_activity_at || a.captured_at);
-    const bTime = dateLikeMs(b.last_contacted_at || b.last_activity_at || b.captured_at);
-    return aTime - bTime;
+    return 0;
   });
   return leads;
 }
@@ -6084,7 +6077,7 @@ function showLeadResult(root: HTMLElement, lead: any): void {
       </div>
       ${lead.phone ? `<div class="lead-capture-row">${leadCaptureIcon('phone')}<div class="lead-capture-copy"><div class="lead-capture-label">Phone</div><div class="lead-capture-value">${esc(lead.phone)}</div></div></div>` : ''}
       ${lead.email ? `<div class="lead-capture-row">${leadCaptureIcon('email')}<div class="lead-capture-copy"><div class="lead-capture-label">Email</div><div class="lead-capture-value">${esc(lead.email)}</div></div></div>` : ''}
-      ${profileUrl ? `<div class="lead-capture-row">${leadCaptureIcon('signal')}<div class="lead-capture-copy"><div class="lead-capture-label">${isProspectCapture ? 'Username' : 'Profile'}</div><div class="lead-capture-value"><a href="${esc(profileUrl)}" target="_blank" rel="noopener noreferrer">${esc(profileUsername ? `@${profileUsername.replace(/^@/, '')}` : 'Open profile')}</a></div></div></div>` : ''}
+      ${profileUrl ? `<div class="lead-capture-row">${leadCaptureIcon('signal')}<div class="lead-capture-copy"><div class="lead-capture-label">${profileUsername ? 'Username' : 'Profile'}</div><div class="lead-capture-value"><a href="${esc(profileUrl)}" target="_blank" rel="noopener noreferrer">${esc(profileUsername ? `@${profileUsername.replace(/^@/, '')}` : 'Open profile')}</a></div></div></div>` : ''}
       ${vehicle ? `<div class="lead-capture-row">${leadCaptureIcon('vehicle')}<div class="lead-capture-copy"><div class="lead-capture-label">Vehicle</div><div class="lead-capture-value">${esc(vehicle)}</div></div></div>` : ''}
       <div class="lead-capture-row">
         ${leadCaptureIcon('signal')}

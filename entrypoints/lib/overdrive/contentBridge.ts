@@ -23,19 +23,26 @@ let detectorForwardingSet = false;
 
 type MessageDirection = 'inbound' | 'outbound' | 'unknown';
 
+export function conversationKeyForPath(path: string): string {
+  const mp = path.match(/\/marketplace\/t\/([^/?#]+)/);
+  if (mp) return `mp:${mp[1]}`;
+  const messages = path.match(/\/messages\/t\/([^/?#]+)/);
+  if (messages) return `msg:${messages[1]}`;
+  const messenger = path.match(/\/t\/([^/?#]+)/);
+  if (messenger) return `msg:${messenger[1]}`;
+  return `path:${path}`;
+}
+
 function computeConversationKey(): string {
   // Prefer the Marketplace/Messenger thread URL segment — stable across
   // page reloads for the same conversation. Falls back to hashing the
   // thread header text so a friend DM still gets a unique key.
   try {
     const path = window.location.pathname;
-    // Marketplace threads: /marketplace/t/<id>
-    const mp = path.match(/\/marketplace\/t\/([^/?#]+)/);
-    if (mp) return `mp:${mp[1]}`;
-    // messenger.com threads: /t/<id>
-    const t = path.match(/\/t\/([^/?#]+)/);
-    if (t) return `t:${t[1]}`;
-    return `path:${path}`;
+    // Keep the live detector and catch-up sweep on the same namespace.
+    // Previously /messages/t/<id> became t:<id> here but msg:<id> in the
+    // sweep, so Radar stored the same conversation twice.
+    return conversationKeyForPath(path);
   } catch {
     return `unknown:${Date.now()}`;
   }
