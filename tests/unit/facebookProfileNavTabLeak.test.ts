@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { facebookAdapter } from '../../entrypoints/lib/platforms/facebook';
+import { extractFacebookProfileSnapshot, facebookAdapter } from '../../entrypoints/lib/platforms/facebook';
 
 // 2026-09-26 regression: on a real Facebook profile page, the name heading
 // reader fell through to the nav tab bar (All / About / Friends / Photos /
@@ -56,5 +56,73 @@ describe('Facebook profile page: nav tab bar must never be read as the customer 
     expect(thread.profile_bio).not.toContain('Personal details');
     expect(thread.raw_text).not.toContain('All About Friends Photos Reels More');
     expect(thread.last_inbound_text).toBe('');
+  });
+
+  it('rejects Links and reads a professional-profile name from large identity text', () => {
+    window.history.pushState({}, '', '/hridoyreh/');
+    document.body.innerHTML = `
+      <div role="main">
+        <div dir="auto" style="font-size: 32px">Hridoy Reh</div>
+        <div role="tablist"><div role="tab">All</div><div role="tab">About</div></div>
+        <h2>Links</h2>
+        <a href="https://hridoyreh.com">hridoyreh.com</a>
+      </div>`;
+    const snapshot = extractFacebookProfileSnapshot();
+    expect(snapshot).toMatchObject({
+      status: 'ready',
+      display_name: 'Hridoy Reh',
+      username: 'hridoyreh',
+    });
+    expect(facebookAdapter.extractCustomer().name).toBe('Hridoy Reh');
+  });
+
+  it('prefers profile-image identity over unrelated callout text', () => {
+    window.history.pushState({}, '', '/andres.mercadomejia.5/');
+    document.body.innerHTML = `
+      <div role="main">
+        <img alt="Wilder Merck's profile picture" />
+        <strong>Here's how:</strong>
+        <h2>Personal details</h2>
+      </div>`;
+    const snapshot = extractFacebookProfileSnapshot();
+    expect(snapshot.display_name).toBe('Wilder Merck');
+    expect(snapshot.evidence.some((item) => item.source === 'profile_image')).toBe(true);
+  });
+
+  it('supports a group-member profile without treating the group feed as the prospect', () => {
+    window.history.pushState({}, '', '/groups/467706240992641/user/612948509/');
+    document.body.innerHTML = `
+      <div role="main">
+        <h1>Paul Desrosier</h1>
+        <div>1095 friends</div>
+        <div role="tablist"><div role="tab">Group posts</div><div role="tab">Paul's contributions</div></div>
+      </div>`;
+    expect(facebookAdapter.extractCustomer()).toMatchObject({
+      name: 'Paul Desrosier',
+      profile_url: 'https://www.facebook.com/profile.php?id=612948509',
+    });
+  });
+
+  it('fails closed on the Facebook home feed even when notification chrome looks like a name', () => {
+    window.history.pushState({}, '', '/');
+    document.body.innerHTML = `
+      <div role="main"><h2>Notification Actions</h2><article><h2>Camden Gladden</h2></article></div>`;
+    expect(facebookAdapter.detect()).toBe(false);
+    expect(facebookAdapter.extractCustomer().name).toBeFalsy();
+    expect(extractFacebookProfileSnapshot().status).toBe('unsupported');
+  });
+
+  it.each([
+    ['/ahormozi/', 'Alex Hormozi'],
+    ['/josiahgomulaofficial/', 'Josiah Gomula'],
+  ])('reads %s without allowing the Links section to win', (path, name) => {
+    window.history.pushState({}, '', path);
+    document.body.innerHTML = `
+      <main>
+        <h1>${name}</h1>
+        <div role="tablist"><div role="tab">All</div><div role="tab">About</div></div>
+        <h2>Links</h2>
+      </main>`;
+    expect(facebookAdapter.extractCustomer().name).toBe(name);
   });
 });

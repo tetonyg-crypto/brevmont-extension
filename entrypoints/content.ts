@@ -305,6 +305,34 @@ export default defineContentScript({
       return null;
     }
 
+    async function confirmFacebookProfileIdentity(adapter: any, initialThread: any, initialCustomer: any) {
+      if (!isFacebook || !String(initialThread?.conversation_key || '').startsWith('fb_profile:')) {
+        return { thread: initialThread, customer: initialCustomer };
+      }
+      const routeAtStart = window.location.href;
+      let previousThread = initialThread;
+      let previousCustomer = initialCustomer;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 140));
+        const nextThread = adapter.scrapeThread();
+        const nextCustomer = adapter.extractCustomer();
+        if (
+          routeAtStart !== window.location.href
+          || nextThread?.conversation_key !== initialThread?.conversation_key
+        ) {
+          return { thread: nextThread, customer: { name: null } };
+        }
+        const previousName = String(previousCustomer?.name || '').trim().toLowerCase();
+        const nextName = String(nextCustomer?.name || '').trim().toLowerCase();
+        if (previousName && previousName === nextName) {
+          return { thread: nextThread, customer: nextCustomer };
+        }
+        previousThread = nextThread;
+        previousCustomer = nextCustomer;
+      }
+      return { thread: previousThread, customer: { name: null } };
+    }
+
     function extractLikelyPersonName(rawText: string): string | null {
       const raw = String(rawText || '').replace(/\s+/g, ' ').trim();
       if (!raw) return null;
@@ -2172,7 +2200,9 @@ export default defineContentScript({
                 const platforms = await import('./lib/platforms');
                 const adapter = await platforms.resolveAdapter(window.location.href);
                 if (adapter && adapter.detect()) {
-                  const adapterCustomer = adapter.extractCustomer();
+                  let adapterCustomer = adapter.extractCustomer();
+                  let thread = adapter.scrapeThread();
+                  ({ customer: adapterCustomer, thread } = await confirmFacebookProfileIdentity(adapter, thread, adapterCustomer));
                   const cleanedAdapterName = cleanCustomerNameCandidate(adapterCustomer?.name || '');
                   if (cleanedAdapterName) {
                     adapterCustomerName = cleanedAdapterName;
@@ -2183,7 +2213,6 @@ export default defineContentScript({
                   adapterUsername = adapterCustomer?.username || null;
                   adapterProfileUrl = adapterCustomer?.profile_url || null;
                   adapterRawSource = adapterCustomer?.raw_source || null;
-                  const thread = adapter.scrapeThread();
                   adapterHeaderText = thread?.header_text || null;
                   adapterProfileBio = thread?.profile_bio || null;
                   const context = adapter.extractContext();
@@ -2200,10 +2229,15 @@ export default defineContentScript({
                   nameMatchesGmailSubject(leadData?.customerName) ? null : leadData?.customerName,
                   nameMatchesGmailSubject(detected?.name) ? null : detected?.name,
                 )
+              : isFacebook
+                // Facebook has many non-lead surfaces whose global headings
+                // and aria labels look like names ("Links", "Notification
+                // Actions"). The surface-aware adapter is the single source
+                // of identity on Facebook; never merge generic page scans.
+                ? pickCleanName(adapterCustomerName)
               : pickCleanName(
                   adapterCustomerName,
                   detected?.name,
-                  extractFacebookConversationName(),
                   safeExtractContactName(),
                   leadData?.customerName,
                 );
@@ -2266,23 +2300,26 @@ export default defineContentScript({
               sendResponse({ ok: false, reason: 'no_adapter_for_url', platform: PLATFORM });
               return;
             }
-            const thread = adapter.scrapeThread();
-            const adapterCustomer = adapter.extractCustomer();
-            const context = adapter.extractContext();
+            let thread = adapter.scrapeThread();
+            let adapterCustomer = adapter.extractCustomer();
+            let context = adapter.extractContext();
+            ({ customer: adapterCustomer, thread } = await confirmFacebookProfileIdentity(adapter, thread, adapterCustomer));
+            if (adapterCustomer?.name) context = adapter.extractContext();
 
             // Merge adapter's candidate with the legacy heuristics for
             // extra safety on flagship platforms.
-            const detected = await detectCustomerFromPage();
+            const detected = isFacebook ? null : await detectCustomerFromPage();
             const adapterName = isGmail && nameMatchesGmailSubject(adapterCustomer?.name) ? null : adapterCustomer;
             const detectedName = isGmail && nameMatchesGmailSubject(detected?.name)
               ? null
               : (detected ? { name: detected.name, confidence: detected.confidence ?? 0.5, raw_source: `legacy_${detected.method}` } : null);
-            const clean = platforms.pickCleanName([
-              adapterName,
-              detectedName,
-              extractFacebookConversationName ? { name: extractFacebookConversationName(), confidence: 0.55, raw_source: 'legacy_fb_conversation' } : null,
-              safeExtractContactName && !nameMatchesGmailSubject(safeExtractContactName()) ? { name: safeExtractContactName(), confidence: 0.5, raw_source: 'legacy_platform_scan' } : null,
-            ]);
+            const clean = platforms.pickCleanName(isFacebook
+              ? [adapterName]
+              : [
+                  adapterName,
+                  detectedName,
+                  safeExtractContactName && !nameMatchesGmailSubject(safeExtractContactName()) ? { name: safeExtractContactName(), confidence: 0.5, raw_source: 'legacy_platform_scan' } : null,
+                ]);
             const captureMode = isProfilePageRawSource(adapterCustomer?.raw_source) ? 'profile' : null;
 
             sendResponse({

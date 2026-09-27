@@ -6325,7 +6325,7 @@ function wireLeadCapture(root: HTMLElement): void {
           ctx = await sendToContent({ type: 'SCAN_LEAD' });
         }
         if (facebookStrict && (!ctx || ctx.ok === false)) {
-          showToast(root, 'Could not read this Messenger thread. Open the conversation and try again.');
+          showToast(root, 'Open a Facebook profile or conversation, then try again.');
           if (emptyMsg) emptyMsg.style.display = 'block';
           scanBtn.textContent = 'Scan This Page';
           (scanBtn as HTMLButtonElement).disabled = false;

@@ -18,9 +18,15 @@ import type {
   ThreadContext,
 } from './types';
 import { extractVehicleHint } from './shared';
-import { stripConversationWrapper } from '../leadContextScan';
+import { isChannelOrUiName, stripConversationWrapper } from '../leadContextScan';
 import { extractFacebookTranscript } from '../facebookTranscript';
 import { isMessengerSystemCardText } from '../messengerSystemText';
+import {
+  classifyFacebookSurface,
+  isFacebookProfileSurface,
+  type FacebookSurface,
+  type FacebookSurfaceInfo,
+} from './facebookSurface';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
@@ -43,22 +49,18 @@ function hostMatches(url: string): boolean {
 }
 
 function detect(): boolean {
-  return hostMatches(window.location.href);
+  return hostMatches(window.location.href) && classifyFacebookSurface(window.location.href).supported;
 }
 
-// Facebook's own reserved top-level routes -- excluded so a profile/page
-// username is never mistaken among them. Longer than Instagram/X's lists
-// because Facebook has far more first-class surfaces at the bare root.
-const FB_RESERVED_PATHS = new Set([
-  'messages', 'marketplace', 'groups', 'pages', 'watch', 'gaming', 'events',
-  'friends', 'notifications', 'settings', 'help', 'ads', 'business',
-  'bookmarks', 'stories', 'reel', 'reels', 'live', 'jobs', 'dating',
-  'weather', 'games', 'offers', 'saved', 'memories', 'hashtag', 'photo',
-  'photos', 'video', 'videos', 'login', 'recover', 'policies', 'about',
-  'legal', 'privacy', 'terms', 'campaign', 'plugins', 'sharer', 'dialog',
-  'tr', 'l.php', 'profile.php', 'checkpoint', 'mbasic', 'gaming', 'ads_manager',
-  'permalink.php', 'story.php', 'search', 'find-friends', 'allactivity',
-]);
+function currentFacebookSurface(): FacebookSurfaceInfo {
+  const live = classifyFacebookSurface(window.location.href);
+  // Unit DOM fixtures run on localhost while exercising Facebook paths.
+  // Production always takes the host-validated branch above.
+  if (live.surface === 'unsupported' && /^(?:localhost|127\.0\.0\.1)$/i.test(window.location.hostname)) {
+    return classifyFacebookSurface(`${window.location.pathname}${window.location.search}`);
+  }
+  return live;
+}
 
 /**
  * Profile identifier for a Facebook profile/business page (not Messenger,
@@ -72,25 +74,13 @@ const FB_RESERVED_PATHS = new Set([
  * Marketplace thread key) always fails.
  */
 export function facebookProfileIdFromUrl(url: string): string | null {
-  try {
-    const u = String(url || '');
-    const parsed = u.includes('://') ? new URL(u) : new URL(u, 'https://www.facebook.com');
-    if (parsed.pathname.toLowerCase() === '/profile.php') {
-      const id = parsed.searchParams.get('id');
-      return id ? `id:${id}` : null;
-    }
-    const m = parsed.pathname.match(/^\/([A-Za-z0-9.]{1,60})\/?(?:[?#]|$)/);
-    if (!m) return null;
-    const seg = m[1];
-    if (FB_RESERVED_PATHS.has(seg.toLowerCase())) return null;
-    return seg;
-  } catch {
-    return null;
-  }
+  const surface = classifyFacebookSurface(url);
+  if (!isFacebookProfileSurface(surface.surface)) return null;
+  return surface.profile_id ? `id:${surface.profile_id}` : surface.username;
 }
 
 function isFacebookProfilePage(): boolean {
-  return !hasOpenFacebookThread() && !!facebookProfileIdFromUrl(window.location.href);
+  return isFacebookProfileSurface(currentFacebookSurface().surface);
 }
 
 function conversationKey(): string {
@@ -162,6 +152,172 @@ function readHeaderText(): string {
   }
 }
 
+export interface FacebookProfileEvidence {
+  source: 'meta_title' | 'page_title' | 'profile_image' | 'profile_link' | 'identity_heading' | 'identity_text';
+  value: string;
+  weight: number;
+}
+
+export interface FacebookProfileSnapshot {
+  surface: FacebookSurface;
+  status: 'ready' | 'uncertain' | 'unsupported';
+  display_name: string | null;
+  username: string | null;
+  facebook_id: string | null;
+  profile_url: string | null;
+  profile_bio: string | null;
+  confidence: number;
+  evidence: FacebookProfileEvidence[];
+  route_key: string;
+}
+
+const FACEBOOK_PROFILE_UI_TEXT = /^(?:links?|featured|intro|details|personal details|about|overview|work|education|places lived|contact info|basic info|life events|family and relationships|photos?|reels?|videos?|posts?|friends?|followers?|following|all|more|message|messages|follow|following|subscribe|search|notification actions?|here(?:'|’)s how|see more|see all|group posts?|contributions)$/i;
+
+function elementText(element: Element | null): string {
+  return String((element as HTMLElement | null)?.innerText || element?.textContent || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cleanProfileNameCandidate(value: unknown): string | null {
+  const cleaned = stripConversationWrapper(String(value || ''))
+    .replace(/^\s*\(\d+\)\s*/, '')
+    .replace(/\s*[|–—-]\s*Facebook.*$/i, '')
+    .replace(/\s*[·•]\s*(?:Public figure|Digital creator|Artist|Musician|Entrepreneur|Business).*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned || cleaned.length < 2 || cleaned.length > 80) return null;
+  if (FACEBOOK_PROFILE_UI_TEXT.test(cleaned) || isChannelOrUiName(cleaned)) return null;
+  if (/^(?:\d[\d,.]*\s+)?(?:friends?|followers?|following|posts?|points?)$/i.test(cleaned)) return null;
+  if (/^(?:lives in|from|member of|joined|works at|studied at|went to)\b/i.test(cleaned)) return null;
+  if (/^(?:http|www\.)|[@#]|\b(?:notifications?|sponsored|advertisement)\b/i.test(cleaned)) return null;
+  if (cleaned.split(/\s+/).length > 7) return null;
+  return cleaned;
+}
+
+function isProfileIdentityElement(element: Element): boolean {
+  if (element.closest('nav, [role="navigation"], [role="tablist"], [role="tab"], [role="menu"], [role="dialog"], [aria-label*="Sponsored" i]')) return false;
+  if (element.getAttribute('aria-hidden') === 'true' || (element as HTMLElement).hidden) return false;
+  return true;
+}
+
+function hrefMatchesProfile(href: string, surface: FacebookSurfaceInfo): boolean {
+  try {
+    const target = new URL(href, 'https://www.facebook.com');
+    if (surface.profile_id) {
+      return target.searchParams.get('id') === surface.profile_id
+        || new RegExp(`/(?:user|people)/[^/]*?/?${surface.profile_id}(?:/|$)`, 'i').test(target.pathname);
+    }
+    if (surface.username) return target.pathname.replace(/^\/+|\/+$/g, '').toLowerCase() === surface.username.toLowerCase();
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+/**
+ * One deterministic profile read shared by the chip and manual scanner.
+ * Candidates are collected only from identity-bearing structures; section
+ * headings and general page text are never allowed to win by themselves.
+ */
+export function extractFacebookProfileSnapshot(
+  doc: Document = document,
+  url: string = window.location.href,
+): FacebookProfileSnapshot {
+  const requested = classifyFacebookSurface(url);
+  const surface = requested.surface === 'unsupported'
+    && doc === document
+    && /^(?:localhost|127\.0\.0\.1)$/i.test(window.location.hostname)
+    ? currentFacebookSurface()
+    : requested;
+  const base: FacebookProfileSnapshot = {
+    surface: surface.surface,
+    status: 'unsupported',
+    display_name: null,
+    username: surface.username,
+    facebook_id: surface.profile_id,
+    profile_url: surface.canonical_profile_url,
+    profile_bio: null,
+    confidence: 0,
+    evidence: [],
+    route_key: surface.route_key,
+  };
+  if (!isFacebookProfileSurface(surface.surface)) return base;
+
+  const scores = new Map<string, { name: string; score: number; evidence: FacebookProfileEvidence[] }>();
+  const add = (value: unknown, source: FacebookProfileEvidence['source'], weight: number) => {
+    const name = cleanProfileNameCandidate(value);
+    if (!name) return;
+    const key = name.toLocaleLowerCase();
+    const item = scores.get(key) || { name, score: 0, evidence: [] };
+    item.score += weight;
+    item.evidence.push({ source, value: name, weight });
+    scores.set(key, item);
+  };
+
+  const metaTitle = doc.querySelector('meta[property="og:title"], meta[name="og:title"]')?.getAttribute('content');
+  add(metaTitle, 'meta_title', 5);
+  add(doc.title, 'page_title', 3);
+
+  for (const element of Array.from(doc.querySelectorAll('img[alt], [aria-label]'))) {
+    if (!isProfileIdentityElement(element)) continue;
+    const label = element.getAttribute('alt') || element.getAttribute('aria-label') || '';
+    const match = label.match(/^(?:Profile (?:picture|photo) of\s+)(.+)$/i)
+      || label.match(/^(.+?)(?:'s|’s) profile (?:picture|photo)$/i);
+    if (match?.[1]) add(match[1], 'profile_image', 5);
+  }
+
+  for (const anchor of Array.from(doc.querySelectorAll('a[href]'))) {
+    if (!isProfileIdentityElement(anchor)) continue;
+    if (hrefMatchesProfile(anchor.getAttribute('href') || '', surface)) add(elementText(anchor), 'profile_link', 4);
+  }
+
+  const headings = Array.from(doc.querySelectorAll('h1, h2, [role="heading"][aria-level="1"], [role="heading"][aria-level="2"]'));
+  for (const heading of headings) {
+    if (!isProfileIdentityElement(heading)) continue;
+    const weight = heading.tagName.toLowerCase() === 'h1' || heading.getAttribute('aria-level') === '1' ? 4 : 3;
+    add(elementText(heading), 'identity_heading', weight);
+  }
+
+  // Some Facebook experiments render the display name as a plain div with
+  // large type. This remains scoped by typography and identity exclusions;
+  // it is not a page-wide "first plausible text" fallback.
+  for (const element of Array.from(doc.querySelectorAll('[dir="auto"]'))) {
+    if (!isProfileIdentityElement(element)) continue;
+    let size = 0;
+    try { size = Number.parseFloat(doc.defaultView?.getComputedStyle(element).fontSize || '0'); } catch { /* noop */ }
+    if (size >= 20) add(elementText(element), 'identity_text', 2);
+  }
+
+  // Classic personal profiles sometimes omit semantic headings altogether.
+  // Only inspect the bounded identity block before the profile tab bar.
+  const main = doc.querySelector('[role="main"], main') as HTMLElement | null;
+  if (main) {
+    const lines = String(main.innerText || main.textContent || '')
+      .split(/\n+/)
+      .map((line) => line.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    const tabIndex = lines.findIndex((line) => /^(?:all|about|friends|photos|reels|followers|more)$/i.test(line));
+    const identityLines = (tabIndex >= 0 ? lines.slice(0, tabIndex) : lines.slice(0, 12)).slice(0, 12);
+    const bounded = identityLines.map(cleanProfileNameCandidate).find(Boolean);
+    if (bounded) add(bounded, 'identity_text', 2);
+  }
+
+  const winner = [...scores.values()].sort((a, b) => b.score - a.score || b.evidence.length - a.evidence.length)[0];
+  if (!winner || winner.score < 2) return { ...base, status: 'uncertain' };
+  const confidence = winner.score >= 6 ? 0.92 : winner.score >= 4 ? 0.84 : 0.7;
+  const profileRoot = doc.querySelector('[role="main"], main') as HTMLElement | null;
+  const profileBio = scrapeFacebookProfileBio(profileRoot, winner.name);
+  return {
+    ...base,
+    status: 'ready',
+    display_name: winner.name,
+    profile_bio: profileBio || null,
+    confidence,
+    evidence: winner.evidence,
+  };
+}
+
 /** Keep useful About/profile details without saving Facebook's navigation,
  *  repeated section titles, or the entire rendered page as lead context. */
 function scrapeFacebookProfileBio(main: HTMLElement | null, name: string): string {
@@ -191,16 +347,14 @@ function scrapeFacebookProfileBio(main: HTMLElement | null, name: string): strin
  * shrink what's captured, never misattribute one field's text to another.
  */
 function scrapeFacebookProfile(): ThreadContext {
-  const profileId = facebookProfileIdFromUrl(window.location.href) || '';
-  const main = document.querySelector('[role="main"]') as HTMLElement | null;
-  const nameHeading = readHeaderText();
-  const header_text = nameHeading || (profileId.startsWith('id:') ? '' : profileId);
-  const profile_bio = scrapeFacebookProfileBio(main, nameHeading);
+  const snapshot = extractFacebookProfileSnapshot(document, window.location.href);
+  const header_text = snapshot.display_name || '';
+  const profile_bio = snapshot.profile_bio || '';
   const bodyText = [header_text ? `Profile: ${header_text}` : '', profile_bio ? `About: ${profile_bio}` : '']
     .filter(Boolean)
     .join('\n');
   return {
-    conversation_key: `fb_profile:${profileId || 'unknown'}`,
+    conversation_key: snapshot.route_key,
     raw_text: bodyText,
     messages: [],
     last_inbound_text: '',
@@ -256,16 +410,14 @@ function scrapeThread(): ThreadContext {
 
 function extractCustomer(): CustomerCandidate {
   if (isFacebookProfilePage()) {
-    const profileId = facebookProfileIdFromUrl(window.location.href) || '';
-    const name = readHeaderText();
-    const cleaned = stripConversationWrapper(name).trim();
-    if (cleaned && cleaned.length > 1 && cleaned.length < 80 && !/^id:/.test(cleaned)) {
+    const snapshot = extractFacebookProfileSnapshot(document, window.location.href);
+    if (snapshot.status === 'ready' && snapshot.display_name) {
       return {
-        name: cleaned,
-        username: profileId.startsWith('id:') ? undefined : profileId || undefined,
-        profile_url: profileId && !profileId.startsWith('id:') ? `https://www.facebook.com/${profileId}` : undefined,
-        raw_source: 'fb_profile_heading',
-        confidence: 0.7,
+        name: snapshot.display_name,
+        username: snapshot.username || undefined,
+        profile_url: snapshot.profile_url || undefined,
+        raw_source: `fb_profile_${snapshot.surface}`,
+        confidence: snapshot.confidence,
       };
     }
     return { name: null };
