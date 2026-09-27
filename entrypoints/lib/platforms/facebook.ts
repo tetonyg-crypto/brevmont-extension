@@ -329,8 +329,20 @@ export function extractFacebookProfileSnapshot(
   const winner = [...scores.values()].sort((a, b) => b.score - a.score || b.evidence.length - a.evidence.length)[0];
   if (!winner || winner.score < 2) return { ...base, status: 'uncertain' };
   const confidence = winner.score >= 6 ? 0.92 : winner.score >= 4 ? 0.84 : 0.7;
-  const profileRoot = doc.querySelector('[role="main"], main') as HTMLElement | null;
+  // Group-member profiles (/groups/<id>/user/<id>) render with no
+  // [role="main"] landmark at all (confirmed live 2026-09-27), which left the
+  // extractor with no region and an empty Prospect Context. The extractor is
+  // region-bounded (name-anchored header + named profile sections), so the
+  // document body is a safe fallback root there.
+  const mainRoot = doc.querySelector('[role="main"], main') as HTMLElement | null;
+  const profileRoot = mainRoot || doc.body;
   const profileBio = extractFacebookProspectContext(profileRoot, winner.name);
+  recordFacebookScanDiagnostics(doc, {
+    route: surface.route_key,
+    root: mainRoot ? 'main' : 'body',
+    name_chars: winner.name.length,
+    bio_chars: profileBio.length,
+  });
   return {
     ...base,
     status: 'ready',
@@ -339,6 +351,22 @@ export function extractFacebookProfileSnapshot(
     confidence,
     evidence: winner.evidence,
   };
+}
+
+/** Build marker for the Facebook Prospect Context extractor. Bump when the
+ *  extractor changes so a live page can prove which build scanned it. */
+export const FACEBOOK_CONTEXT_BUILD = 'fb-context-3';
+
+/**
+ * Facebook-only diagnostics written to a data attribute on <html>, readable
+ * from the page (DevTools / QA tooling) without access to the content-script
+ * world: which extractor build ran, which root it read, and how much context
+ * it produced. No prospect text is written, only lengths and the route key.
+ */
+function recordFacebookScanDiagnostics(doc: Document, info: Record<string, unknown>): void {
+  try {
+    doc.documentElement?.setAttribute('data-brevmont-fb-scan', JSON.stringify({ build: FACEBOOK_CONTEXT_BUILD, ...info }));
+  } catch { /* diagnostics must never affect a scan */ }
 }
 
 type NameScore = { name: string; score: number; evidence: FacebookProfileEvidence[] };
@@ -451,6 +479,15 @@ export function guardFacebookProfileCarryover(snapshot: FacebookProfileSnapshot,
     }
     const prevLead = prev.bio.split('\n')[0] || '';
     if (prev.name !== name && bio && (bio === prev.bio || (prevLead.length >= 40 && bio.includes(prevLead)))) bio = '';
+  }
+  if (typeof document !== 'undefined') {
+    try {
+      document.documentElement?.setAttribute('data-brevmont-fb-guard', JSON.stringify({
+        route: snapshot.route_key,
+        bio_in: (snapshot.profile_bio || '').length,
+        bio_out: bio.length,
+      }));
+    } catch { /* noop */ }
   }
   lastCommittedProfile = { route_key: snapshot.route_key, name, bio: snapshot.profile_bio || '' };
   return { ...snapshot, profile_bio: bio || null };

@@ -34,13 +34,13 @@ const TAB_BAR_LINE = /^(?:all|about|friends|photos|reels|videos|more|posts|menti
 const INFO_SECTION = /^(?:intro|details|contact info|contact and basic info|links|websites and social links|personal details|overview|work|work and education|education|places lived|basic info|category|details about .+)$/i;
 
 /** Lines that end a section: the next non-profile region or the feed. */
-const SECTION_STOP = /^(?:photos|see all photos|friends|see all friends|featured|posts|create (?:a )?post|what(?:'|’)?s on your mind\??|manage posts|filters|list view|grid view|reels|videos|life events|people you may know|suggested for you|suggested pages|related pages|pages you may like|sponsored|stories|feed|privacy|terms|about|all|mentions|reviews|followers|following|communities|groups|highlights|music|check-ins|events|no posts available)$/i;
+const SECTION_STOP = /^(?:photos|see all photos|friends|see all friends|featured|posts|create (?:a )?post|what(?:'|’)?s on your mind\??|manage posts|filters|list view|grid view|reels|videos|life events|people you may know|suggested for you|suggested pages|related pages|pages you may like|sponsored|stories|feed|privacy|terms|about|all|mentions|reviews|followers|following|communities|groups|highlights|music|check-ins|events|no posts available|recent activity|group posts|pinned post)$/i;
 
 const UI_LINE = /^(?:add friend|friends|message|messages|follow|following|followed|like|liked|likes|share|comment|comments|send|send message|messengersend|messenger|call now|call|book now|contact us|learn more|sign up|shop now|see more|see less|see all|edit|edit details|edit profile|edit bio|add bio|add featured|add to story|add hobbies|details|links|intro|more|manage|search|home|notifications?|menu|marketplace|watch|video|groups|gaming|create|stories|feed|reels?|posts?|photos?|videos?|about|all|everyone|public|only me|friends of friends|live video|photo\/video|feeling\/activity|hide|report|not now|close|options|verified|verified account|profile|page|facebook|intro|overview|work|education|contact info|basic info|places lived|personal details|family and relationships|details about .+|professional dashboard|view as|invite|invite friends|boost post|promote|advertise|insights|get messages|send email|visit website|directions|order food|view shop|join|joined|member|admin|moderator|top fan|rising fan|write a review|recommend|reviews?|communities|featured|filters)$/i;
 
 const UI_ANYWHERE = /(?:what(?:'|’)?s on your mind|create (?:a )?post|people you may know|suggested for you|sponsored|write a (?:comment|public comment|review)|see translation|followed by|mutual friends?|\band \d+ others?\b|\bmembers?\s*[·•]|messengersend|see all friends|see all photos|add to story|\bprivacy\b|\bterms\b|ad choices|\bcookies\b|©|\bmeta\s+20\d\d\b|not yet rated|\breviews?\)|\bis on facebook\b|\bto connect with\b|\blog in\b|\bforgot account\b|\bcomment as\b|\bupdated (?:his|her|their) (?:cover|profile) photo\b|\bshared a (?:post|memory|reel)\b|\bmay be an image of\b)/i;
 
-const COUNT_LINE = /\b\d[\d.,]*\s*[KMB]?\s+(?:followers?|following|likes?|friends?|talking about this|reviews?|posts?|members?|check-ins?|reactions?|comments?|shares?|views?|people|were here|recommend)\b/i;
+const COUNT_LINE = /\b\d[\d.,]*\s*[KMB]?\s+(?:followers?|following|likes?|friends?|talking about this|reviews?|posts?|members?|check-ins?|reactions?|comments?|shares?|views?|people|were here|recommend|points?)\b/i;
 
 const TIMESTAMP_LINE = /^(?:\d+\s*(?:s|m|h|d|w|y|min|mins|hr|hrs|hours?|days?|weeks?|years?)|just now|yesterday|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:,?\s+\d{4})?(?:\s+at\s+.+)?)$/i;
 
@@ -50,7 +50,7 @@ const STREET_ADDRESS_LINE = /^\d+\s+\S.*\b(?:st|street|ave|avenue|rd|road|blvd|b
 
 const DROP_PREFIX = /^(?:joined|member since|followed by|went to|married|in a relationship|single|relationship|born|studied at .+ class of|also known as|pronounces name|view (?:main )?profile|visit profile|see (?:more|all)\b)/i;
 
-const GROUP_CARD_LINE = /(?:(?:'|’)s posts\b|\bposts? in (?:this|the) group\b|\bgroup (?:posts?|contributions|expert|admin|moderator)\b|\bnew member\b|\btop contributor\b)/i;
+const GROUP_CARD_LINE = /(?:(?:'|’)s posts\b|\bposts? in (?:this|the) group\b|\bgroup (?:posts?|contributions|expert|admin|moderator)\b|\bnew member\b|\btop contributor\b|(?:'|’)s contributions\b)/i;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i;
 const PHONE_RE = /^\+?[\d\s().-]{7,}$/;

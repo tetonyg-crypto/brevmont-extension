@@ -336,3 +336,55 @@ describe('D: Facebook SPA route change never carries the previous profile over',
     expect(later.profile_bio).toBe('Fleet manager');
   });
 });
+
+describe('group-member profiles with no [role="main"] landmark (LIVE)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    resetFacebookProfileCarryoverForTests();
+  });
+
+  it('Paulina Salazar group-member page: reads the Intro from the body, not points, activity or group posts', () => {
+    window.history.pushState({}, '', '/groups/1219634021392380/user/100065277902414/');
+    document.title = 'Paulina Salazar | Facebook';
+    document.body.innerHTML = `
+      <h1>Paulina Salazar</h1>
+      ${lines('210 points', '102 friends', 'Message', 'Add friend', 'View profile', 'More', 'Group posts', "Paulina's contributions",
+        'Intro', 'IG @thelasheffect.ut & @axiseventsut Helping women elevate their beauty, mind and business🔥',
+        'Member of Utah Side Hustle and Labor Gigs since January 19, 2026', 'Profile · Digital creator',
+        'Recent activity', 'Paulina Salazar liked Mindi Suzunaga’s comment: "Paulina Salazar Yw :)"',
+        'Group posts', "I'm looking for someone or a company who can help me distribute hundreds of business flyers?!")}
+    `;
+    const snapshot = extractFacebookProfileSnapshot();
+    const context = snapshot.profile_bio || '';
+    expect(snapshot.display_name).toBe('Paulina Salazar');
+    expect(context).toContain('IG @thelasheffect.ut & @axiseventsut Helping women elevate their beauty, mind and business');
+    expect(context).toContain('Member of Utah Side Hustle and Labor Gigs');
+    expect(context).toContain('Digital creator');
+    expect(context).not.toMatch(/points|liked|flyers|Mindi/);
+    expect(JSON.parse(document.documentElement.getAttribute('data-brevmont-fb-scan') || '{}')).toMatchObject({ root: 'body', build: 'fb-context-3' });
+  });
+
+  it('Aleem Iqbal (LIVE line order): header bio with links, category, company, Personal details and website', () => {
+    window.history.pushState({}, '', '/aleem.iqbal.bhatti');
+    document.body.innerHTML = `<div role="main"><h1>Aleem Iqbal</h1>${lines('21K followers • 309 following', 'Message', 'Follow', 'Search',
+      'Founder of SemanticsX: https://www.semanticsx.com/', 'YT: https://www.youtube.com/c/AleemIqbal', 'Digital creator', 'SemanticsX', 'More',
+      'All', 'About', 'Reels', 'Photos', 'Friends', 'More', 'Personal details', 'Lives in Islamabad, Pakistan', 'From Islamabad, Pakistan', 'Male',
+      'See more personal details', 'Links', 'semanticsx.com', 'Posts', 'Filters', 'Pinned post', 'Aleem Iqbal', 'SEOSignalX — 50% OFF for 24 Hours')}</div>`;
+    const context = extractFacebookProfileSnapshot().profile_bio || '';
+    expect(context).toContain('Founder of SemanticsX');
+    expect(context).toContain('Digital creator');
+    expect(context).toContain('Lives in Islamabad, Pakistan');
+    expect(context).toContain('semanticsx.com');
+    expect(context).not.toMatch(/SEOSignalX|50% OFF|Male/);
+  });
+
+  it('Starter Story (LIVE line order): bio, category and website', () => {
+    window.history.pushState({}, '', '/starterstoryofficial');
+    document.body.innerHTML = `<div role="main"><h1>Starter Story</h1>${lines('3.1K followers • 3 following', 'Learn more', 'Follow', 'Search',
+      'Sharing business ideas that make money!', 'Business & Economy Website', 'More', 'All', 'About', 'Reels', 'Photos', 'Followers', 'More',
+      'Details', '3 reviews', 'Links', 'starterstory.com', 'Contact info', 'pat@starterstory.com', 'Posts', 'Filters', 'Starter Story', '4 hours ago',
+      'This dude Timo built a $50K/month app working just 20 hours a month')}</div>`;
+    const context = extractFacebookProfileSnapshot().profile_bio || '';
+    expect(context).toBe('Sharing business ideas that make money! Business & Economy Website. Website: starterstory.com. Email: pat@starterstory.com.');
+  });
+});
