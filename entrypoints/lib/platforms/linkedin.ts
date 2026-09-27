@@ -91,7 +91,14 @@ function scrapeThread(): ThreadContext {
       const headlineEl = document.querySelector('.text-body-medium.break-words, .pv-text-details__left-panel .text-body-medium') as HTMLElement | null;
       const headline = (headlineEl?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 240);
       const profileMain = document.querySelector('main, [role="main"]') as HTMLElement | null;
-      const visibleProfileText = deepVisibleText(profileMain, 2400);
+      // Profile hydration can briefly mount hidden ad/sidebar nodes before
+      // LinkedIn's real heading is present. `innerText` follows the browser's
+      // visibility rules; the recursive fallback is intentionally reserved
+      // for message surfaces where shadow DOM text is needed.
+      const visibleProfileText = String(profileMain?.innerText || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 2400);
       const profileBio = visibleProfileText
         .split(/\n+/)
         .map((line) => line.replace(/\s+/g, ' ').trim())
@@ -108,7 +115,10 @@ function scrapeThread(): ThreadContext {
         // the scan still surfaces something for PARSE_LEAD to classify,
         // same pattern used for Instagram/X/Facebook profile scraping.
         const main = document.querySelector('main, [role="main"]') as HTMLElement | null;
-        const bodyText = deepVisibleText(main, 4000);
+        const bodyText = String(main?.innerText || '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 4000);
         header_text = headline;
         raw_text = [headline, bodyText].filter(Boolean).join('\n');
         return {

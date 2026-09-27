@@ -1191,7 +1191,12 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
   const isDeterministicThread = isDeterministicGmailThread || (ctx.platform || currentPlatform.platform) === 'facebook' && messages.length > 0;
   const platformId = String(ctx.platform || currentPlatform.platform || '');
   const isLinkedIn = platformId === 'linkedin';
-  const isProfileCapture = ctx.capture_mode === 'profile' || isProfilePageRawSource(ctx.detectionMethod || ctx.detection_method);
+  const isLinkedInProfile = isLinkedIn && /linkedin\.com\/in\//i.test(
+    String(ctx.url || thread.url || currentPlatform.url || ''),
+  );
+  const isProfileCapture = ctx.capture_mode === 'profile'
+    || isProfilePageRawSource(ctx.detectionMethod || ctx.detection_method)
+    || isLinkedInProfile;
   // Never promote the rep's own bubble to "last customer message": the
   // any-direction fallbacks only apply when the last bubble isn't known to be
   // outbound, and raw page text only when there are no structured messages
@@ -1215,6 +1220,12 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
     header_text: headerText,
     gmail_subject: ctx.gmail_subject || ctx.context?.subject_line || '',
   });
+  // A static LinkedIn profile is identity-first. During SPA hydration the
+  // adapter can briefly return ad/sidebar text before the profile heading
+  // mounts; accepting that raw text paints a false context chip which then
+  // blinks away when the real name arrives. Never commit a LinkedIn profile
+  // scan until a validated person name is present.
+  if (isLinkedIn && isProfileCapture && !customerName) return null;
   const vehicle = isProfileCapture ? null : getCustomerVehicleFromContext({
     vehicle: context.vehicle || ctx.vehicle,
     vehicleOfInterest: context.vehicle || ctx.vehicleOfInterest || ctx.vehicle_interest,
@@ -1484,6 +1495,7 @@ async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<
     return autoThreadScan;
   }
   const requestId = ++autoThreadScanRequestId;
+  const scanUrl = String(currentPlatform.url || '');
   clearAutoThreadScanErrorPaint();
   // Preserve any prior good read for this same thread so a miss cannot
   // blank the chip into an error state between retries.
@@ -1494,7 +1506,8 @@ async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<
   const platformId = currentPlatform.platform || '';
   const facebookStrict = platformId === 'facebook';
   const linkedInMessaging = platformId === 'linkedin' && /\/messaging\//i.test(String(currentPlatform.url || ''));
-  const flakyDom = linkedInMessaging || facebookStrict;
+  const linkedInProfile = platformId === 'linkedin' && /\/in\//i.test(String(currentPlatform.url || ''));
+  const flakyDom = linkedInMessaging || linkedInProfile || facebookStrict;
   // Flaky hosts need several hops — first paint is often empty.
   const attempts = flakyDom ? 5 : (force ? 2 : 1);
 
@@ -1509,6 +1522,10 @@ async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<
         ctx = await sendToContent({ type: 'SCAN_LEAD' });
       }
       if (requestId !== autoThreadScanRequestId) return null;
+      // A tab can navigate or activate another profile while the content
+      // request is in flight. Never paint that stale response onto the new
+      // page (the same race that made the ad snapshot blink in and out).
+      if (scanUrl && currentPlatform.url && scanUrl !== currentPlatform.url) return null;
       const scan = (!ctx || ctx.ok === false)
         ? null
         : autoThreadScanFromResponse(ctx, source);
@@ -6294,6 +6311,16 @@ function wireLeadCapture(root: HTMLElement): void {
           return;
         }
         const detectedName = ctx?.customerName || ctx?.customer_name || ctx?.name || '';
+        const profileUrl = String(ctx?.url || ctx?.thread?.url || currentPlatform.url || '');
+        const isLinkedInProfile = (ctx?.platform || currentPlatform.platform) === 'linkedin'
+          && /linkedin\.com\/in\//i.test(profileUrl);
+        if (isLinkedInProfile && !String(detectedName || '').trim()) {
+          showToast(root, 'LinkedIn is still loading the profile. Try Scan This Page again.');
+          if (emptyMsg) emptyMsg.style.display = 'block';
+          scanBtn.textContent = 'Scan This Page';
+          (scanBtn as HTMLButtonElement).disabled = false;
+          return;
+        }
         const whatsappHeader = String(ctx?.header_text || ctx?.thread?.header_text || '').trim();
         const detectedPhone = ctx?.phone || ctx?.customer?.phone || (ctx?.platform === 'whatsapp'
           ? (whatsappHeader.match(/\+?\d[\d\s().-]{7,}\d/)?.[0] || null)
@@ -6309,7 +6336,11 @@ function wireLeadCapture(root: HTMLElement): void {
           // 2026-09-26: a capture off a static profile page (Instagram/X/
           // Facebook/LinkedIn "About") is a cold-outreach prospect, not a
           // "Buyer" mid-conversation — see isProfilePageRawSource.
-          const captureMode = ctx.capture_mode === 'profile' || isProfilePageRawSource(ctx.detectionMethod) ? 'profile' : null;
+          const captureMode = ctx.capture_mode === 'profile'
+            || isProfilePageRawSource(ctx.detectionMethod)
+            || isLinkedInProfile
+            ? 'profile'
+            : null;
           const resp = await safeSend({
             type: 'PARSE_LEAD',
             payload: {
