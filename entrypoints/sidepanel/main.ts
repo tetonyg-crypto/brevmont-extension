@@ -51,6 +51,8 @@ import {
   type LinkedInFrameProbe,
 } from '../lib/linkedinFrameRouting';
 import { platformIdFromUrl } from '../lib/platforms/registry';
+import { createFacebookScanOwner, facebookScanRouteKey } from '../lib/facebookScanOwner';
+import { sanitizeFacebookProspectContext } from '../lib/platforms/facebookProspectContext';
 import { coalesceLeadRows, sortActiveLeadRows } from '../../lib/leadIdentity';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -177,6 +179,11 @@ let autoThreadScan: AutoThreadScan | null = null;
 let autoThreadScanStatus: AutoThreadScanStatus = 'idle';
 let autoThreadScanUrl = '';
 let autoThreadScanRequestId = 0;
+// Facebook-only scan ownership: one owner per Facebook route; manual scans
+// outrank auto scans; a route change kills everything in flight.
+const facebookScanOwner = createFacebookScanOwner();
+let facebookOwnerRoute = '';
+let facebookLeadResultRoute = '';
 let autoThreadScanTimer: number | null = null;
 let autoThreadScanErrorPaintTimer: number | null = null;
 let autoThreadScanListenersAttached = false;
@@ -1520,6 +1527,8 @@ async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<
 
   const platformId = currentPlatform.platform || '';
   const facebookStrict = platformId === 'facebook';
+  if (facebookStrict) syncFacebookScanRoute(root);
+  const facebookTicket = facebookStrict ? facebookScanOwner.begin('auto', scanUrl) : null;
   const whatsappSurface = platformId === 'whatsapp';
   const linkedInMessaging = platformId === 'linkedin' && /\/messaging\//i.test(String(currentPlatform.url || ''));
   const linkedInProfile = platformId === 'linkedin' && /\/in\//i.test(String(currentPlatform.url || ''));
@@ -1545,6 +1554,11 @@ async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<
       // request is in flight. Never paint that stale response onto the new
       // page (the same race that made the ad snapshot blink in and out).
       if (scanUrl && currentPlatform.url && scanUrl !== currentPlatform.url) return null;
+      if (facebookTicket) {
+        await refreshPlatform();
+        syncFacebookScanRoute(root);
+        if (!facebookScanOwner.canCommit(facebookTicket, currentPlatform.url, ctx?.thread?.url || null)) return null;
+      }
       const scan = (!ctx || ctx.ok === false)
         ? null
         : autoThreadScanFromResponse(ctx, source);
@@ -1769,11 +1783,34 @@ function gmailThreadIdentity(url = currentPlatform.url): string {
 }
 
 function stableThreadIdentity(url = currentPlatform.url): string {
+  // Facebook numeric profiles all share the path /profile.php and differ
+  // only by ?id=, so path+hash made profile A and profile B look like the
+  // same thread (stale pin/scan carried from Mark to Piotr). Use the
+  // Facebook route key there; every other platform is unchanged.
+  const facebookRoute = facebookScanRouteKey(url);
+  if (facebookRoute) return facebookRoute;
   try {
     const parsed = new URL(url || '');
     return `${parsed.pathname.replace(/\/$/, '')}${parsed.hash}`;
   } catch {
     return String(url || '');
+  }
+}
+
+/** Facebook route changed: nothing in flight may commit, and a Prospect
+ *  Context card that belongs to the previous profile is cleared. */
+function syncFacebookScanRoute(root: HTMLElement | null): void {
+  const route = facebookScanRouteKey(currentPlatform.url);
+  if (route === facebookOwnerRoute) return;
+  facebookOwnerRoute = route;
+  facebookScanOwner.invalidate();
+  if (facebookLeadResultRoute && facebookLeadResultRoute !== route) {
+    facebookLeadResultRoute = '';
+    const result = root?.querySelector('#o8-lead-result') as HTMLElement | null;
+    if (result) {
+      result.style.display = 'none';
+      result.innerHTML = '';
+    }
   }
 }
 
@@ -2461,6 +2498,7 @@ function startCustomerDetection(root: HTMLElement): void {
   refreshCustomerDetection(root).catch(() => {});
   customerDetectionTimer = window.setInterval(async () => {
     await refreshPlatform();
+    syncFacebookScanRoute(root);
     const activeUrl = currentPlatform.url || '';
     const nowPlatform = String(currentPlatform.platform || '');
     // A platform change (Instagram -> WhatsApp, etc.) is checked FIRST and
@@ -6008,10 +6046,18 @@ function showLeadResult(root: HTMLElement, lead: any): void {
   const signalSummary = leadSignalSummary(lead, intent, rawText, isProspectCapture);
   const profileUrl = safeSocialProfileUrl(lead.profile_url || lead.metadata?.profile_url);
   const profileUsername = optionalDisplayText(lead.username || lead.metadata?.username);
-  const profileBio = optionalDisplayText(lead.profile_bio || lead.metadata?.profile_bio);
+  // Facebook Prospect Context is the profile's own short summary or nothing:
+  // never parser notes or raw page text, which is where feed/composer dumps
+  // and other people's content used to leak in.
+  const isFacebookProspect = isProspectCapture
+    && String(lead.source_platform || currentPlatform.platform || '').toLowerCase() === 'facebook';
+  const profileBio = isFacebookProspect
+    ? (sanitizeFacebookProspectContext(lead.profile_bio || lead.metadata?.profile_bio, name) || null)
+    : optionalDisplayText(lead.profile_bio || lead.metadata?.profile_bio);
   const notesClean = sanitizeBuyerContext(optionalDisplayText(lead.notes) || '');
   const rawClean = sanitizeBuyerContext(rawText || '');
   const contextCopy = (isProspectCapture ? profileBio : null)
+    || (isFacebookProspect ? `${name} was captured from ${sourceLabel}. No public bio on this profile.` : '')
     || notesClean
     || (rawClean ? rawClean.substring(0, 160) : '')
     || `${name} was captured from ${sourceLabel}${vehicle ? ` with interest in ${vehicle}` : ''}.`;
@@ -6306,6 +6352,31 @@ function wireLeadCapture(root: HTMLElement): void {
       scanBtn.textContent = 'Scanning...';
       const emptyMsg = root.querySelector('#o8-scan-empty') as HTMLElement;
       if (emptyMsg) emptyMsg.style.display = 'none';
+      // Facebook: this scan takes ownership of the current profile route.
+      // Any older auto/manual read, or a read of a profile the rep has since
+      // left, can no longer paint the card.
+      if (currentPlatform.platform === 'facebook') await refreshPlatform();
+      const manualFacebook = currentPlatform.platform === 'facebook';
+      if (manualFacebook) syncFacebookScanRoute(root);
+      const facebookTicket = manualFacebook ? facebookScanOwner.begin('manual', currentPlatform.url) : null;
+      if (facebookTicket) autoThreadScanRequestId++;
+      const facebookStillOwns = async (responseUrl?: string | null): Promise<boolean> => {
+        if (!facebookTicket) return true;
+        await refreshPlatform();
+        syncFacebookScanRoute(root);
+        return facebookScanOwner.canCommit(facebookTicket, currentPlatform.url, responseUrl || null);
+      };
+      const releaseFacebookScan = () => {
+        if (!facebookTicket) return;
+        facebookScanOwner.finish(facebookTicket);
+        // Repaint the chip from the same owner the card now belongs to.
+        scheduleAutoThreadScan(root, 150, true);
+      };
+      const abandonFacebookScan = () => {
+        releaseFacebookScan();
+        scanBtn.textContent = 'Scan This Page';
+        (scanBtn as HTMLButtonElement).disabled = false;
+      };
       try {
         // Universal Capture: try the adapter-routed scan first; fall back
         // to the legacy path if no adapter matches the current URL (e.g.
@@ -6314,6 +6385,14 @@ function wireLeadCapture(root: HTMLElement): void {
         // new surface (Instagram, WhatsApp, Google Messages, dealer
         // inboxes) automatically gets the adapter pipeline.
         let ctx = await sendToContent({ type: 'SCAN_LEAD_V2' });
+        // Facebook swaps the profile DOM after the URL: an uncertain read
+        // (no name yet) is retried briefly instead of reported as empty.
+        for (let retry = 0; facebookTicket?.route.startsWith('fb_profile:') && retry < 6 && ctx?.ok !== false && !(ctx?.customerName || ctx?.name); retry++) {
+          await sleep(450);
+          if (!(await facebookStillOwns())) { abandonFacebookScan(); return; }
+          ctx = await sendToContent({ type: 'SCAN_LEAD_V2' });
+        }
+        if (!(await facebookStillOwns(ctx?.thread?.url || null))) { abandonFacebookScan(); return; }
         const facebookStrict = (ctx?.platform || currentPlatform.platform) === 'facebook';
         const initialProfileUrl = String(ctx?.url || ctx?.thread?.url || currentPlatform.url || '');
         const initialLinkedInProfile = (ctx?.platform || currentPlatform.platform) === 'linkedin'
@@ -6327,8 +6406,7 @@ function wireLeadCapture(root: HTMLElement): void {
         if (facebookStrict && (!ctx || ctx.ok === false)) {
           showToast(root, 'Open a Facebook profile or conversation, then try again.');
           if (emptyMsg) emptyMsg.style.display = 'block';
-          scanBtn.textContent = 'Scan This Page';
-          (scanBtn as HTMLButtonElement).disabled = false;
+          abandonFacebookScan();
           return;
         }
         const detectedName = ctx?.customerName || ctx?.customer_name || ctx?.name || '';
@@ -6380,6 +6458,9 @@ function wireLeadCapture(root: HTMLElement): void {
               profile_bio: ctx.profile_bio || ctx.thread?.profile_bio || null,
             },
           });
+          // The rep may have moved to another profile during PARSE_LEAD.
+          if (!(await facebookStillOwns(ctx?.thread?.url || null))) { abandonFacebookScan(); return; }
+          if (facebookTicket) facebookLeadResultRoute = facebookTicket.route;
           showLeadResult(root, { ...(resp?.lead || resp || ctx), capture_mode: (resp?.lead || resp)?.capture_mode || captureMode });
         } else if (emptyMsg) {
           emptyMsg.style.display = 'block';
@@ -6388,6 +6469,7 @@ function wireLeadCapture(root: HTMLElement): void {
         showToast(root, e.message || 'Scan failed');
         if (emptyMsg) emptyMsg.style.display = 'block';
       }
+      releaseFacebookScan();
       scanBtn.textContent = 'Scan This Page';
       (scanBtn as HTMLButtonElement).disabled = false;
     };
@@ -6597,6 +6679,7 @@ async function openStats(root: HTMLElement): Promise<void> {
 chrome.tabs.onActivated.addListener(async () => {
   await refreshPlatform();
   const root = document.getElementById('sp-root');
+  syncFacebookScanRoute(root);
   if (root && root.style.display !== 'none') {
     updatePlatformBadge(root);
     scheduleAutoThreadScan(root, 125, true);
@@ -6607,6 +6690,7 @@ chrome.tabs.onUpdated.addListener(async (_tabId, changeInfo) => {
   if (changeInfo.url) {
     await refreshPlatform();
     const root = document.getElementById('sp-root');
+    syncFacebookScanRoute(root);
     if (root && root.style.display !== 'none') {
       updatePlatformBadge(root);
       scheduleAutoThreadScan(root, 125, true);

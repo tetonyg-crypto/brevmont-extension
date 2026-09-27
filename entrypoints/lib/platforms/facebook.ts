@@ -27,6 +27,7 @@ import {
   type FacebookSurface,
   type FacebookSurfaceInfo,
 } from './facebookSurface';
+import { extractFacebookProspectContext } from './facebookProspectContext';
 
 const CAPS: AdapterCapabilities = {
   supports_inject_text: true,
@@ -244,7 +245,7 @@ export function extractFacebookProfileSnapshot(
   };
   if (!isFacebookProfileSurface(surface.surface)) return base;
 
-  const scores = new Map<string, { name: string; score: number; evidence: FacebookProfileEvidence[] }>();
+  const scores = new Map<string, NameScore>();
   const add = (value: unknown, source: FacebookProfileEvidence['source'], weight: number) => {
     const name = cleanProfileNameCandidate(value);
     if (!name) return;
@@ -324,11 +325,12 @@ export function extractFacebookProfileSnapshot(
     if (bounded) add(bounded, 'identity_text', 2);
   }
 
+  foldAbsorbedNameCandidates(scores, url);
   const winner = [...scores.values()].sort((a, b) => b.score - a.score || b.evidence.length - a.evidence.length)[0];
   if (!winner || winner.score < 2) return { ...base, status: 'uncertain' };
   const confidence = winner.score >= 6 ? 0.92 : winner.score >= 4 ? 0.84 : 0.7;
   const profileRoot = doc.querySelector('[role="main"], main') as HTMLElement | null;
-  const profileBio = scrapeFacebookProfileBio(profileRoot, winner.name);
+  const profileBio = extractFacebookProspectContext(profileRoot, winner.name);
   return {
     ...base,
     status: 'ready',
@@ -339,24 +341,123 @@ export function extractFacebookProfileSnapshot(
   };
 }
 
-/** Keep useful About/profile details without saving Facebook's navigation,
- *  repeated section titles, or the entire rendered page as lead context. */
-function scrapeFacebookProfileBio(main: HTMLElement | null, name: string): string {
-  const blocked = /^(?:all|about|friends|photos|reels|more|message|posts?|personal details|overview|contact info|places lived|work|education|see all friends|see all photos|inside car guys)$/i;
-  const lines = String(main?.innerText || '')
-    .split(/\n+/)
-    .map((line) => line.replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
-  const kept: string[] = [];
-  for (const line of lines) {
-    if (line.toLowerCase() === name.toLowerCase()) continue;
-    if (blocked.test(line) || /^\d[\d,.]*\s+friends?$/i.test(line)) continue;
-    if (/^(?:home|search|notifications|marketplace|watch|groups|gaming|create|follow|add friend|open profile|view profile)$/i.test(line)) continue;
-    if (/^see all friends$/i.test(line)) break;
-    if (kept[kept.length - 1] === line) continue;
-    kept.push(line);
+type NameScore = { name: string; score: number; evidence: FacebookProfileEvidence[] };
+
+/** Evidence that points at the profile's own hero identity, not at a link
+ *  or container whose text can pick up neighbouring labels. */
+function hasHeroEvidence(item: NameScore): boolean {
+  return item.evidence.some((e) => e.source === 'meta_title'
+    || e.source === 'page_title'
+    || e.source === 'profile_image'
+    || e.source === 'identity_heading'
+    || (e.source === 'identity_text' && e.weight >= 4));
+}
+
+function wordsOf(value: string): string[] {
+  return value.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+}
+
+/**
+ * 2026-09-27: a group-member profile produced "Idaho Construction Samantha
+ * Daryn Rivera" — a link/container whose text concatenated the group label
+ * with the person's name. When one candidate is exactly another hero-backed
+ * candidate plus extra leading/trailing words, the extra words are absorbed
+ * chrome: fold the longer candidate's score into the visible identity. Only
+ * multi-word hero-backed names absorb, so business names like "WSC AUTO
+ * Center" are never shortened by an incidental substring.
+ */
+function foldAbsorbedNameCandidates(scores: Map<string, NameScore>, url: string): void {
+  const items = [...scores.entries()];
+  for (const [longKey, long] of items) {
+    const longWords = wordsOf(long.name);
+    let target: NameScore | null = null;
+    for (const [shortKey, short] of items) {
+      if (shortKey === longKey || !scores.has(shortKey)) continue;
+      const shortWords = wordsOf(short.name);
+      if (shortWords.length < 2 || shortWords.length >= longWords.length) continue;
+      if (!hasHeroEvidence(short)) continue;
+      // The profile's own title/photo label is authoritative: never shorten it.
+      if (long.evidence.some((e) => e.source === 'meta_title' || e.source === 'profile_image')) continue;
+      const isPrefix = shortWords.every((w, i) => longWords[i] === w);
+      const isSuffix = shortWords.every((w, i) => longWords[longWords.length - shortWords.length + i] === w);
+      if ((isPrefix || isSuffix) && (!target || shortWords.length > wordsOf(target.name).length)) target = short;
+    }
+    if (target) {
+      target.score += long.score;
+      target.evidence.push(...long.evidence.map((e) => ({ ...e, value: target!.name })));
+      scores.delete(longKey);
+    }
   }
-  return kept.join('\n').slice(0, 1800);
+
+  // Group-member route: strip a leading group label that matches the group
+  // slug in the URL ("/groups/idahoconstruction/user/123").
+  const slug = (() => {
+    try {
+      const match = new URL(url, 'https://www.facebook.com').pathname.match(/^\/groups\/([^/]+)\/user\//i);
+      return match && !/^\d+$/.test(match[1]) ? match[1].toLocaleLowerCase().replace(/[^a-z0-9]/g, '') : '';
+    } catch {
+      return '';
+    }
+  })();
+  if (!slug) return;
+  for (const [key, item] of [...scores.entries()]) {
+    const words = item.name.split(/\s+/);
+    for (let cut = 1; cut < words.length - 1; cut += 1) {
+      const prefix = words.slice(0, cut).join('').toLocaleLowerCase().replace(/[^a-z0-9]/g, '');
+      if (prefix !== slug) continue;
+      const stripped = words.slice(cut).join(' ');
+      const strippedKey = stripped.toLocaleLowerCase();
+      const existing = scores.get(strippedKey);
+      scores.delete(key);
+      if (existing) {
+        existing.score += item.score;
+        existing.evidence.push(...item.evidence.map((e) => ({ ...e, value: existing.name })));
+      } else {
+        scores.set(strippedKey, { name: stripped, score: item.score, evidence: item.evidence.map((e) => ({ ...e, value: stripped })) });
+      }
+      break;
+    }
+  }
+}
+
+/**
+ * Facebook is an SPA: on profile A -> profile B the URL changes before the
+ * profile DOM is swapped, so a read in that window sees B's route with A's
+ * name and Intro. Remember the last committed identity per route and refuse
+ * to attribute that same identity (or its context) to a different route.
+ * An uncertain read makes the side panel retry instead of painting A as B.
+ */
+let lastCommittedProfile: { route_key: string; name: string; bio: string } | null = null;
+let routeFirstSeen: { route_key: string; at: number } | null = null;
+/** How long a new route may keep showing the previous route's identity
+ *  before we accept it as genuinely the same person (e.g. /username and
+ *  profile.php?id= for one account). Facebook swaps the DOM well inside this. */
+const CARRYOVER_WINDOW_MS = 2500;
+
+export function resetFacebookProfileCarryoverForTests(): void {
+  lastCommittedProfile = null;
+  routeFirstSeen = null;
+}
+
+export function guardFacebookProfileCarryover(snapshot: FacebookProfileSnapshot, now: number = Date.now()): FacebookProfileSnapshot {
+  if (routeFirstSeen?.route_key !== snapshot.route_key) routeFirstSeen = { route_key: snapshot.route_key, at: now };
+  if (snapshot.status !== 'ready' || !snapshot.display_name) return snapshot;
+  const name = snapshot.display_name.toLocaleLowerCase();
+  let bio = snapshot.profile_bio || '';
+  const prev = lastCommittedProfile;
+  if (prev && prev.route_key !== snapshot.route_key) {
+    if (prev.name === name && now - routeFirstSeen.at < CARRYOVER_WINDOW_MS) {
+      return { ...snapshot, status: 'uncertain', display_name: null, profile_bio: null, confidence: 0 };
+    }
+    const prevLead = prev.bio.split('\n')[0] || '';
+    if (prev.name !== name && bio && (bio === prev.bio || (prevLead.length >= 40 && bio.includes(prevLead)))) bio = '';
+  }
+  lastCommittedProfile = { route_key: snapshot.route_key, name, bio: snapshot.profile_bio || '' };
+  return { ...snapshot, profile_bio: bio || null };
+}
+
+function readCurrentFacebookProfile(): FacebookProfileSnapshot {
+  return guardFacebookProfileCarryover(extractFacebookProfileSnapshot(document, window.location.href));
 }
 
 /**
@@ -368,7 +469,7 @@ function scrapeFacebookProfileBio(main: HTMLElement | null, name: string): strin
  * shrink what's captured, never misattribute one field's text to another.
  */
 function scrapeFacebookProfile(): ThreadContext {
-  const snapshot = extractFacebookProfileSnapshot(document, window.location.href);
+  const snapshot = readCurrentFacebookProfile();
   const header_text = snapshot.display_name || '';
   const profile_bio = snapshot.profile_bio || '';
   const bodyText = [header_text ? `Profile: ${header_text}` : '', profile_bio ? `About: ${profile_bio}` : '']
@@ -431,7 +532,7 @@ function scrapeThread(): ThreadContext {
 
 function extractCustomer(): CustomerCandidate {
   if (isFacebookProfilePage()) {
-    const snapshot = extractFacebookProfileSnapshot(document, window.location.href);
+    const snapshot = readCurrentFacebookProfile();
     if (snapshot.status === 'ready' && snapshot.display_name) {
       return {
         name: snapshot.display_name,
