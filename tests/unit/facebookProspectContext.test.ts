@@ -361,7 +361,7 @@ describe('group-member profiles with no [role="main"] landmark (LIVE)', () => {
     expect(context).toContain('Member of Utah Side Hustle and Labor Gigs');
     expect(context).toContain('Digital creator');
     expect(context).not.toMatch(/points|liked|flyers|Mindi/);
-    expect(JSON.parse(document.documentElement.getAttribute('data-brevmont-fb-scan') || '{}')).toMatchObject({ root: 'body', build: 'fb-context-3' });
+    expect(JSON.parse(document.documentElement.getAttribute('data-brevmont-fb-scan') || '{}')).toMatchObject({ root: 'body', build: 'fb-context-4' });
   });
 
   it('Aleem Iqbal (LIVE line order): header bio with links, category, company, Personal details and website', () => {
@@ -386,5 +386,51 @@ describe('group-member profiles with no [role="main"] landmark (LIVE)', () => {
       'This dude Timo built a $50K/month app working just 20 hours a month')}</div>`;
     const context = extractFacebookProfileSnapshot().profile_bio || '';
     expect(context).toBe('Sharing business ideas that make money! Business & Economy Website. Website: starterstory.com. Email: pat@starterstory.com.');
+  });
+});
+
+describe('SPA navigation leaves the previous page mounted (LIVE root cause)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    resetFacebookProfileCarryoverForTests();
+  });
+
+  it('reads the current profile region, not the hidden feed [role="main"] kept from the previous route', () => {
+    window.history.pushState({}, '', '/JeremyLeeMiner');
+    document.title = 'Facebook';
+    document.body.innerHTML = `
+      <div role="main" hidden>${lines('Create a post', "What's on your mind, Yancy?", 'Stories', 'Create story', 'Your story', 'Angel Velaz', 'Sponsored')}</div>
+      <div role="main"><h1>Jeremy Miner</h1>${lines('498K followers • 321 following', 'Following', 'Message', 'Search',
+        'Companies come to us when they are frustrated by losing sales to low cost competitors, concerned about high attrition with their sales teams and worried about inconsistently hitting their sales targets.',
+        'CEO and Founder', 'Public figure', 'More', 'All', 'About', 'Reels', 'Photos', 'Followers', 'More',
+        'Links', '7thlevelhq.com', 'Contact info', '(800) 656-8534', 'jeremy@7thlevelhqteam.com', 'Jeremy Miner', 'Posts', 'Filters',
+        'Jeremy Miner', '4 hours ago', "You're causing objections... not the prospect.")}</div>`;
+    const snapshot = extractFacebookProfileSnapshot();
+    const context = snapshot.profile_bio || '';
+    expect(snapshot.display_name).toBe('Jeremy Miner');
+    expect(context).toContain('Companies come to us when they are frustrated by losing sales');
+    expect(context).toContain('CEO and Founder');
+    expect(context).toContain('Public figure');
+    expect(context).toContain('Website: 7thlevelhq.com');
+    expect(context).toContain('Phone: (800) 656-8534');
+    expect(context).toContain('Email: jeremy@7thlevelhqteam.com');
+    expect(context).not.toMatch(/What's on your mind|Create a post|Angel Velaz|causing objections/);
+    expect(JSON.parse(document.documentElement.getAttribute('data-brevmont-fb-scan') || '{}')).toMatchObject({ root: 'main#1/2', build: 'fb-context-4' });
+  });
+
+  it('Super Contractor Group (LIVE): header services + category, Personal details, phone; rating dropped', () => {
+    window.history.pushState({}, '', '/profile.php?id=61585991909727');
+    document.body.innerHTML = `
+      <div role="main" hidden>${lines('Create a post', "What's on your mind, Yancy?")}</div>
+      <div role="main"><h1>Super Contractor Group</h1>${lines('2 followers • 1 following', 'WhatsApp', 'Message', 'Follow',
+        'Screen enclosure- Screen room- concrete- Pavers- Structural Drawing - Re screening', 'Construction Company', 'More',
+        'All', 'About', 'Followers', 'Photos', 'Mentions', 'More', 'Personal details', 'Lives in Orlando, Florida', 'Ingles and Spanish',
+        'Details', 'Not yet rated (0 reviews)', 'Contact info', '(407) 529-7361', 'Super Contractor Group', 'Photos', 'See all photos')}</div>`;
+    const context = extractFacebookProfileSnapshot().profile_bio || '';
+    expect(context).toContain('Screen enclosure- Screen room- concrete- Pavers');
+    expect(context).toContain('Construction Company');
+    expect(context).toContain('Lives in Orlando, Florida');
+    expect(context).toContain('Phone: (407) 529-7361');
+    expect(context).not.toMatch(/Not yet rated|What's on your mind/);
   });
 });

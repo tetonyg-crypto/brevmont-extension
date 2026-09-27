@@ -334,12 +334,12 @@ export function extractFacebookProfileSnapshot(
   // extractor with no region and an empty Prospect Context. The extractor is
   // region-bounded (name-anchored header + named profile sections), so the
   // document body is a safe fallback root there.
-  const mainRoot = doc.querySelector('[role="main"], main') as HTMLElement | null;
+  const { root: mainRoot, index: mainIndex, count: mainCount } = pickFacebookProfileRoot(doc, winner.name);
   const profileRoot = mainRoot || doc.body;
   const profileBio = extractFacebookProspectContext(profileRoot, winner.name);
   recordFacebookScanDiagnostics(doc, {
     route: surface.route_key,
-    root: mainRoot ? 'main' : 'body',
+    root: mainRoot ? `main#${mainIndex}/${mainCount}` : 'body',
     name_chars: winner.name.length,
     bio_chars: profileBio.length,
   });
@@ -353,9 +353,43 @@ export function extractFacebookProfileSnapshot(
   };
 }
 
+/**
+ * The [role="main"] region that holds the CURRENT profile.
+ *
+ * 2026-09-27 root cause (confirmed live in Chrome): after in-app (SPA)
+ * navigation Facebook keeps the previous route's [role="main"] mounted but
+ * hidden — e.g. the home feed with "Create a post / What's on your mind" —
+ * BEFORE the visible profile's [role="main"] in document order. A plain
+ * querySelector returned that hidden region: its innerText is one unbroken
+ * blob (no layout), so Prospect Context came back empty on every profile
+ * reached by clicking (and, with the older scraper, was the feed dump).
+ * Prefer a rendered region; among candidates prefer the one containing the
+ * profile name; fall back to the last candidate (newest route).
+ */
+function pickFacebookProfileRoot(doc: Document, name: string): { root: HTMLElement | null; index: number; count: number } {
+  const candidates = Array.from(doc.querySelectorAll('[role="main"], main')) as HTMLElement[];
+  if (!candidates.length) return { root: null, index: -1, count: 0 };
+  const isRendered = (el: HTMLElement): boolean => {
+    try {
+      if (el.closest('[hidden], [aria-hidden="true"]')) return false;
+      return typeof el.getClientRects === 'function' && el.getClientRects().length > 0;
+    } catch {
+      return false;
+    }
+  };
+  const rendered = candidates.filter(isRendered);
+  const pool = rendered.length ? rendered : candidates;
+  const nameLower = String(name || '').toLocaleLowerCase();
+  const named = nameLower
+    ? pool.filter((el) => String(el.textContent || '').toLocaleLowerCase().includes(nameLower))
+    : [];
+  const root = (named.length ? named[named.length - 1] : pool[pool.length - 1]) || null;
+  return { root, index: root ? candidates.indexOf(root) : -1, count: candidates.length };
+}
+
 /** Build marker for the Facebook Prospect Context extractor. Bump when the
  *  extractor changes so a live page can prove which build scanned it. */
-export const FACEBOOK_CONTEXT_BUILD = 'fb-context-3';
+export const FACEBOOK_CONTEXT_BUILD = 'fb-context-4';
 
 /**
  * Facebook-only diagnostics written to a data attribute on <html>, readable

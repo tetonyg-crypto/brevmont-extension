@@ -249,7 +249,13 @@ export function extractFacebookProspectContextFromLines(lines: string[], name: s
   }
   if (headerStart >= 0) {
     const after = all.slice(headerStart);
-    const tabIndex = after.findIndex((line) => TAB_BAR_LINE.test(line) || SECTION_STOP.test(line) || INFO_SECTION.test(line));
+    // The real tab bar starts with "All" (or "Group posts" on a group-member
+    // card). Header buttons such as "Following" / "Followers" share tab
+    // words, so only fall back to generic tab words when no anchor exists.
+    const anchoredEnd = after.slice(0, 16).findIndex((line) => /^(?:all|group posts)$/i.test(line) || INFO_SECTION.test(line));
+    const tabIndex = anchoredEnd >= 0
+      ? anchoredEnd
+      : after.findIndex((line) => TAB_BAR_LINE.test(line) || SECTION_STOP.test(line) || INFO_SECTION.test(line));
     const bounded = tabIndex >= 0;
     for (const line of (bounded ? after.slice(0, tabIndex) : after.slice(0, 4)).slice(0, 10)) {
       // Without a tab bar to bound the header, never accept prose that could
