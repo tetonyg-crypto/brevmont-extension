@@ -90,6 +90,16 @@ function scrapeThread(): ThreadContext {
       const name = extractLinkedInPersonName() || '';
       const headlineEl = document.querySelector('.text-body-medium.break-words, .pv-text-details__left-panel .text-body-medium') as HTMLElement | null;
       const headline = (headlineEl?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+      const profileMain = document.querySelector('main, [role="main"]') as HTMLElement | null;
+      const visibleProfileText = deepVisibleText(profileMain, 2400);
+      const profileBio = visibleProfileText
+        .split(/\n+/)
+        .map((line) => line.replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+        .filter((line) => line.toLowerCase() !== name.toLowerCase())
+        .slice(0, 24)
+        .join('\n')
+        .slice(0, 1800);
       if (!name) {
         // 2026-09-26: previously bailed to fully empty here whenever the
         // name selectors missed ("Couldn't read this page" confirmed live
@@ -107,6 +117,7 @@ function scrapeThread(): ThreadContext {
           messages: [],
           last_inbound_text: '',
           header_text,
+          profile_bio: profileBio || null,
           url: href,
         };
       }
@@ -118,6 +129,7 @@ function scrapeThread(): ThreadContext {
         messages: [],
         last_inbound_text: '',
         header_text,
+        profile_bio: profileBio || null,
         url: href,
       };
     }

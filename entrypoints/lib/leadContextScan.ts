@@ -685,7 +685,11 @@ export function extractLinkedInPersonName(): string | null {
     // costs a missed capture, not a bad one.
     const main = document.querySelector('main, [role="main"]');
     if (main) {
-      for (const node of Array.from(main.querySelectorAll('h1, [role="heading"]')) as HTMLElement[]) {
+      // LinkedIn's current profile shell (2026-09-27) renders the person
+      // heading as an obfuscated-class H2, not an H1 or ARIA heading. Keep
+      // this scoped to the main profile pane so nav/toast headings such as
+      // "0 notifications" cannot become the customer.
+      for (const node of Array.from(main.querySelectorAll('h1, h2, [role="heading"]')) as HTMLElement[]) {
         const candidate = cleanLinkedInPersonLabel(node.innerText || node.textContent || '');
         if (candidate && !isLinkedInSelfOrCompanyLabel(candidate) && !isChannelOrUiName(candidate)) return candidate;
       }
