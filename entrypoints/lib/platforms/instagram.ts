@@ -258,17 +258,22 @@ function emptyThread(): ThreadContext {
 function scrapeInstagramProfile(): ThreadContext {
   const username = profileUsernameFromUrl(window.location.href) || '';
   const header = document.querySelector('[role="main"] header') as HTMLElement | null;
-  const headerText = header ? deepVisibleText(header, 1200) : '';
-  // The username itself is the only field guaranteed correct without a
-  // live DOM read; use it as the header_text fallback name so a rep still
-  // gets "@username" instead of nothing if the bio block can't be found.
-  const header_text = headerText || (username ? `@${username}` : '');
+  const displayName = instagramProfileDisplayName(username).name;
+  const profileBio = instagramProfileBio(username, displayName);
+  const handle = username ? `@${username}` : '';
+  const header_text = [handle, displayName && displayName.toLowerCase() !== username.toLowerCase() ? displayName : '']
+    .filter(Boolean)
+    .join(' — ');
+  const rawText = [header_text ? `Profile: ${header_text}` : '', profileBio ? `Bio: ${profileBio}` : '']
+    .filter(Boolean)
+    .join('\n');
   return {
     conversation_key: stableKeyFromPath('ig_profile'),
-    raw_text: header_text.slice(0, 4000),
+    raw_text: rawText.slice(0, 4000),
     messages: [],
     last_inbound_text: '',
-    header_text: header_text.slice(0, 200),
+    header_text: (header_text || handle).slice(0, 200),
+    profile_bio: profileBio || null,
     url: window.location.href,
     scanned_at: Date.now(),
     message_count: 0,
@@ -315,6 +320,32 @@ function instagramProfileDisplayName(username: string): { name: string | null; r
     /* noop */
   }
   return username ? { name: username, raw_source: 'ig_profile_username', confidence: 0.55 } : { name: null, raw_source: 'ig_profile_unresolved', confidence: 0 };
+}
+
+/** Extract only the public profile category/bio/link block. Profile identity,
+ *  stats, relationship controls, and follower chrome are excluded so the
+ *  lead's Prospect context is useful instead of becoming a dump of the page. */
+function instagramProfileBio(username: string, displayName: string | null): string {
+  try {
+    const header = document.querySelector('[role="main"] header') as HTMLElement | null;
+    const lines = String(header?.innerText || '')
+      .split(/\n+/)
+      .map((line) => line.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    const kept: string[] = [];
+    for (const line of lines) {
+      if (/^(?:followed by|follow back|following|message|contact)(?:\b|$)/i.test(line)) break;
+      if (line.toLowerCase() === username.toLowerCase()) continue;
+      if (displayName && line.replace(/\s+(?:he\s*\/\s*him|she\s*\/\s*her|they\s*\/\s*them|him|her)$/i, '').trim().toLowerCase() === displayName.toLowerCase()) continue;
+      if (/^(?:he\s*\/\s*him|she\s*\/\s*her|they\s*\/\s*them|him|her|they|more)$/i.test(line)) continue;
+      if (/^(?:\d[\d,.]*\s*)?(?:posts?|followers?|following)$/i.test(line)) continue;
+      if (/^\d[\d,.]*$/.test(line)) continue;
+      kept.push(line);
+    }
+    return kept.join('\n').slice(0, 1500);
+  } catch {
+    return '';
+  }
 }
 
 function scrapeThread(): ThreadContext {

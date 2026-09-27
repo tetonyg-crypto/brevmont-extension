@@ -59,6 +59,8 @@ export interface ThreadContext {
   last_inbound_text: string;
   /** Header/subject line if the surface has one (e.g. Gmail subject, Marketplace listing title). */
   header_text: string;
+  /** Profile biography/about text when the surface is a static social profile. */
+  profile_bio?: string | null;
   /** Full URL of the surface. */
   url: string;
   scanned_at?: number;

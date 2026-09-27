@@ -2158,7 +2158,9 @@ export default defineContentScript({
             let adapterEmail: string | null = null;
             let adapterUsername: string | null = null;
             let adapterProfileUrl: string | null = null;
+            let adapterRawSource: string | null = null;
             let adapterHeaderText: string | null = null;
+            let adapterProfileBio: string | null = null;
             let adapterVehicle: string | null = null;
             if (!isGmail) {
               try {
@@ -2175,8 +2177,10 @@ export default defineContentScript({
                   adapterEmail = adapterCustomer?.email || null;
                   adapterUsername = adapterCustomer?.username || null;
                   adapterProfileUrl = adapterCustomer?.profile_url || null;
+                  adapterRawSource = adapterCustomer?.raw_source || null;
                   const thread = adapter.scrapeThread();
                   adapterHeaderText = thread?.header_text || null;
+                  adapterProfileBio = thread?.profile_bio || null;
                   const context = adapter.extractContext();
                   adapterVehicle = context?.vehicle || null;
                 }
@@ -2199,6 +2203,7 @@ export default defineContentScript({
                   leadData?.customerName,
                 );
             const usedAdapterName = !isGmail && customerName && adapterCustomerName === customerName;
+            const captureMode = isProfilePageRawSource(adapterRawSource) ? 'profile' : null;
             const vehicle = leadData?.vehicle || adapterVehicle || detected?.vehicle || null;
             const fingerprint = buildContextFingerprint({
               name: customerName,
@@ -2214,6 +2219,8 @@ export default defineContentScript({
               email: leadData?.email || adapterEmail || detected?.email || gmailSignal.email || null,
               username: adapterUsername,
               profile_url: adapterProfileUrl,
+              profile_bio: adapterProfileBio,
+              capture_mode: captureMode,
               source: leadData?.source || detected?.source || null,
               vehicleMake: leadData?.vehicleMake || null,
               vehicleModel: leadData?.vehicleModel || null,
@@ -2290,6 +2297,7 @@ export default defineContentScript({
               email: clean?.email || adapterCustomer?.email || detected?.email || null,
               username: clean?.username || adapterCustomer?.username || null,
               profile_url: clean?.profile_url || adapterCustomer?.profile_url || (captureMode ? window.location.href : null),
+              profile_bio: thread.profile_bio || null,
               capture_mode: captureMode,
               vehicle: context.vehicle || detected?.vehicle || null,
               vehicle_interest: context.vehicle || null,

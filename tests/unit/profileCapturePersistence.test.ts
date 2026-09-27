@@ -14,6 +14,7 @@ describe('social profile lead capture persistence', () => {
     expect(content).toContain("profile_url: clean?.profile_url || adapterCustomer?.profile_url || (captureMode ? window.location.href : null)");
     expect(content).toContain("username: clean?.username || adapterCustomer?.username || null");
     expect(content).toContain("const captureMode = isProfilePageRawSource(adapterCustomer?.raw_source) ? 'profile' : null");
+    expect(content).toContain('profile_bio: thread.profile_bio || null');
     expect(content).toContain('thread_fingerprint: thread.conversation_key || null');
   });
 
@@ -22,6 +23,8 @@ describe('social profile lead capture persistence', () => {
     expect(background).toContain("msg.payload?.capture_mode === 'profile'");
     expect(background).toContain('profile_url: msg.payload?.profile_url || null');
     expect(background).toContain('username: msg.payload?.username || null');
+    expect(background).toContain('profile_bio: msg.payload?.profile_bio || null');
+    expect(background).toContain("const capturedVehicle = msg.payload?.capture_mode === 'profile'");
   });
 
   it('renders stored profiles as Prospect with a clickable profile link in My Leads', () => {
@@ -29,5 +32,8 @@ describe('social profile lead capture persistence', () => {
     expect(panel).toContain("const isProspect = captureMode === 'profile'");
     expect(panel).toContain("target=\"_blank\" rel=\"noopener noreferrer\"");
     expect(panel).toContain("if (isProspectCapture) return 'Prospect'");
+    expect(panel).toContain("const isProfileCapture = ctx?.capture_mode === 'profile'");
+    expect(panel).toContain("? 'Profile:'");
+    expect(panel).toContain("const contextCopy = (isProspectCapture ? profileBio : null)");
   });
 });

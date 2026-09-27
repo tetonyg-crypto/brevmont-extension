@@ -22,13 +22,16 @@ describe('Instagram profile live DOM routing', () => {
       <main role="main">
         <header>
           <h1>cardogvlogs</h1>
+          <div>Yancy Garcia him</div>
           <div>213 posts</div>
           <div>263 followers</div>
           <div>257 following</div>
-          <div>Yancy Garcia</div>
           <div>Digital creator</div>
           <div>Main @yancygarcia_3</div>
           <div>Sold $26.8M in cars. Now running @brevmontlabs</div>
+          <div>Close more leads. Get more reviews. Show your work...</div>
+          <div>brevmont.com/sales-reps</div>
+          <div>Followed by _luisolivares</div>
         </header>
       </main>`;
 
@@ -41,7 +44,12 @@ describe('Instagram profile live DOM routing', () => {
       profile_url: 'https://www.instagram.com/cardogvlogs/',
       raw_source: 'ig_profile_display_name',
     });
-    expect(thread.header_text).toContain('cardogvlogs');
+    expect(thread.header_text).toBe('@cardogvlogs — Yancy Garcia');
     expect(thread.raw_text).toContain('Sold $26.8M in cars');
+    expect(thread.profile_bio).toContain('Digital creator');
+    expect(thread.profile_bio).toContain('Close more leads. Get more reviews. Show your work...');
+    expect(thread.profile_bio).not.toContain('213 posts');
+    expect(thread.profile_bio).not.toContain('Followed by');
+    expect(thread.last_inbound_text).toBe('');
   });
 });

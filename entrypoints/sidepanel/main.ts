@@ -83,6 +83,8 @@ interface PlatformContext {
 interface PinnedCustomer {
   id: string;
   name: string;
+  username?: string | null;
+  profileUrl?: string | null;
   vehicle?: string | null;
   phone?: string | null;
   email?: string | null;
@@ -105,6 +107,10 @@ interface AutoThreadScan {
   capabilities?: Record<string, any> | null;
   defaultOutput?: OutputChip | null;
   customerName?: string | null;
+  captureMode?: string | null;
+  username?: string | null;
+  profileUrl?: string | null;
+  profileBio?: string | null;
   phone?: string | null;
   email?: string | null;
   vehicle?: string | null;
@@ -122,6 +128,7 @@ interface AutoThreadScan {
     last_inbound_text: string;
     last_inbound_hash?: string | null;
     header_text?: string | null;
+    profile_bio?: string | null;
     url?: string | null;
     scanned_at?: number | null;
     message_count?: number | null;
@@ -1184,6 +1191,7 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
   const isDeterministicThread = isDeterministicGmailThread || (ctx.platform || currentPlatform.platform) === 'facebook' && messages.length > 0;
   const platformId = String(ctx.platform || currentPlatform.platform || '');
   const isLinkedIn = platformId === 'linkedin';
+  const isProfileCapture = ctx.capture_mode === 'profile' || isProfilePageRawSource(ctx.detectionMethod || ctx.detection_method);
   // Never promote the rep's own bubble to "last customer message": the
   // any-direction fallbacks only apply when the last bubble isn't known to be
   // outbound, and raw page text only when there are no structured messages
@@ -1191,8 +1199,8 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
   // customer's words on every platform).
   const lastMessage = messages[messages.length - 1];
   const lastIsOutbound = lastMessage?.direction === 'outbound' || lastMessage?.role === 'rep';
-  const allowLooseFallback = !isDeterministicGmailThread && !isLinkedIn && !lastIsOutbound;
-  const lastInbound = firstNonSystemThreadText(
+  const allowLooseFallback = !isProfileCapture && !isDeterministicGmailThread && !isLinkedIn && !lastIsOutbound;
+  const lastInbound = isProfileCapture ? '' : firstNonSystemThreadText(
     thread.last_inbound_text,
     messages.slice().reverse().find((message) => message.direction === 'inbound' || message.role === 'customer')?.text,
     allowLooseFallback ? lastMessage?.text : '',
@@ -1207,7 +1215,7 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
     header_text: headerText,
     gmail_subject: ctx.gmail_subject || ctx.context?.subject_line || '',
   });
-  const vehicle = getCustomerVehicleFromContext({
+  const vehicle = isProfileCapture ? null : getCustomerVehicleFromContext({
     vehicle: context.vehicle || ctx.vehicle,
     vehicleOfInterest: context.vehicle || ctx.vehicleOfInterest || ctx.vehicle_interest,
   });
@@ -1220,6 +1228,10 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
     capabilities,
     defaultOutput: normalizeDefaultOutputChip(capabilities?.default_output),
     customerName: customerName || null,
+    captureMode: isProfileCapture ? 'profile' : null,
+    username: ctx.username || ctx.customer?.username || null,
+    profileUrl: ctx.profile_url || ctx.customer?.profile_url || null,
+    profileBio: thread.profile_bio || ctx.profile_bio || null,
     phone: ctx.phone || ctx.customer_phone || null,
     email: ctx.email || ctx.customer_email || null,
     vehicle,
@@ -1234,9 +1246,10 @@ function autoThreadScanFromResponse(ctx: any, source: 'adapter' | 'legacy'): Aut
       conversation_key: thread.conversation_key || ctx.thread_fingerprint || ctx.context_fingerprint || null,
       raw_text: rawText || [headerText, ...messages.map((message) => `[${message.direction || 'unknown'}] ${message.text}`)].filter(Boolean).join('\n').slice(0, 5000),
       messages,
-      last_inbound_text: lastInbound || ((isDeterministicThread || isLinkedIn || messages.length > 0) ? '' : lastReadableThreadLine(rawText)),
+      last_inbound_text: isProfileCapture ? '' : (lastInbound || ((isDeterministicThread || isLinkedIn || messages.length > 0) ? '' : lastReadableThreadLine(rawText))),
       last_inbound_hash: thread.last_inbound_hash || ctx.last_inbound_hash || null,
       header_text: headerText || null,
+      profile_bio: thread.profile_bio || ctx.profile_bio || null,
       url: thread.url || currentPlatform.url || null,
       scanned_at: Number(thread.scanned_at || ctx.scanned_at || Date.now()) || Date.now(),
       message_count: Number(thread.message_count ?? ctx.message_count ?? messages.length) || messages.length,
@@ -1250,6 +1263,10 @@ function leadContextFromAutoThreadScan(scan: AutoThreadScan | null): any {
     customerName: scan.customerName || null,
     customer_name: scan.customerName || null,
     name: scan.customerName || null,
+    capture_mode: scan.captureMode || null,
+    username: scan.username || null,
+    profile_url: scan.profileUrl || null,
+    profile_bio: scan.profileBio || scan.threadContext.profile_bio || null,
     phone: scan.phone || null,
     email: scan.email || null,
     vehicle: scan.vehicle || null,
@@ -1398,7 +1415,9 @@ function renderAutoThreadScan(root: HTMLElement): void {
     const last = truncateReplyContext(autoThreadScan.threadContext.last_inbound_text || '');
     const fallback = truncateReplyContext(autoThreadScan.threadContext.header_text || autoThreadScan.threadContext.raw_text || 'Conversation scanned');
     const surface = getDisplayLabel(autoThreadScan.platform || currentPlatform.platform);
-    const label = last ? 'Replying to:' : (autoThreadScan.platform === 'linkedin' ? 'Prospect:' : 'Page:');
+    const label = autoThreadScan.captureMode === 'profile'
+      ? 'Profile:'
+      : last ? 'Replying to:' : (autoThreadScan.platform === 'linkedin' ? 'Prospect:' : 'Page:');
     el.innerHTML = `
       <span class="reply-context-label">${esc(label)}</span>
       <span class="reply-context-text">${esc(last || fallback || 'Conversation scanned')}</span>
@@ -1791,12 +1810,14 @@ function clearStalePinnedCustomer(root: HTMLElement, _reason: string): void {
 async function resolveCustomerForDetection(ctx: any): Promise<PinnedCustomer | null> {
   const name = getCustomerNameFromContext(ctx);
   if (!name) return null;
+  const isProfileCapture = ctx?.capture_mode === 'profile' || isProfilePageRawSource(ctx?.detectionMethod || ctx?.detection_method);
+  const liveVehicle = isProfileCapture ? null : (getCustomerVehicleFromContext(ctx) || null);
   const payload = {
     name,
     phone: ctx?.phone || ctx?.customer_phone || null,
     email: ctx?.email || ctx?.customer_email || null,
-    vehicle: getCustomerVehicleFromContext(ctx),
-    vehicle_interest: getCustomerVehicleFromContext(ctx),
+    vehicle: liveVehicle,
+    vehicle_interest: liveVehicle,
     source: ctx?.source || currentPlatform.platform,
   };
 
@@ -1819,12 +1840,13 @@ async function resolveCustomerForDetection(ctx: any): Promise<PinnedCustomer | n
   if (!id) return null;
   // Live page/scan vehicle wins over a stale customers.vehicle_interest
   // (demo failure: Nika pinned as Honda Civic while Gmail said Tahoes).
-  const liveVehicle = payload.vehicle || getCustomerVehicleFromContext(ctx) || null;
   const storedVehicle = optionalDisplayText(record.vehicle_interest) || null;
-  const vehicle = liveVehicle || storedVehicle || null;
+  const vehicle = liveVehicle || (isProfileCapture ? null : storedVehicle) || null;
   return {
     id,
     name: record.name || name,
+    username: ctx?.username || ctx?.customer?.username || null,
+    profileUrl: safeSocialProfileUrl(ctx?.profile_url || ctx?.customer?.profile_url),
     vehicle,
     phone: record.phone || payload.phone || null,
     email: record.email || payload.email || null,
@@ -1877,13 +1899,15 @@ function renderCustomerStamp(root: HTMLElement): void {
   if (picker && !customerPickerOpen && (pinnedCustomer || pendingCustomerSuggestion)) picker.style.display = 'none';
 
   if (pinnedCustomer) {
+    const pinnedHandle = optionalDisplayText(pinnedCustomer.username)?.replace(/^@/, '');
+    const pinnedIdentity = pinnedHandle ? `@${pinnedHandle} — ${pinnedCustomer.name}` : pinnedCustomer.name;
     stamp.style.display = 'block';
     stamp.innerHTML = `
       <div class="customer-stamp-row">
         <span class="customer-stamp-badge"></span>
         <div class="customer-stamp-copy">
-          <div class="customer-stamp-main">${esc(pinnedCustomer.name)}</div>
-          <div class="customer-stamp-sub">${esc(pinnedCustomer.vehicle || 'Customer context active')}</div>
+          <div class="customer-stamp-main">${esc(pinnedIdentity)}</div>
+          <div class="customer-stamp-sub">${esc(pinnedCustomer.vehicle || (pinnedHandle ? 'Prospect profile active' : 'Customer context active'))}</div>
         </div>
         <div class="customer-stamp-actions">
           <button class="customer-stamp-btn" id="o8-customer-change" type="button">Change</button>
@@ -1902,7 +1926,11 @@ function renderCustomerStamp(root: HTMLElement): void {
 
   if (pendingCustomerSuggestion) {
     const name = getCustomerNameFromContext(pendingCustomerSuggestion);
-    const vehicle = getCustomerVehicleFromContext(pendingCustomerSuggestion);
+    const pendingIsProfile = pendingCustomerSuggestion.capture_mode === 'profile'
+      || isProfilePageRawSource(pendingCustomerSuggestion.detectionMethod || pendingCustomerSuggestion.detection_method);
+    const vehicle = pendingIsProfile ? null : getCustomerVehicleFromContext(pendingCustomerSuggestion);
+    const pendingHandle = optionalDisplayText(pendingCustomerSuggestion.username || pendingCustomerSuggestion.customer?.username)?.replace(/^@/, '');
+    const pendingIdentity = pendingHandle ? `@${pendingHandle} — ${name}` : name;
     if (!name) {
       stamp.style.display = 'none';
       stamp.innerHTML = '';
@@ -1914,7 +1942,7 @@ function renderCustomerStamp(root: HTMLElement): void {
       <div class="customer-stamp-row">
         <span class="customer-stamp-badge"></span>
         <div class="customer-stamp-copy">
-          <div class="customer-stamp-main">This for ${esc(name)}?</div>
+          <div class="customer-stamp-main">This for ${esc(pendingIdentity)}?</div>
           <div class="customer-stamp-sub">${esc(vehicle || 'Confirm once, then keep working.')}</div>
         </div>
         <div class="customer-stamp-actions">
@@ -5388,7 +5416,9 @@ function renderLeadCard(lead: any, index: number, selectMode = false, selected =
   const isProspect = captureMode === 'profile';
   const profileUrl = safeSocialProfileUrl(lead.profile_url || lead.metadata?.profile_url);
   const profileUsername = optionalDisplayText(lead.username || lead.metadata?.username);
-  const vehicle = optionalDisplayText(lead.vehicle_interest);
+  const normalizedUsername = profileUsername?.replace(/^@/, '') || '';
+  const leadIdentity = normalizedUsername ? `@${normalizedUsername} — ${customer}` : customer;
+  const vehicle = isProspect ? null : optionalDisplayText(lead.vehicle_interest);
   const heat = Number(lead.heat_score ?? 0);
   const stage = String(lead.pipeline_stage || lead.status || 'captured');
   const isLost = stage === 'lost';
@@ -5412,8 +5442,8 @@ function renderLeadCard(lead: any, index: number, selectMode = false, selected =
         <div style="display:flex;align-items:start;gap:8px;">
           ${selectMode ? `<input type="checkbox" class="my-lead-select-checkbox" ${selected ? 'checked' : ''} style="margin-top:3px;width:16px;height:16px;flex-shrink:0;" aria-label="Select ${esc(customer)}" />` : ''}
           <div>
-            <div class="lead-card-title">${esc(customer)}</div>
-            ${profileUrl ? `<a href="${esc(profileUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;font-size:11px;color:#0D6E6E;font-weight:800;margin-top:2px;text-decoration:none;">${esc(profileUsername ? `@${profileUsername.replace(/^@/, '')}` : 'Open profile')} &#8599;</a>` : ''}
+            <div class="lead-card-title">${esc(leadIdentity)}</div>
+            ${profileUrl ? `<a href="${esc(profileUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;font-size:11px;color:#0D6E6E;font-weight:800;margin-top:2px;text-decoration:none;">Open profile &#8599;</a>` : ''}
             ${vehicle ? `<div style="font-size:12px;color:#475569;margin-top:2px;">${esc(vehicle)}</div>` : ''}
           </div>
         </div>
@@ -5921,9 +5951,11 @@ function showLeadResult(root: HTMLElement, lead: any): void {
   const signalSummary = leadSignalSummary(lead, intent, rawText, isProspectCapture);
   const profileUrl = safeSocialProfileUrl(lead.profile_url || lead.metadata?.profile_url);
   const profileUsername = optionalDisplayText(lead.username || lead.metadata?.username);
+  const profileBio = optionalDisplayText(lead.profile_bio || lead.metadata?.profile_bio);
   const notesClean = sanitizeBuyerContext(optionalDisplayText(lead.notes) || '');
   const rawClean = sanitizeBuyerContext(rawText || '');
-  const contextCopy = notesClean
+  const contextCopy = (isProspectCapture ? profileBio : null)
+    || notesClean
     || (rawClean ? rawClean.substring(0, 160) : '')
     || `${name} was captured from ${sourceLabel}${vehicle ? ` with interest in ${vehicle}` : ''}.`;
   const captureDetails = [
@@ -5944,6 +5976,8 @@ function showLeadResult(root: HTMLElement, lead: any): void {
         source: lead.source_platform || currentPlatform.platform,
         confidence: 1,
         detectionMethod: 'lead_link',
+        username: profileUsername || null,
+        profileUrl,
         pinnedAt: Date.now(),
       });
     } else {
@@ -5955,6 +5989,9 @@ function showLeadResult(root: HTMLElement, lead: any): void {
         source: lead.source_platform || currentPlatform.platform,
         detectionMethod: 'manual',
         detectionConfidence: confidence === 'low' ? 0.5 : 0.8,
+        capture_mode: isProspectCapture ? 'profile' : null,
+        username: profileUsername || null,
+        profile_url: profileUrl,
       }).then((customer) => {
         if (customer) pinCustomer(root, { ...customer, detectionMethod: 'lead_link' });
       }).catch(() => {});
@@ -5977,13 +6014,13 @@ function showLeadResult(root: HTMLElement, lead: any): void {
       <div class="lead-capture-row">
         ${leadCaptureIcon('buyer')}
         <div class="lead-capture-copy">
-          <div class="lead-capture-label">${isProspectCapture ? 'Prospect' : 'Buyer'}</div>
+          <div class="lead-capture-label">${isProspectCapture ? 'Name' : 'Buyer'}</div>
           <div class="lead-capture-value">${company ? esc(company) : esc(name)}${company && name && name !== company ? ` <span>${esc(name)}</span>` : ''}</div>
         </div>
       </div>
       ${lead.phone ? `<div class="lead-capture-row">${leadCaptureIcon('phone')}<div class="lead-capture-copy"><div class="lead-capture-label">Phone</div><div class="lead-capture-value">${esc(lead.phone)}</div></div></div>` : ''}
       ${lead.email ? `<div class="lead-capture-row">${leadCaptureIcon('email')}<div class="lead-capture-copy"><div class="lead-capture-label">Email</div><div class="lead-capture-value">${esc(lead.email)}</div></div></div>` : ''}
-      ${profileUrl ? `<div class="lead-capture-row">${leadCaptureIcon('signal')}<div class="lead-capture-copy"><div class="lead-capture-label">Profile</div><div class="lead-capture-value"><a href="${esc(profileUrl)}" target="_blank" rel="noopener noreferrer">${esc(profileUsername ? `@${profileUsername.replace(/^@/, '')}` : 'Open profile')}</a></div></div></div>` : ''}
+      ${profileUrl ? `<div class="lead-capture-row">${leadCaptureIcon('signal')}<div class="lead-capture-copy"><div class="lead-capture-label">${isProspectCapture ? 'Username' : 'Profile'}</div><div class="lead-capture-value"><a href="${esc(profileUrl)}" target="_blank" rel="noopener noreferrer">${esc(profileUsername ? `@${profileUsername.replace(/^@/, '')}` : 'Open profile')}</a></div></div></div>` : ''}
       ${vehicle ? `<div class="lead-capture-row">${leadCaptureIcon('vehicle')}<div class="lead-capture-copy"><div class="lead-capture-label">Vehicle</div><div class="lead-capture-value">${esc(vehicle)}</div></div></div>` : ''}
       <div class="lead-capture-row">
         ${leadCaptureIcon('signal')}
@@ -6259,6 +6296,7 @@ function wireLeadCapture(root: HTMLElement): void {
               capture_mode: captureMode,
               username: ctx.username || ctx.customer?.username || null,
               profile_url: ctx.profile_url || ctx.customer?.profile_url || null,
+              profile_bio: ctx.profile_bio || ctx.thread?.profile_bio || null,
             },
           });
           showLeadResult(root, { ...(resp?.lead || resp || ctx), capture_mode: (resp?.lead || resp)?.capture_mode || captureMode });

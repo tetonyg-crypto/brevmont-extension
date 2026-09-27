@@ -1805,6 +1805,9 @@ export default defineBackground(() => {
           const customerName = msg.payload?.capture_mode === 'profile'
             ? (fallbackName || parsedName || phoneFallback || emailFallback)
             : (parsedName || fallbackName || phoneFallback || emailFallback);
+          const capturedVehicle = msg.payload?.capture_mode === 'profile'
+            ? null
+            : (leadForSave.vehicle_interest || msg.payload?.vehicle_interest || msg.payload?.vehicle || looseFallback.vehicle_interest || null);
 
           if (customerName) {
             const leadId = crypto.randomUUID();
@@ -1813,7 +1816,7 @@ export default defineBackground(() => {
               name: customerName,
               phone: leadForSave.phone || msg.payload?.phone || null,
               email: leadForSave.email || msg.payload?.email || null,
-              vehicle_interest: leadForSave.vehicle_interest || msg.payload?.vehicle_interest || msg.payload?.vehicle || looseFallback.vehicle_interest || null,
+              vehicle_interest: capturedVehicle,
               source: msg.payload.platform || 'unknown',
               context_fingerprint: msg.payload?.context_fingerprint || null,
               thread_fingerprint: msg.payload?.thread_fingerprint || msg.payload?.context_fingerprint || null,
@@ -1824,7 +1827,7 @@ export default defineBackground(() => {
               customer_name: customerName,
               phone: leadForSave.phone || msg.payload?.phone || null,
               email: leadForSave.email || msg.payload?.email || null,
-              vehicle_interest: leadForSave.vehicle_interest || msg.payload?.vehicle_interest || msg.payload?.vehicle || looseFallback.vehicle_interest || null,
+              vehicle_interest: capturedVehicle,
               source_platform: msg.payload.platform || 'unknown',
               source_raw_text: (msg.payload.raw_text || '').slice(0, 5000),
               status: 'captured',
@@ -1850,6 +1853,7 @@ export default defineBackground(() => {
                 capture_mode: msg.payload?.capture_mode || null,
                 username: msg.payload?.username || null,
                 profile_url: msg.payload?.profile_url || null,
+                profile_bio: msg.payload?.profile_bio || null,
               },
             };
             await leadDb.captured_leads.put(localLead);
@@ -1883,6 +1887,7 @@ export default defineBackground(() => {
                 capture_mode: msg.payload?.capture_mode || null,
                 username: msg.payload?.username || null,
                 profile_url: msg.payload?.profile_url || null,
+                profile_bio: msg.payload?.profile_bio || null,
               },
             };
             if (customerRecord?.id) {
