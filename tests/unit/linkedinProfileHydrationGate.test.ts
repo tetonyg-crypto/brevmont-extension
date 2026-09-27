@@ -21,4 +21,15 @@ describe('LinkedIn profile hydration gate', () => {
     expect(adapter).toContain('const visibleProfileText = String(profileMain?.innerText || \'\')');
     expect(adapter).toContain('const bodyText = String(main?.innerText || \'\')');
   });
+
+  it('filters hidden and aria-hidden nodes in the shared fallback walker', () => {
+    const scan = readFileSync(resolve(process.cwd(), 'entrypoints/lib/leadContextScan.ts'), 'utf8');
+    expect(scan).toContain("el.getAttribute('aria-hidden') === 'true'");
+    expect(scan).toContain("style.display === 'none' || style.visibility === 'hidden'");
+  });
+
+  it('invalidates an in-flight scan when the SPA switches conversations', () => {
+    expect(sidepanel).toContain('autoThreadScanRequestId++;');
+    expect(sidepanel).toContain('if (scanUrl && currentPlatform.url && scanUrl !== currentPlatform.url) return null;');
+  });
 });

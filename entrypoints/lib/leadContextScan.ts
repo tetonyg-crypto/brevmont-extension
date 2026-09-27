@@ -253,6 +253,9 @@ export function deepVisibleText(root: ParentNode | null | undefined, max = 8000)
     const el = node as HTMLElement;
     const tag = el.tagName;
     if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'SVG') return;
+    if (el.getAttribute('aria-hidden') === 'true') return;
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden') return;
     if (el.shadowRoot) visit(el.shadowRoot);
     for (const child of Array.from(el.childNodes)) visit(child);
   };

@@ -96,7 +96,7 @@ function scrapeThread(): ThreadContext {
       // visibility rules; the recursive fallback is intentionally reserved
       // for message surfaces where shadow DOM text is needed.
       const visibleProfileText = String(profileMain?.innerText || '')
-        .replace(/\s+/g, ' ')
+        .replace(/[ \t]+/g, ' ')
         .trim()
         .slice(0, 2400);
       const profileBio = visibleProfileText

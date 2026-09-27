@@ -2497,6 +2497,10 @@ function startCustomerDetection(root: HTMLElement): void {
       customerDetectionFingerprint = '';
       lastGmailSubject = '';
       clearStalePinnedCustomer(root, 'url_changed');
+      // Invalidate any content read that was started before the conversation
+      // switch. The URL can stay the same on SPA surfaces, so clearing the
+      // rendered state alone is not enough to stop a stale response winning.
+      autoThreadScanRequestId++;
       autoThreadScan = null;
       autoThreadScanStatus = 'idle';
       autoThreadScanUrl = '';
