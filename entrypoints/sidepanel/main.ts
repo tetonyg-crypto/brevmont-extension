@@ -5516,7 +5516,13 @@ async function renderMyLeads(root: HTMLElement): Promise<void> {
     // Authoritative total for THIS filter — independent of how many rows
     // the client actually fetched/rendered. Falls back to what we have if
     // the server didn't send one (e.g. an older cached response).
-    const totalCount = typeof remoteResp?.total_count === 'number' ? remoteResp.total_count : leads.length;
+    const remoteHasFilteredRows = remoteLeads.some((lead: any) => {
+      const name = optionalDisplayText(lead?.customer_name || lead?.name);
+      return !name || isChannelOrUiName(name);
+    });
+    const totalCount = remoteHasFilteredRows
+      ? leads.length
+      : (typeof remoteResp?.total_count === 'number' ? remoteResp.total_count : leads.length);
     (root as any).__myLeadsTotalCount = totalCount;
 
     const goingDark = leadFilter === 'active' ? leads.filter((lead: any) => lead.going_dark) : [];
