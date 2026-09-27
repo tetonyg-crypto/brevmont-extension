@@ -135,11 +135,51 @@ function readHeaderText(): string {
       ...Array.from(document.querySelectorAll('[role="main"] header')),
       ...Array.from(document.querySelectorAll('[role="main"] strong')),
     ] as HTMLElement[];
-    const anchor = candidates.find((el) => !isNavChrome(el));
-    return anchor?.innerText?.replace(/\s+/g, ' ').trim().slice(0, 200) || '';
+    const isUiLabel = (value: string): boolean => /^(?:personal details|overview|contact info|places lived|work|education|posts?|photos?|reels?|friends?|about|all|more|message|see all friends|inside car guys)$/i.test(value)
+      || /^(?:\d[\d,.]*\s+)?(?:friends?|followers?|following|posts?)$/i.test(value)
+      || /^(?:lives in|from|male|female|english language|general manager)\b/i.test(value);
+    const clean = (value: unknown): string => String(value || '').replace(/\s+/g, ' ').trim();
+    const anchor = candidates
+      .filter((el) => !isNavChrome(el))
+      .map((el) => clean(el.innerText))
+      .find((value) => value.length > 1 && value.length < 80 && !isUiLabel(value));
+    if (anchor) return anchor.slice(0, 200);
+
+    // Some Facebook profile builds render the name as an unlabelled div and
+    // omit h1/h2 entirely. In that case the first meaningful line in the
+    // profile header precedes the nav tabs; never let a lower About-section
+    // heading become the customer name.
+    const main = document.querySelector('[role="main"]') as HTMLElement | null;
+    const lines = String(main?.innerText || '')
+      .split(/\n+/)
+      .map(clean)
+      .filter(Boolean);
+    const navIndex = lines.findIndex((line) => /^(?:all|about|friends|photos|reels|more)$/i.test(line));
+    const headerLines = navIndex >= 0 ? lines.slice(0, navIndex) : lines.slice(0, 20);
+    return headerLines.find((line) => line.length > 1 && line.length < 80 && !isUiLabel(line) && !/^\d[\d,.]*$/.test(line))?.slice(0, 200) || '';
   } catch {
     return '';
   }
+}
+
+/** Keep useful About/profile details without saving Facebook's navigation,
+ *  repeated section titles, or the entire rendered page as lead context. */
+function scrapeFacebookProfileBio(main: HTMLElement | null, name: string): string {
+  const blocked = /^(?:all|about|friends|photos|reels|more|message|posts?|personal details|overview|contact info|places lived|work|education|see all friends|see all photos|inside car guys)$/i;
+  const lines = String(main?.innerText || '')
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  const kept: string[] = [];
+  for (const line of lines) {
+    if (line.toLowerCase() === name.toLowerCase()) continue;
+    if (blocked.test(line) || /^\d[\d,.]*\s+friends?$/i.test(line)) continue;
+    if (/^(?:home|search|notifications|marketplace|watch|groups|gaming|create|follow|add friend|open profile|view profile)$/i.test(line)) continue;
+    if (/^see all friends$/i.test(line)) break;
+    if (kept[kept.length - 1] === line) continue;
+    kept.push(line);
+  }
+  return kept.join('\n').slice(0, 1800);
 }
 
 /**
@@ -153,15 +193,19 @@ function readHeaderText(): string {
 function scrapeFacebookProfile(): ThreadContext {
   const profileId = facebookProfileIdFromUrl(window.location.href) || '';
   const main = document.querySelector('[role="main"]') as HTMLElement | null;
-  const bodyText = (main?.innerText || '').slice(0, 4000);
   const nameHeading = readHeaderText();
   const header_text = nameHeading || (profileId.startsWith('id:') ? '' : profileId);
+  const profile_bio = scrapeFacebookProfileBio(main, nameHeading);
+  const bodyText = [header_text ? `Profile: ${header_text}` : '', profile_bio ? `About: ${profile_bio}` : '']
+    .filter(Boolean)
+    .join('\n');
   return {
     conversation_key: `fb_profile:${profileId || 'unknown'}`,
     raw_text: bodyText,
     messages: [],
     last_inbound_text: '',
     header_text: header_text.slice(0, 200),
+    profile_bio: profile_bio || null,
     url: window.location.href,
     scanned_at: Date.now(),
     message_count: 0,

@@ -31,4 +31,30 @@ describe('Facebook profile page: nav tab bar must never be read as the customer 
     const customer = facebookAdapter.extractCustomer();
     expect(customer.name).toBeFalsy();
   });
+
+  it('finds the profile name when Facebook omits h1/h2 and ignores About section chrome', () => {
+    document.body.innerHTML = `
+      <div role="main">
+        <div>Johnny Flores</div>
+        <div>296 friends</div>
+        <div>Ventura, CA</div>
+        <div>Inside Car Guys</div>
+        <div role="tablist"><div>All</div><div>About</div><div>Friends</div><div>Photos</div><div>Reels</div><div>More</div></div>
+        <h2>Personal details</h2>
+        <div>Lives in Ventura, California</div>
+        <div>From Ventura, California</div>
+      </div>`;
+    const customer = facebookAdapter.extractCustomer();
+    const thread = facebookAdapter.scrapeThread();
+    expect(customer).toMatchObject({
+      name: 'Johnny Flores',
+      username: 'jflores.carguy',
+      profile_url: 'https://www.facebook.com/jflores.carguy',
+    });
+    expect(thread.header_text).toBe('Johnny Flores');
+    expect(thread.profile_bio).toContain('Lives in Ventura, California');
+    expect(thread.profile_bio).not.toContain('Personal details');
+    expect(thread.raw_text).not.toContain('All About Friends Photos Reels More');
+    expect(thread.last_inbound_text).toBe('');
+  });
 });
