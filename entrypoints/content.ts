@@ -16,7 +16,7 @@
 import { selectorManager, type SelectorEntry } from './lib/selectors';
 import { dlog } from './lib/dev';
 import { addBreadcrumb } from '../lib/breadcrumbs';
-import { cleanCustomerNameCandidate, extractContactName as extractContactNameForPlatform, extractLinkedInPersonName, gatherAllText, hasActiveComposeSurface, isChannelOrUiName, isLinkedInSelfOrCompanyLabel, stripConversationWrapper } from './lib/leadContextScan';
+import { cleanCustomerNameCandidate, extractContactName as extractContactNameForPlatform, extractLinkedInPersonName, gatherAllText, hasActiveComposeSurface, isChannelOrUiName, isLinkedInMessagingSurface, isLinkedInSelfOrCompanyLabel, stripConversationWrapper } from './lib/leadContextScan';
 import { detectCustomerFromPage, findGmailThreadSender, gmailSubjectText, nameMatchesGmailSubject, parsePageTitle } from './lib/customerDetection';
 import { trimCrmNoteForCompatibility } from './lib/crmNote';
 import { withInjectInFlight as overdriveWithInjectInFlight } from './lib/overdrive/safetyEnvelope';
@@ -374,6 +374,11 @@ export default defineContentScript({
       const chip = cleanCustomerNameCandidate(chipName || '');
       const rawName = (chip && !isLikelyUiName(chip) && !isLinkedInSelfOrCompanyLabel(chip) ? chip : null)
         || (titleName && !isLinkedInSelfOrCompanyLabel(titleName) ? titleName : null)
+        || (!isLinkedInMessagingSurface(window.location.href)
+          ? Array.from(document.querySelectorAll('main h1, main h2, [role="main"] h1, [role="main"] h2'))
+            .map((node) => cleanCustomerNameCandidate((node as HTMLElement).innerText || node.textContent || ''))
+            .find((candidate) => candidate && !isLikelyUiName(candidate) && !isLinkedInSelfOrCompanyLabel(candidate)) || null
+          : null)
         || extractLinkedInPersonName()
         || fallbackNameSelectors.map(pickText).find((candidate) => candidate && !isLikelyUiName(candidate) && !isLinkedInSelfOrCompanyLabel(candidate))
         || null;
@@ -2218,7 +2223,7 @@ export default defineContentScript({
               phone: leadData?.phone || adapterPhone || detected?.phone || null,
               email: leadData?.email || adapterEmail || detected?.email || gmailSignal.email || null,
               username: adapterUsername,
-              profile_url: adapterProfileUrl,
+              profile_url: adapterProfileUrl || (isLinkedIn && /linkedin\.com\/in\//i.test(window.location.href) ? window.location.href : null),
               profile_bio: adapterProfileBio,
               capture_mode: captureMode,
               source: leadData?.source || detected?.source || null,

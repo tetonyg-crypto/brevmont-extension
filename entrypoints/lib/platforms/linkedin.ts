@@ -217,10 +217,21 @@ function scrapeThread(): ThreadContext {
 function extractCustomer(): CustomerCandidate {
   const threadRoot = linkedInThreadRoot();
   const isMessaging = isLinkedInMessagingSurface(String(window.location.href || ''));
-  const name = extractLinkedInPersonName()
+  const directProfileName = !isMessaging
+    ? Array.from(document.querySelectorAll('main h1, main h2, [role="main"] h1, [role="main"] h2'))
+      .map((node) => String((node as HTMLElement).innerText || node.textContent || '').replace(/\s+/g, ' ').trim())
+      .find((candidate) => candidate && !isChannelOrUiName(candidate) && !isLinkedInUiChromeText(candidate)) || null
+    : null;
+  const name = directProfileName
+    || extractLinkedInPersonName()
     || extractLinkedInPersonNameFromText(deepVisibleText(threadRoot || (isMessaging ? null : document.querySelector('[role="main"]')), 2500));
   if (!name) return { name: null };
-  return { name, raw_source: isMessaging ? 'linkedin_person' : 'linkedin_profile_person', confidence: 0.88 };
+  return {
+    name,
+    raw_source: isMessaging ? 'linkedin_person' : 'linkedin_profile_person',
+    profile_url: !isMessaging ? String(window.location.href || '') : null,
+    confidence: 0.92,
+  };
 }
 
 function extractContext(): DealContext {
