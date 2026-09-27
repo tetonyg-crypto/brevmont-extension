@@ -543,8 +543,12 @@ function extractContext(): DealContext {
   if (!hasOpenWhatsAppThread()) {
     return { vehicle: null, vehicle_year: null, vehicle_make: null, vehicle_model: null };
   }
-  const body = (findMainPanel()?.innerText || '').slice(0, 4000);
-  const vh = extractVehicleHint(body);
+  // Never scan the whole #main surface for a vehicle. WhatsApp keeps
+  // virtualized/history bubbles mounted while switching contacts, so an old
+  // message (or the previous contact's message) can populate a new lead.
+  // Only the latest inbound customer message is eligible vehicle context.
+  const thread = scrapeThread();
+  const vh = extractVehicleHint(thread.last_inbound_text || '');
   return {
     vehicle: vh?.raw || null,
     vehicle_year: vh?.year || null,

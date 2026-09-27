@@ -1505,9 +1505,10 @@ async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<
 
   const platformId = currentPlatform.platform || '';
   const facebookStrict = platformId === 'facebook';
+  const whatsappSurface = platformId === 'whatsapp';
   const linkedInMessaging = platformId === 'linkedin' && /\/messaging\//i.test(String(currentPlatform.url || ''));
   const linkedInProfile = platformId === 'linkedin' && /\/in\//i.test(String(currentPlatform.url || ''));
-  const flakyDom = linkedInMessaging || linkedInProfile || facebookStrict;
+  const flakyDom = linkedInMessaging || linkedInProfile || facebookStrict || whatsappSurface;
   // Flaky hosts need several hops — first paint is often empty.
   const attempts = flakyDom ? 5 : (force ? 2 : 1);
 
@@ -1517,7 +1518,10 @@ async function scanThreadForGenerate(root: HTMLElement, force = false): Promise<
       if (requestId !== autoThreadScanRequestId) return null;
       let ctx = await sendToContent({ type: 'SCAN_LEAD_V2' });
       let source: 'adapter' | 'legacy' = 'adapter';
-      if ((!ctx || ctx.ok === false) && !facebookStrict) {
+      const profileScanMissingName = linkedInProfile && !(
+        ctx?.customerName || ctx?.customer_name || ctx?.name || ctx?.customer?.name
+      );
+      if ((!ctx || ctx.ok === false || profileScanMissingName) && !facebookStrict) {
         source = 'legacy';
         ctx = await sendToContent({ type: 'SCAN_LEAD' });
       }
@@ -6304,7 +6308,13 @@ function wireLeadCapture(root: HTMLElement): void {
         // inboxes) automatically gets the adapter pipeline.
         let ctx = await sendToContent({ type: 'SCAN_LEAD_V2' });
         const facebookStrict = (ctx?.platform || currentPlatform.platform) === 'facebook';
-        if ((!ctx || ctx.ok === false) && !facebookStrict) {
+        const initialProfileUrl = String(ctx?.url || ctx?.thread?.url || currentPlatform.url || '');
+        const initialLinkedInProfile = (ctx?.platform || currentPlatform.platform) === 'linkedin'
+          && /linkedin\.com\/in\//i.test(initialProfileUrl);
+        const initialProfileMissingName = initialLinkedInProfile && !(
+          ctx?.customerName || ctx?.customer_name || ctx?.name || ctx?.customer?.name
+        );
+        if ((!ctx || ctx.ok === false || initialProfileMissingName) && !facebookStrict) {
           ctx = await sendToContent({ type: 'SCAN_LEAD' });
         }
         if (facebookStrict && (!ctx || ctx.ok === false)) {

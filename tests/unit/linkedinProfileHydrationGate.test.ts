@@ -32,4 +32,10 @@ describe('LinkedIn profile hydration gate', () => {
     expect(sidepanel).toContain('autoThreadScanRequestId++;');
     expect(sidepanel).toContain('if (scanUrl && currentPlatform.url && scanUrl !== currentPlatform.url) return null;');
   });
+
+  it('falls back to the legacy LinkedIn scan when the adapter returns no identity', () => {
+    expect(sidepanel).toContain('const profileScanMissingName = linkedInProfile && !(');
+    expect(sidepanel).toContain('const initialProfileMissingName = initialLinkedInProfile && !(');
+    expect(sidepanel).toContain('if ((!ctx || ctx.ok === false || profileScanMissingName) && !facebookStrict)');
+  });
 });
