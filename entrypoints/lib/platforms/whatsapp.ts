@@ -141,7 +141,9 @@ function readHeaderAnchor(): HTMLElement | null {
     return (
       (scope.querySelector('header span[title]') as HTMLElement | null) ||
       (scope.querySelector('[data-testid="conversation-header"] span[title]') as HTMLElement | null) ||
+      (scope.querySelector('[data-testid="conversation-header"] span[dir="auto"]') as HTMLElement | null) ||
       (scope.querySelector('[data-testid="conversation-info-header-chat-title"]') as HTMLElement | null) ||
+      (scope.querySelector('[data-testid="conversation-info-header-chat-title"] span[dir="auto"]') as HTMLElement | null) ||
       (scope.querySelector('header span[dir="auto"][title]') as HTMLElement | null) ||
       (scope.querySelector('header [role="button"] span[dir="auto"]') as HTMLElement | null) ||
       // Structural fallback: no assumption about a specific wrapper tag
@@ -571,6 +573,9 @@ const COMPOSER_SELECTORS = [
   'div[contenteditable="true"][data-lexical-editor="true"]',
   'div[contenteditable="true"][aria-label*="Type a message" i]',
   'div[contenteditable="true"][aria-label*="Escribe un mensaje" i]',
+  '[contenteditable="true"][role="textbox"]',
+  '[contenteditable="true"][aria-label*="message" i]',
+  '[contenteditable="true"][aria-label*="mensaje" i]',
 ];
 
 // findGenericComposer('text') (shared.ts) checks its own selectors —
@@ -587,6 +592,7 @@ const COMPOSER_SELECTORS = [
 // must be represented here so the match is never missed.
 const GENERIC_COMPOSER_FALLBACK_SELECTORS = [
   'div[role="textbox"][contenteditable="true"]',
+  '[contenteditable="true"][role="textbox"]',
   'textarea:not([readonly])',
 ];
 

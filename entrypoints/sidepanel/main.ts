@@ -1413,14 +1413,19 @@ function renderAutoThreadScan(root: HTMLElement): void {
   if (autoThreadScanStatus === 'ready' && autoThreadScan) {
     if (firstUse) firstUse.style.display = 'none';
     const last = truncateReplyContext(autoThreadScan.threadContext.last_inbound_text || '');
-    const fallback = truncateReplyContext(autoThreadScan.threadContext.header_text || autoThreadScan.threadContext.raw_text || 'Conversation scanned');
+    const isProfile = autoThreadScan.captureMode === 'profile';
+    const fallback = truncateReplyContext(isProfile
+      ? (autoThreadScan.customerName || autoThreadScan.threadContext.header_text || 'Profile scanned')
+      : (autoThreadScan.threadContext.header_text || autoThreadScan.threadContext.raw_text || 'Conversation scanned'));
     const surface = getDisplayLabel(autoThreadScan.platform || currentPlatform.platform);
-    const label = autoThreadScan.captureMode === 'profile'
+    const label = isProfile
       ? 'Profile:'
       : last ? 'Replying to:' : (autoThreadScan.platform === 'linkedin' ? 'Prospect:' : 'Page:');
+    const profileHandle = isProfile ? optionalDisplayText(autoThreadScan.username)?.replace(/^@/, '') : '';
     el.innerHTML = `
       <span class="reply-context-label">${esc(label)}</span>
       <span class="reply-context-text">${esc(last || fallback || 'Conversation scanned')}</span>
+      ${profileHandle ? `<span class="reply-context-surface">@${esc(profileHandle)}</span>` : ''}
       ${surface ? `<span class="reply-context-surface">${esc(surface)}</span>` : ''}
     `;
     return;
@@ -1900,13 +1905,13 @@ function renderCustomerStamp(root: HTMLElement): void {
 
   if (pinnedCustomer) {
     const pinnedHandle = optionalDisplayText(pinnedCustomer.username)?.replace(/^@/, '');
-    const pinnedIdentity = pinnedHandle ? `@${pinnedHandle} — ${pinnedCustomer.name}` : pinnedCustomer.name;
     stamp.style.display = 'block';
     stamp.innerHTML = `
       <div class="customer-stamp-row">
         <span class="customer-stamp-badge"></span>
         <div class="customer-stamp-copy">
-          <div class="customer-stamp-main">${esc(pinnedIdentity)}</div>
+          <div class="customer-stamp-main">${esc(pinnedCustomer.name)}</div>
+          ${pinnedHandle ? `<div class="customer-stamp-sub">@${esc(pinnedHandle)}</div>` : ''}
           <div class="customer-stamp-sub">${esc(pinnedCustomer.vehicle || (pinnedHandle ? 'Prospect profile active' : 'Customer context active'))}</div>
         </div>
         <div class="customer-stamp-actions">
@@ -1930,7 +1935,6 @@ function renderCustomerStamp(root: HTMLElement): void {
       || isProfilePageRawSource(pendingCustomerSuggestion.detectionMethod || pendingCustomerSuggestion.detection_method);
     const vehicle = pendingIsProfile ? null : getCustomerVehicleFromContext(pendingCustomerSuggestion);
     const pendingHandle = optionalDisplayText(pendingCustomerSuggestion.username || pendingCustomerSuggestion.customer?.username)?.replace(/^@/, '');
-    const pendingIdentity = pendingHandle ? `@${pendingHandle} — ${name}` : name;
     if (!name) {
       stamp.style.display = 'none';
       stamp.innerHTML = '';
@@ -1942,7 +1946,8 @@ function renderCustomerStamp(root: HTMLElement): void {
       <div class="customer-stamp-row">
         <span class="customer-stamp-badge"></span>
         <div class="customer-stamp-copy">
-          <div class="customer-stamp-main">This for ${esc(pendingIdentity)}?</div>
+          <div class="customer-stamp-main">This for ${esc(name)}?</div>
+          ${pendingHandle ? `<div class="customer-stamp-sub">@${esc(pendingHandle)}</div>` : ''}
           <div class="customer-stamp-sub">${esc(vehicle || 'Confirm once, then keep working.')}</div>
         </div>
         <div class="customer-stamp-actions">
@@ -5417,7 +5422,6 @@ function renderLeadCard(lead: any, index: number, selectMode = false, selected =
   const profileUrl = safeSocialProfileUrl(lead.profile_url || lead.metadata?.profile_url);
   const profileUsername = optionalDisplayText(lead.username || lead.metadata?.username);
   const normalizedUsername = profileUsername?.replace(/^@/, '') || '';
-  const leadIdentity = normalizedUsername ? `@${normalizedUsername} — ${customer}` : customer;
   const vehicle = isProspect ? null : optionalDisplayText(lead.vehicle_interest);
   const heat = Number(lead.heat_score ?? 0);
   const stage = String(lead.pipeline_stage || lead.status || 'captured');
@@ -5442,8 +5446,8 @@ function renderLeadCard(lead: any, index: number, selectMode = false, selected =
         <div style="display:flex;align-items:start;gap:8px;">
           ${selectMode ? `<input type="checkbox" class="my-lead-select-checkbox" ${selected ? 'checked' : ''} style="margin-top:3px;width:16px;height:16px;flex-shrink:0;" aria-label="Select ${esc(customer)}" />` : ''}
           <div>
-            <div class="lead-card-title">${esc(leadIdentity)}</div>
-            ${profileUrl ? `<a href="${esc(profileUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;font-size:11px;color:#0D6E6E;font-weight:800;margin-top:2px;text-decoration:none;">Open profile &#8599;</a>` : ''}
+            <div class="lead-card-title">${esc(customer)}</div>
+            ${profileUrl ? `<a href="${esc(profileUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;font-size:11px;color:#0D6E6E;font-weight:800;margin-top:2px;text-decoration:none;">${esc(normalizedUsername ? `@${normalizedUsername}` : 'Open profile')} &#8599;</a>` : ''}
             ${vehicle ? `<div style="font-size:12px;color:#475569;margin-top:2px;">${esc(vehicle)}</div>` : ''}
           </div>
         </div>
@@ -6269,11 +6273,15 @@ function wireLeadCapture(root: HTMLElement): void {
           return;
         }
         const detectedName = ctx?.customerName || ctx?.customer_name || ctx?.name || '';
-        if (ctx && (detectedName || ctx.phone || ctx.email || ctx.raw_text || ctx.source_raw_text)) {
+        const whatsappHeader = String(ctx?.header_text || ctx?.thread?.header_text || '').trim();
+        const detectedPhone = ctx?.phone || ctx?.customer?.phone || (ctx?.platform === 'whatsapp'
+          ? (whatsappHeader.match(/\+?\d[\d\s().-]{7,}\d/)?.[0] || null)
+          : null);
+        if (ctx && (detectedName || detectedPhone || ctx.email || ctx.raw_text || ctx.source_raw_text)) {
           await requireToken();
           const rawText = ctx.raw_text || ctx.source_raw_text || [
             detectedName ? `Name: ${detectedName}` : '',
-            ctx.phone ? `Phone: ${ctx.phone}` : '',
+            detectedPhone ? `Phone: ${detectedPhone}` : '',
             ctx.email ? `Email: ${ctx.email}` : '',
             ctx.vehicle || ctx.vehicle_interest ? `Vehicle: ${ctx.vehicle || ctx.vehicle_interest}` : '',
           ].filter(Boolean).join('\n');
@@ -6288,7 +6296,7 @@ function wireLeadCapture(root: HTMLElement): void {
               platform: ctx.platform || currentPlatform.platform,
               customer_name: detectedName || null,
               name: detectedName || null,
-              phone: ctx.phone || null,
+              phone: detectedPhone || null,
               email: ctx.email || null,
               vehicle_interest: ctx.vehicle_interest || ctx.vehicle || null,
               context_fingerprint: ctx.context_fingerprint || null,
