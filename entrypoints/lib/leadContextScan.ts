@@ -272,6 +272,21 @@ export function isLinkedInFeedOrChromeSurface(href = window.location.href): bool
 
 export function isLinkedInMessagingSurface(href = window.location.href): boolean {
   if (/linkedin\.com\/messaging/i.test(href)) return true;
+  // A profile URL is normally an unambiguous profile-capture surface. Keep
+  // allowing an explicitly expanded conversation pane for the rare case
+  // where a rep opens messaging over a profile, but ignore the persistent
+  // collapsed chat-head and its partial composer markup.
+  if (/linkedin\.com\/in\//i.test(href)) {
+    const activePane = Array.from(document.querySelectorAll('.msg-s-message-list-content, .msg-form__contenteditable'))
+      .find((el) => {
+        const node = el as HTMLElement;
+        if (isElementHiddenChain(node)) return false;
+        const bubble = node.closest('.msg-overlay-conversation-bubble') as HTMLElement | null;
+        if (bubble && /minimi[sz]|collapsed/i.test(String(bubble.className || ''))) return false;
+        return !bubble || /expanded|active/i.test(String(bubble.className || ''));
+      });
+    if (!activePane) return false;
+  }
   // 2026-09-26 regression: LinkedIn's persistent bottom-right messaging
   // overlay (chat bubbles like "Darrin Guttman" / "Messaging") sits in the
   // DOM on EVERY LinkedIn page, profile pages included -- a bare
