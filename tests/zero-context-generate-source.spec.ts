@@ -40,7 +40,8 @@ test('manual Generate reads output chips after forced scan applies surface defau
   expect(source).toContain('search\\s+(mail|gmail)');
   expect(source).toContain('collectCurrentLeadContext()');
   expect(source).toContain('void resolveCustomerForDetection(leadContext)');
-  expect(body).toContain("workflow_type: 'all'");
+  expect(body).toContain('const type = selectedType');
+  expect(body).toContain('workflow_type: type');
   expect(body).toContain('setActiveOutputTab(root, selectedReady || firstReady!)');
   expect(body).toContain('paying for one bundled generation');
   expect(body).not.toContain("selected.includes('text')");

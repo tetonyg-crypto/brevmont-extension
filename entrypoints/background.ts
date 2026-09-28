@@ -3287,6 +3287,9 @@ async function handleGenerate(payload: {
     url?: string | null;
   } | null;
   repInput: string;
+  repInstruction?: string;
+  tone?: string;
+  goal?: string;
   repName: string;
   dealership: string;
   platform?: string;
@@ -3387,6 +3390,9 @@ async function handleGenerate(payload: {
     conversation_key: payload.metadata?.conversation_key || payload.threadContext?.conversation_key || null,
     last_inbound_text: payload.metadata?.last_inbound_text || payload.threadContext?.last_inbound_text || null,
     scan_source: payload.metadata?.scan_source || null,
+    tone: payload.tone || payload.metadata?.tone || null,
+    goal: payload.goal || payload.metadata?.goal || null,
+    rep_instruction: cleanRepSteer(payload.repInstruction || payload.metadata?.rep_instruction || payload.repInput) || null,
   };
 
   const apiBase = await getResolvedApiUrl();
@@ -3415,7 +3421,7 @@ async function handleGenerate(payload: {
     // doing so silently discards the rep's instruction (the exact bug class
     // fixed in buildUserMessage). The fallback only applies to unsteered,
     // thread-driven replies.
-    const hasRepInstruction = Boolean(cleanRepSteer(payload.repInput));
+    const hasRepInstruction = Boolean(cleanRepSteer(payload.repInstruction || payload.repInput));
     if (!hasRepInstruction) {
       if (isVehicleConditionQuestionText(latestInbound)) {
         if (sections?.text && looksLikeGenericAvailabilityFollowup(sections.text)) {
@@ -3495,6 +3501,9 @@ function buildGenerateProxyBody(
     scan_scanned_at?: number | string | null;
     scan_message_count?: number | string | null;
     scan_source?: string | null;
+    tone?: string | null;
+    goal?: string | null;
+    rep_instruction?: string | null;
     thread_context?: {
       conversation_key?: string | null;
       raw_text?: string | null;
@@ -3542,6 +3551,9 @@ function buildGenerateProxyBody(
     scan_scanned_at: metadata?.scan_scanned_at ?? threadContext?.scanned_at ?? null,
     scan_message_count: metadata?.scan_message_count ?? threadContext?.message_count ?? null,
     scan_source: metadata?.scan_source ?? null,
+    tone: metadata?.tone ?? null,
+    goal: metadata?.goal ?? null,
+    rep_instruction: metadata?.rep_instruction ?? null,
     thread_context: threadContext
       ? {
           conversation_key: threadContext.conversation_key ?? metadata?.conversation_key ?? null,
@@ -4153,7 +4165,10 @@ function financeFallbackReply(latestInbound: unknown): string {
 function buildUserMessage(payload: any, repName: string, dealership: string, repContext: string = ''): string {
   const lc = payload.leadContext || {};
   const thread = payload.threadContext || payload.thread_context || null;
-  const repSteer = cleanRepSteer(payload.repInput);
+  // Structured instructions are authoritative for new clients. repInput is
+  // retained as the legacy fallback because released clients embed the same
+  // directive in the user message instead of sending rep_instruction.
+  const repSteer = cleanRepSteer(payload.repInstruction || payload.repInput);
   const rawThread = promptText(thread?.raw_text, 5000);
   const lastInbound = promptText(thread?.last_inbound_text, 1400);
   const threadMessages = threadMessagesForPrompt(thread?.messages);
@@ -4227,12 +4242,12 @@ function buildUserMessage(payload: any, repName: string, dealership: string, rep
       msg += `REP VOICE/TYPED INPUT:\n${repSteer || payload.repInput || ''}\n\n`;
     }
     msg += 'Generate ALL THREE follow-ups. You MUST produce all three sections, each starting with its exact fence marker on its own line:\n';
-    msg += '[[[TEXT]]]\n(2-3 sentences max, no exclamation points, end with a question)\n\n';
+    msg += '[[[TEXT]]]\n(2-3 sentences max, no exclamation points; follow the rep instruction for CTA intent)\n\n';
     msg += '[[[EMAIL]]]\n(subject + 3-4 sentence body + signature)\n\n';
     msg += '[[[CRM NOTE]]]\n(plain text: date, contact type, summary, vehicle, intent, action, next step, notes)\n\n';
     msg += 'The fence markers [[[TEXT]]], [[[EMAIL]]], and [[[CRM NOTE]]] must appear literally and exactly as shown, each alone on its own line, before its section. Do not skip any section. Do not merge sections into one paragraph.\n';
   } else if (payload.type === 'text') {
-    msg += `Generate a TEXT MESSAGE. CRITICAL: 2-3 sentences MAXIMUM. No more. End with one question. No exclamation points. No filler.\n`;
+    msg += `Generate a TEXT MESSAGE. CRITICAL: 2-3 sentences MAXIMUM. No more. No exclamation points. No filler. Follow the rep instruction for CTA intent; do not append a generic question.\n`;
     if (hasThreadContext && repSteer) msg += `Rep steer: ${repSteer}\n`;
     else if (!hasThreadContext && repSteer) msg += `Context: ${repSteer}\n`;
   } else if (payload.type === 'email') {
