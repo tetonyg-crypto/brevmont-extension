@@ -22,6 +22,33 @@ test('signed-out poll actively pulls the cookie, not just storage', () => {
   expect(loopBody).toContain('hasStoredSession()');
 });
 
+// 2026-09-28: the session could land correctly in storage (bridge succeeded)
+// while this screen sat stale on "Still waiting on sign-in" indefinitely --
+// confirmed live: pinging the extension showed a fully signed-in session for
+// the account the rep had just created, while the panel still showed the
+// stuck screen. Root cause: reps spend the whole sign-in tab flow (Google
+// picker, or the new-account industry/what-you-sell form) with this panel
+// out of focus, and an unfocused/hidden panel's setInterval can be throttled
+// or paused by Chrome, so the 3s poll may simply not fire again until
+// something wakes it. Fix: re-check the instant the panel regains
+// visibility/focus, not just on the timer.
+test('re-checks sign-in status immediately when the panel regains focus/visibility, not just on the timer', () => {
+  const listenerIdx = panel.indexOf('const recheckOnFocus');
+  expect(listenerIdx).toBeGreaterThan(-1);
+  const listenerBody = panel.slice(listenerIdx, panel.indexOf('__brevmontSignInFocusListener = recheckOnFocus') + 50);
+  expect(listenerBody).toContain("document.visibilityState !== 'visible'");
+  expect(listenerBody).toContain('hasStoredSession()');
+  expect(listenerBody).toContain("document.addEventListener('visibilitychange', recheckOnFocus)");
+  expect(listenerBody).toContain("window.addEventListener('focus', recheckOnFocus)");
+});
+
+test('the focus/visibility listener is cleaned up on re-mount so retries do not stack duplicate listeners', () => {
+  const cleanupIdx = panel.indexOf('__brevmontSignInFocusListener');
+  const cleanupBody = panel.slice(cleanupIdx, cleanupIdx + 300);
+  expect(cleanupBody).toContain("removeEventListener('visibilitychange'");
+  expect(cleanupBody).toContain("removeEventListener('focus'");
+});
+
 test('first-click signed-out screen offers new-user onboarding and existing-user sign-in', () => {
   expect(panel).toContain("BREVMONT_WELCOME_URL");
   expect(panel).toContain("function openNewUserOnboardingTab()");

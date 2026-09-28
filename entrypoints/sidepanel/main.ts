@@ -655,6 +655,13 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
   if (typeof priorTimeout === 'number') {
     try { window.clearTimeout(priorTimeout); } catch { /* noop */ }
   }
+  const priorFocusListener = (window as any).__brevmontSignInFocusListener;
+  if (typeof priorFocusListener === 'function') {
+    try {
+      document.removeEventListener('visibilitychange', priorFocusListener);
+      window.removeEventListener('focus', priorFocusListener);
+    } catch { /* noop */ }
+  }
 
   const waiting = !!opts?.waiting;
 
@@ -763,6 +770,22 @@ function renderSignedOutScreen(opts?: { waiting?: boolean }): void {
       return false;
     });
   } catch { /* noop */ }
+
+  // Third belt: reps routinely spend the whole sign-in tab flow (Google
+  // picker, or the industry/what-you-sell form for a new account) with this
+  // side panel out of focus -- and an unfocused/hidden panel's setInterval
+  // can get throttled or paused by Chrome, so the 3s poll above may simply
+  // not run again until something wakes it. The session can land correctly
+  // in storage while this screen sits stale on "Still waiting on sign-in"
+  // indefinitely. Re-check the instant the panel regains visibility/focus
+  // instead of waiting on a timer that may not be firing.
+  const recheckOnFocus = () => {
+    if (document.visibilityState !== 'visible') return;
+    void hasStoredSession().then((signedIn) => { if (signedIn) goSignedIn(); });
+  };
+  document.addEventListener('visibilitychange', recheckOnFocus);
+  window.addEventListener('focus', recheckOnFocus);
+  (window as any).__brevmontSignInFocusListener = recheckOnFocus;
 
   // At 30s, replace the passive "will refresh" message with actionable
   // Retry / Start over buttons and stop the auto-poll. The rep now has
