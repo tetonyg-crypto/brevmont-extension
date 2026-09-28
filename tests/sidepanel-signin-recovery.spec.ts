@@ -66,3 +66,21 @@ test('the sign-in window is closed once a session is adopted (guard resumes)', (
   const after = bg.slice(clearIdx, clearIdx + 300);
   expect(after).toContain('remove(SIGN_IN_WINDOW_KEY)');
 });
+
+// 2026-09-28: a brand-new all-sales/personal-rep account must clear the
+// vertical picker, Google consent, and the industry + "what you sell" form
+// before the session cookie is written -- comfortably longer than the old
+// 3-minute window for a real person filling in a new account. If the window
+// closed before that cookie landed (with a stale signed-out sentinel from
+// earlier same-profile testing still set), the cookie-poll fallback refused
+// to adopt the freshly-written session and the panel stalled on "Still
+// waiting on sign-in" even though app.brevmont.com showed an authenticated
+// /rep/home. Guard the window against regressing back down.
+test('the sign-in window comfortably covers a new-account signup form, not just a quick re-auth', () => {
+  const constIdx = bg.indexOf('const SIGN_IN_WINDOW_MS');
+  const declaration = bg.slice(constIdx, bg.indexOf(';', constIdx) + 1);
+  const match = declaration.match(/(\d+)\s*\*\s*60\s*\*\s*1000/);
+  expect(match).not.toBeNull();
+  const minutes = Number(match?.[1] || 0);
+  expect(minutes).toBeGreaterThanOrEqual(10);
+});

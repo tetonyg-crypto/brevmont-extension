@@ -27,7 +27,20 @@ const FRESH_SIGN_IN_INTENTS = new Set(['google_resolved', 'manual_sign_in', 'sto
 // during the window is the freshly-chosen one. A genuine sign-out never opens
 // this window, so it stays guarded.
 const SIGN_IN_WINDOW_KEY = 'brevmont_signin_window_at';
-const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
+// 2026-09-28: 3 minutes covered "click sign in -> Google picker -> done" for
+// an existing account, but a brand-new all-sales/personal-rep account also
+// has to clear the vertical picker, the Google consent screen, and the
+// industry + "what you sell" form before the session cookie is written --
+// comfortably longer than 3 minutes for a real person filling in a new
+// account. When that elapsed time crossed the old window with a stale
+// signed-out sentinel still set from earlier same-profile testing, the
+// cookie-poll fallback refused to adopt the freshly-written session and the
+// side panel sat on "Still waiting on sign-in" even though app.brevmont.com
+// showed a fully authenticated /rep/home. Widened to comfortably cover the
+// new-account form; the cookie can only be the freshly-chosen one during
+// this window (see comment above), so widening it does not weaken the
+// cross-account guard.
+const SIGN_IN_WINDOW_MS = 10 * 60 * 1000;
 const BLANK_CONTEXT_IMAGE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 
