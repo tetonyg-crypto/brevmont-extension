@@ -5084,6 +5084,7 @@ async function doCommand(root: HTMLElement): Promise<void> {
   const input = (root.querySelector('#o8-cmd-input') as HTMLTextAreaElement)?.value.trim();
   if (!input) return;
   const status = root.querySelector('#o8-cmd-status') as HTMLElement;
+  const btn = root.querySelector('#o8-cmd-execute') as HTMLButtonElement | null;
   const industry = await getRepIndustryContext();
   const localPayment = parseAskPayment(input);
   if (localPayment && industry.isAutomotive) {
@@ -5091,7 +5092,13 @@ async function doCommand(root: HTMLElement): Promise<void> {
     return;
   }
   const local = localCommandFallback(input, industry.isAutomotive);
-  status.innerHTML = `<div class="tool-result">${esc(local)}</div>`;
+  // Show a real loading state, not the local fallback answer, while the
+  // actual generation is in flight -- showing `local` here made every ask
+  // look like it had already failed (a low-effort canned answer with no
+  // spinner), then silently swapped for the real answer a moment later,
+  // reading as "it broke, then popped back up" even on a normal-latency call.
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="gen-spinner"></span> Asking…'; }
+  status.innerHTML = '<div class="tool-result" style="color:#94a3b8">Looking that up…</div>';
   try {
     await requireToken();
     const leadContext = enrichLeadContextWithPinnedCustomer(await collectCurrentLeadContext());
@@ -5101,6 +5108,8 @@ async function doCommand(root: HTMLElement): Promise<void> {
     status.innerHTML = `<div class="tool-result">${esc(text || local)}</div>`;
   } catch {
     status.innerHTML = `<div class="tool-result">${esc(local)}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Ask'; }
   }
 }
 
