@@ -39,19 +39,22 @@ describe('generation controls transport contract', () => {
     ['Message', 'text'],
     ['Email', 'email'],
     ['CRM Note', 'crm'],
-  ])('sends only the selected %s workflow type (%s)', (label, type) => {
+  ])('one Generate click bundles all outputs regardless of the selected %s chip (%s)', (label, type) => {
     expect(read('entrypoints/lib/panelUI.ts')).toContain(`data-type="${type}">${label}</button>`);
-    expect(sidepanel).toContain('const type = selectedType');
+    expect(sidepanel).toContain("const type = 'all'");
     expect(sidepanel).toContain('workflow_type: type');
     expect(background).toContain("workflow_type: payload.metadata?.workflow_type || payload.type || 'all'");
     expect(background).toContain('workflow_type: metadata?.workflow_type ?? null');
   });
 
-  it('does not force all outputs or a generic closing question', () => {
-    const start = sidepanel.indexOf('async function doGenerate');
-    const generateBody = sidepanel.slice(start, sidepanel.indexOf('// ─── Add output card', start));
-    expect(generateBody).not.toContain("const type = 'all'");
-    expect(generateBody).not.toContain("workflow_type: 'all'");
+  it('the selected output chip only switches the visible tab, never triggers a new generation', () => {
+    const chipHandlerStart = sidepanel.indexOf("root.querySelectorAll('.chip').forEach(c => {");
+    const chipHandlerBody = sidepanel.slice(chipHandlerStart, sidepanel.indexOf('});', chipHandlerStart) + 3);
+    expect(chipHandlerBody).not.toContain('doGenerate');
+    expect(chipHandlerBody).toContain('setActiveOutputTab');
+  });
+
+  it('does not force a generic closing question', () => {
     expect(background).not.toContain('Every text message must end with a question');
     expect(background).toContain('do not append a generic question');
   });

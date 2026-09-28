@@ -4431,7 +4431,7 @@ async function doGenerate(root: HTMLElement): Promise<void> {
   const selectedType = normalizeDefaultOutputChip(Array.from(chips)[0]?.getAttribute('data-type')) || 'text';
   if (chips.length === 0) { isGenerating = false; return; }
 
-  const type = selectedType;
+  const type = 'all';
   const btn = root.querySelector('#o8-generate') as HTMLButtonElement;
   btn.innerHTML = '<span class="gen-spinner"></span> Generating…';
   btn.disabled = true;
