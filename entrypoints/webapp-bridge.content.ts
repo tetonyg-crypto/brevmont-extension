@@ -1,3 +1,5 @@
+import { registerWebappExtensionStamp } from './lib/webappExtensionStamp';
+
 /**
  * Stamps app.brevmont.com / admin so the web app can detect this Brevmont build
  * without chrome-extension:// IDs (Store vs unpacked).
@@ -18,17 +20,17 @@ export default defineContentScript({
   runAt: 'document_start',
   main() {
     try {
-      document.documentElement.setAttribute('data-brevmont-extension', '1');
       const manifest = browser.runtime.getManifest();
-      if (manifest?.version) {
-        document.documentElement.setAttribute('data-brevmont-extension-version', manifest.version);
-      }
-      // Stamp the runtime id so AuthExtension can probe/message THIS
-      // build even when it's unpacked (Chrome assigns a random id that
-      // isn't in the app's hardcoded BREVMONT_EXTENSION_IDS list).
-      if (browser.runtime.id) {
-        document.documentElement.setAttribute('data-brevmont-extension-id', browser.runtime.id);
-      }
+      // Every installed Brevmont build registers its runtime id. A single
+      // data-brevmont-extension-id attribute is lossy when a Store build and
+      // an unpacked test build are both installed: whichever content script
+      // runs last hides the other id. The additive ids attribute lets the
+      // portal deliver the same structured session to every active runtime.
+      registerWebappExtensionStamp(
+        document.documentElement,
+        browser.runtime.id || '',
+        manifest?.version || '',
+      );
     } catch {
       /* noop */
     }
